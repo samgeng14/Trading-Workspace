@@ -1,0 +1,353 @@
+/* ── application frame ───────────────────────────────────────────────── */
+
+.app {
+  display: grid;
+  height: 100vh;
+  grid-template-columns: var(--nav-w) minmax(0, 1fr);
+  grid-template-rows: var(--topbar-h) auto var(--strip-h) minmax(0, 1fr);
+  grid-template-areas:
+    "top top"
+    "banner banner"
+    "strip strip"
+    "nav main";
+}
+
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: 0 var(--space-3) 0 var(--space-4);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--rule-ink);
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.wordmark {
+  font-family: var(--font-serif);
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.topbar-account {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.topbar-session {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.session-label {
+  font-weight: 600;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.topbar-health {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  color: inherit;
+}
+
+.topbar-health:hover {
+  background: var(--bg-hover);
+  text-decoration: none;
+}
+
+.topbar-clock {
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.kill-banner {
+  grid-area: banner;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 7px var(--space-4);
+  background: var(--halt-bg);
+  color: var(--halt-ink);
+  font-size: var(--fs-md);
+}
+
+.kill-banner strong {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: var(--fs-sm);
+}
+
+.kill-banner-btn {
+  margin-left: auto;
+  border-color: var(--halt-ink);
+  background: transparent;
+  color: var(--halt-ink);
+}
+
+.kill-banner-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* ── market strip ────────────────────────────────────────────────────── */
+
+.strip {
+  grid-area: strip;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+}
+
+.strip-items {
+  display: flex;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.strip-item {
+  display: flex;
+  gap: 6px;
+  padding: 0 var(--space-3);
+  border-left: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.strip-item:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.strip-label {
+  color: var(--ink-2);
+}
+
+.strip-note {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ── side navigation ─────────────────────────────────────────────────── */
+
+.sidenav {
+  grid-area: nav;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: var(--space-3) 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--rule);
+  overflow-y: auto;
+}
+
+.sidenav ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidenav-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border-left: 2px solid transparent;
+  color: var(--ink-2);
+  font-size: var(--fs-md);
+}
+
+.sidenav-link:hover {
+  background: var(--bg-hover);
+  color: var(--ink-1);
+  text-decoration: none;
+}
+
+.sidenav-link.active {
+  border-left-color: var(--accent);
+  background: var(--bg-selected);
+  color: var(--ink-1);
+  font-weight: 600;
+}
+
+.sidenav-key {
+  font-family: var(--font-sans);
+  font-size: var(--fs-2xs);
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.sidenav-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--accent);
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+}
+
+.sidenav-note code {
+  font-size: var(--fs-2xs);
+}
+
+/* ── page ────────────────────────────────────────────────────────────── */
+
+.main {
+  grid-area: main;
+  overflow-y: auto;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 1680px;
+  padding: var(--space-4) var(--space-5) var(--space-6);
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 3px double var(--rule-ink);
+}
+
+.page-title {
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.page-sub {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.page-head .filters {
+  margin-left: auto;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.span-3 {
+  grid-column: span 3;
+}
+.span-4 {
+  grid-column: span 4;
+}
+.span-5 {
+  grid-column: span 5;
+}
+.span-6 {
+  grid-column: span 6;
+}
+.span-7 {
+  grid-column: span 7;
+}
+.span-8 {
+  grid-column: span 8;
+}
+.span-12 {
+  grid-column: span 12;
+}
+
+@media (max-width: 1180px) {
+  .span-3,
+  .span-4,
+  .span-5,
+  .span-6,
+  .span-7,
+  .span-8 {
+    grid-column: span 12;
+  }
+  .topbar-health .badge:nth-child(n + 3) {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .app {
+    height: auto;
+    min-height: 100vh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto 1fr;
+    grid-template-areas: "top" "banner" "strip" "nav" "main";
+  }
+  .topbar {
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-2) var(--space-4);
+  }
+  .topbar-health,
+  .topbar-account {
+    display: none;
+  }
+  .sidenav {
+    flex-direction: row;
+    padding: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    overflow-x: auto;
+  }
+  .sidenav ul {
+    display: flex;
+  }
+  .sidenav-link {
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    padding: 0 var(--space-3);
+  }
+  .sidenav-link.active {
+    border-bottom-color: var(--accent);
+  }
+  .sidenav-key,
+  .sidenav-note {
+    display: none;
+  }
+  .main {
+    overflow: visible;
+  }
+  .page {
+    padding: var(--space-3) var(--space-4) var(--space-5);
+  }
+}

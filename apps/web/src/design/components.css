@@ -1,0 +1,523 @@
+/* ── buttons ─────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  color: var(--ink-1);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn-primary {
+  border-color: var(--ink-1);
+  background: var(--ink-1);
+  color: var(--ink-inverse);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--ink-2);
+  border-color: var(--ink-2);
+}
+
+.btn-danger {
+  border-color: var(--down);
+  color: var(--down);
+}
+
+.btn-danger-solid {
+  border-color: var(--halt-bg);
+  background: var(--halt-bg);
+  color: var(--halt-ink);
+}
+
+.btn-danger-solid:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--halt-bg);
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn-icon {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* ── segmented control (range presets, view toggles) ─────────────────── */
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.segmented button {
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  background: var(--bg-panel);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.segmented button:first-child {
+  border-left: 0;
+}
+
+.segmented button:hover {
+  background: var(--bg-hover);
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--bg-selected);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+/* ── form fields ─────────────────────────────────────────────────────── */
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.input,
+.select {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  color: var(--ink-1);
+  font-size: var(--fs-sm);
+}
+
+.select {
+  padding-right: 4px;
+}
+
+.input:focus-visible,
+.select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* ── panel ───────────────────────────────────────────────────────────── */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--rule-ink); /* newspaper section rule */
+  border-radius: 0;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--rule);
+}
+
+.panel-title {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--ink-1);
+  white-space: nowrap;
+}
+
+.panel-meta {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3);
+}
+
+.panel-body.flush {
+  padding: 0;
+}
+
+.panel-foot {
+  padding: 6px var(--space-3);
+  border-top: 1px solid var(--rule);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/* ── stat tiles ──────────────────────────────────────────────────────── */
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stat-label {
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.stat-value {
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.stat-sub {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.hero-value {
+  font-size: var(--fs-hero);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+/* ── status badge: icon + label, never colour alone ─────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.badge-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mode-demo {
+  color: var(--accent-ink);
+}
+
+.mode-paper {
+  color: var(--ink-1);
+}
+
+.mode-live {
+  color: var(--down);
+}
+
+/* ── tables ──────────────────────────────────────────────────────────── */
+
+.table-wrap {
+  overflow: auto;
+  max-height: 100%;
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--fs-sm);
+}
+
+.table th,
+.table td {
+  height: var(--row-h);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: var(--space-3);
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: var(--space-3);
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 30px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.table th.r,
+.table td.r {
+  text-align: right;
+}
+
+.table td.r {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.table tbody tr:hover td {
+  background: var(--bg-hover);
+}
+
+.table tfoot td {
+  border-top: 1px solid var(--rule-strong);
+  border-bottom: 0;
+  font-weight: 600;
+}
+
+.table .sym {
+  font-weight: 600;
+}
+
+.table .sub {
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+}
+
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.th-sort:hover {
+  color: var(--ink-1);
+}
+
+.th-sort[data-active="true"] {
+  color: var(--ink-1);
+}
+
+.empty {
+  padding: var(--space-5) var(--space-3);
+  color: var(--ink-3);
+  text-align: center;
+  font-size: var(--fs-sm);
+}
+
+/* ── meter (limit utilization) ───────────────────────────────────────── */
+
+.meter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px var(--space-3);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.meter-row:last-child {
+  border-bottom: 0;
+}
+
+.meter-label {
+  font-size: var(--fs-sm);
+}
+
+.meter-value {
+  font-size: var(--fs-sm);
+  text-align: right;
+}
+
+.meter-track {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+/* Neutral ink when within limits; amber / red only when the limit needs attention. */
+.meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 0 2px 2px 0;
+  background: var(--ink-2);
+}
+
+.meter-fill[data-status="warning"] {
+  background: var(--status-warning);
+}
+
+.meter-fill[data-status="breach"] {
+  background: var(--status-critical);
+}
+
+.meter-detail {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/* ── dialog ──────────────────────────────────────────────────────────── */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(11, 11, 11, 0.35);
+}
+
+.dialog {
+  position: fixed;
+  top: 18vh;
+  left: 50%;
+  z-index: 51;
+  width: min(460px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  background: var(--bg-panel);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+}
+
+.dialog-head {
+  padding: var(--space-4) var(--space-4) var(--space-2);
+}
+
+.dialog-title {
+  font-family: var(--font-serif);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--rule);
+}
+
+.dialog .input {
+  width: 100%;
+  height: 30px;
+}
+
+.form-error {
+  color: var(--down);
+  font-size: var(--fs-sm);
+}
+
+/* ── toast ───────────────────────────────────────────────────────────── */
+
+.toasts {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.toast {
+  min-width: 260px;
+  max-width: 380px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  font-size: var(--fs-sm);
+}
+
+.toast[data-tone="error"] {
+  border-left-color: var(--status-critical);
+}
+
+.toast[data-tone="success"] {
+  border-left-color: var(--status-good);
+}

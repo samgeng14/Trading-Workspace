@@ -1,0 +1,49 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Route, Routes } from "react-router";
+import { ToastProvider } from "./components/Toasts";
+import { ServerClockProvider } from "./lib/serverClock";
+import { Operations } from "./pages/Operations";
+import { Overview } from "./pages/Overview";
+import { Performance } from "./pages/Performance";
+import { Positions } from "./pages/Positions";
+import { Risk } from "./pages/Risk";
+import { Trading } from "./pages/Trading";
+import { KillBanner } from "./shell/KillBanner";
+import { SideNav } from "./shell/SideNav";
+import { TickerStrip } from "./shell/TickerStrip";
+import { TopBar } from "./shell/TopBar";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: 1, refetchOnWindowFocus: true, staleTime: 2_000 },
+  },
+});
+
+export function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <ServerClockProvider>
+          <BrowserRouter>
+            <div className="app">
+              <TopBar />
+              <KillBanner />
+              <TickerStrip />
+              <SideNav />
+              <main className="main">
+                <Routes>
+                  <Route path="/" element={<Overview />} />
+                  <Route path="/positions" element={<Positions />} />
+                  <Route path="/performance" element={<Performance />} />
+                  <Route path="/risk" element={<Risk />} />
+                  <Route path="/trading" element={<Trading />} />
+                  <Route path="/ops" element={<Operations />} />
+                </Routes>
+              </main>
+            </div>
+          </BrowserRouter>
+        </ServerClockProvider>
+      </ToastProvider>
+    </QueryClientProvider>
+  );
+}

@@ -1,0 +1,140 @@
+/*
+ * Design tokens. Every colour, size and font in the app comes from here.
+ * Light is newsprint: beige paper, black ink, a little gold. Dark ("night")
+ * follows the OS unless the viewer picks a theme (data-theme on <html>).
+ *
+ * Chart colours were run through the dataviz palette validator on these
+ * surfaces: gold + blue series (lightness band, chroma, CVD and contrast all
+ * pass in both modes), a warm grey benchmark, and up/down/text colours that
+ * clear WCAG 4.5:1.
+ */
+
+:root {
+  color-scheme: light;
+
+  --bg-page: #f1eadb;
+  --bg-panel: #f9f5ec;
+  --bg-sunken: #efe8d9;
+  --bg-hover: #f0e9da;
+  --bg-selected: rgba(168, 124, 18, 0.12);
+
+  --ink-1: #111111;
+  --ink-2: #4a453d;
+  --ink-3: #6b645a;
+  --ink-inverse: #f9f5ec;
+
+  --rule: #e0d7c6;
+  --rule-strong: #bdb29e;
+  --rule-ink: #111111;
+  --border: rgba(17, 17, 17, 0.12);
+
+  --accent: #a87c12;
+  --accent-ink: #7d5c12;
+  --accent-wash: rgba(168, 124, 18, 0.12);
+
+  --up: #006300;
+  --down: #b3261e;
+  --up-wash: rgba(0, 99, 0, 0.1);
+  --down-wash: rgba(179, 38, 30, 0.1);
+
+  --series-1: #a87c12;
+  --series-2: #2f6db0;
+  --bench: #857f73;
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-unknown: #898781;
+
+  --halt-bg: #b42318;
+  --halt-ink: #ffffff;
+
+  /* WSJ sets headlines in Escrow and data in Retina (both proprietary). These are
+     open stand-ins: Newsreader, a news serif, for heads; Public Sans (derived
+     from Libre Franklin, Franklin Gothic lineage) for data, chosen because it
+     has true tabular figures so number columns align. Swap the first family
+     here if you license the originals. */
+  --font-sans: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
+
+  --fs-2xs: 10.5px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+  --fs-hero: 40px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius: 2px;
+  --topbar-h: 44px;
+  --strip-h: 30px;
+  --nav-w: 188px;
+  --row-h: 28px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg-page: #11100e;
+    --bg-panel: #1a1916;
+    --bg-sunken: #151412;
+    --bg-hover: #24221e;
+    --bg-selected: rgba(184, 137, 42, 0.16);
+    --ink-1: #ece6d9;
+    --ink-2: #c9c1b2;
+    --ink-3: #958d7f;
+    --ink-inverse: #11100e;
+    --rule: #2e2b26;
+    --rule-strong: #413c34;
+    --rule-ink: #ece6d9;
+    --border: rgba(236, 230, 217, 0.1);
+    --accent: #b8892a;
+    --accent-ink: #d4a541;
+    --accent-wash: rgba(184, 137, 42, 0.16);
+    --up: #3fae4b;
+    --down: #ef6b62;
+    --up-wash: rgba(63, 174, 75, 0.14);
+    --down-wash: rgba(239, 107, 98, 0.14);
+    --series-1: #b8892a;
+    --series-2: #4f8ad6;
+    --bench: #7f786c;
+    --halt-bg: #c4352d;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-page: #11100e;
+  --bg-panel: #1a1916;
+  --bg-sunken: #151412;
+  --bg-hover: #24221e;
+  --bg-selected: rgba(184, 137, 42, 0.16);
+  --ink-1: #ece6d9;
+  --ink-2: #c9c1b2;
+  --ink-3: #958d7f;
+  --ink-inverse: #11100e;
+  --rule: #2e2b26;
+  --rule-strong: #413c34;
+  --rule-ink: #ece6d9;
+  --border: rgba(236, 230, 217, 0.1);
+  --accent: #b8892a;
+  --accent-ink: #d4a541;
+  --accent-wash: rgba(184, 137, 42, 0.16);
+  --up: #3fae4b;
+  --down: #ef6b62;
+  --up-wash: rgba(63, 174, 75, 0.14);
+  --down-wash: rgba(239, 107, 98, 0.14);
+  --series-1: #b8892a;
+  --series-2: #4f8ad6;
+  --bench: #7f786c;
+  --halt-bg: #c4352d;
+}

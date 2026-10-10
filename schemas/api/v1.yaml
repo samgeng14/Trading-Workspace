@@ -1,0 +1,805 @@
+openapi: 3.1.0
+info:
+  title: DV02 Fund API
+  version: 1.0.0
+  description: |
+    Contract between the dashboard (apps/web) and the backend. The
+    dashboard's demo mode (MSW) and the FastAPI service both implement it;
+    TypeScript types are generated from this file (`npm run gen:api`).
+
+    Conventions:
+      * Returns, weights and exposures are fractions of NAV (0.0123 = 1.23%).
+      * Money is in the account base currency (USD).
+      * Timestamps are ISO-8601 with offset; dates are YYYY-MM-DD (exchange date, America/New_York).
+servers:
+  - url: /api/v1
+
+paths:
+  /status:
+    get:
+      operationId: getStatus
+      summary: Account, market session, system health, kill switch and today's schedule.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SystemStatus" }
+
+  /market/strip:
+    get:
+      operationId: getMarketStrip
+      summary: Reference markets shown in the ticker strip.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketStrip" }
+
+  /portfolio/summary:
+    get:
+      operationId: getPortfolioSummary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PortfolioSummary" }
+
+  /portfolio/positions:
+    get:
+      operationId: getPositions
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PositionsResponse" }
+
+  /portfolio/intraday:
+    get:
+      operationId: getIntradayPnl
+      summary: P&L path of the latest (or current) session.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntradayPnl" }
+
+  /performance:
+    get:
+      operationId: getPerformance
+      parameters:
+        - name: range
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/PerformanceRange" }
+        - name: benchmark
+          in: query
+          required: false
+          schema: { type: string, default: SPY }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Performance" }
+
+  /benchmarks:
+    get:
+      operationId: getBenchmarks
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Benchmark" }
+
+  /risk:
+    get:
+      operationId: getRisk
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RiskReport" }
+
+  /trading/orders:
+    get:
+      operationId: getOrders
+      summary: Orders and fills for the latest session.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/OrdersResponse" }
+
+  /trading/orders/{orderId}/cancel:
+    post:
+      operationId: cancelOrder
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Cancel requested
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "409":
+          description: Order is not cancellable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /trading/rebalance/preview:
+    get:
+      operationId: getRebalancePreview
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RebalancePreview" }
+
+  /trading/rebalance:
+    post:
+      operationId: submitRebalance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RebalanceRequest" }
+      responses:
+        "200":
+          description: Orders submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RebalanceResult" }
+        "409":
+          description: Blocked by a pre-trade check or the kill switch
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /ops/doctor:
+    get:
+      operationId: getDoctor
+      summary: Latest IBKR doctor report (src/broker/ibkr/doctor.py).
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DoctorReport" }
+
+  /ops/doctor/run:
+    post:
+      operationId: runDoctor
+      responses:
+        "200":
+          description: Fresh report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DoctorReport" }
+
+  /ops/kill-switch:
+    post:
+      operationId: setKillSwitch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KillSwitchRequest" }
+      responses:
+        "200":
+          description: New state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KillSwitch" }
+        "400":
+          description: Arming requires a reason
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /ops/runs:
+    get:
+      operationId: getRuns
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunsResponse" }
+
+components:
+  schemas:
+    Problem:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string }
+        detail: { type: string }
+
+    Health:
+      type: string
+      enum: [ok, warning, error, unknown]
+
+    SystemStatus:
+      type: object
+      required: [mode, account, as_of, market, components, kill_switch, schedule]
+      properties:
+        mode:
+          type: string
+          enum: [demo, paper, live]
+          description: demo = simulated data, not connected to a broker.
+        account: { $ref: "#/components/schemas/Account" }
+        as_of: { type: string, format: date-time }
+        market: { $ref: "#/components/schemas/MarketSession" }
+        components:
+          type: array
+          items: { $ref: "#/components/schemas/Component" }
+        kill_switch: { $ref: "#/components/schemas/KillSwitch" }
+        schedule:
+          type: array
+          items: { $ref: "#/components/schemas/ScheduledJob" }
+
+    Account:
+      type: object
+      required: [id, base_currency]
+      properties:
+        id: { type: string }
+        base_currency: { type: string }
+
+    MarketSession:
+      type: object
+      required: [session, trading_date, next_change_at, next_change]
+      properties:
+        session:
+          type: string
+          enum: [pre, open, post, closed]
+        trading_date:
+          type: string
+          format: date
+          description: The current session's date, or the last completed one when closed.
+        next_change_at: { type: string, format: date-time }
+        next_change:
+          type: string
+          enum: [opens, closes]
+
+    Component:
+      type: object
+      required: [id, label, status, detail]
+      properties:
+        id:
+          type: string
+          enum: [gateway, market_data, engine, scheduler, database]
+        label: { type: string }
+        status: { $ref: "#/components/schemas/Health" }
+        detail: { type: string }
+
+    KillSwitch:
+      type: object
+      required: [armed]
+      properties:
+        armed: { type: boolean }
+        reason: { type: string }
+        changed_at: { type: string, format: date-time }
+        changed_by: { type: string }
+
+    KillSwitchRequest:
+      type: object
+      required: [armed]
+      properties:
+        armed: { type: boolean }
+        reason: { type: string, description: Required when arming. }
+
+    ScheduledJob:
+      type: object
+      required: [id, label, at, status]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        at: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [scheduled, running, done, failed, skipped]
+        detail: { type: string }
+
+    MarketStrip:
+      type: object
+      required: [as_of, delayed, items]
+      properties:
+        as_of: { type: string, format: date-time }
+        delayed: { type: boolean }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Quote" }
+
+    Quote:
+      type: object
+      required: [symbol, label, last, change, change_pct, kind]
+      properties:
+        symbol: { type: string }
+        label: { type: string }
+        last: { type: number }
+        change: { type: number }
+        change_pct: { type: number }
+        kind:
+          type: string
+          enum: [index, yield, price, fx]
+          description: yield quotes change in percentage points; show change as bp.
+
+    SharpeEstimate:
+      type: object
+      required: [value, ci_low, ci_high, years]
+      properties:
+        value: { type: number }
+        ci_low: { type: number, description: 95% CI lower bound (normal approximation). }
+        ci_high: { type: number }
+        years: { type: number }
+
+    PortfolioSummary:
+      type: object
+      required:
+        - as_of
+        - inception_date
+        - nav
+        - cash
+        - day_pnl
+        - day_return
+        - mtd_return
+        - ytd_return
+        - itd_return
+        - benchmark
+        - benchmark_itd_return
+        - long_exposure
+        - short_exposure
+        - gross_exposure
+        - net_exposure
+        - beta
+        - sharpe_itd
+        - positions_count
+        - nav_history
+      properties:
+        as_of: { type: string, format: date-time }
+        inception_date: { type: string, format: date }
+        nav: { type: number }
+        cash: { type: number }
+        day_pnl: { type: number }
+        day_return: { type: number }
+        mtd_return: { type: number }
+        ytd_return: { type: number }
+        itd_return: { type: number }
+        benchmark: { $ref: "#/components/schemas/Benchmark" }
+        benchmark_itd_return: { type: number }
+        long_exposure: { type: number }
+        short_exposure: { type: number, description: Negative fraction of NAV. }
+        gross_exposure: { type: number }
+        net_exposure: { type: number }
+        beta: { type: number, description: Ex-ante beta to the S&P 500. }
+        sharpe_itd: { $ref: "#/components/schemas/SharpeEstimate" }
+        positions_count: { type: integer }
+        nav_history:
+          type: array
+          description: Daily NAV for the last ~30 sessions (sparkline).
+          items: { $ref: "#/components/schemas/DatedValue" }
+
+    DatedValue:
+      type: object
+      required: [date, value]
+      properties:
+        date: { type: string, format: date }
+        value: { type: number }
+
+    AssetClass:
+      type: string
+      enum: [equity, fixed_income, commodity, crypto, volatility, cash, index_future]
+
+    Position:
+      type: object
+      required:
+        - symbol
+        - name
+        - asset_class
+        - sleeve
+        - sec_type
+        - quantity
+        - multiplier
+        - avg_cost
+        - last
+        - prev_close
+        - market_value
+        - weight
+        - day_pnl
+        - day_return
+        - unrealized_pnl
+        - unrealized_return
+        - beta
+      properties:
+        symbol: { type: string }
+        name: { type: string }
+        asset_class: { $ref: "#/components/schemas/AssetClass" }
+        sleeve: { type: string }
+        sec_type:
+          type: string
+          enum: [STK, ETF, FUT, OPT]
+        quantity: { type: number }
+        multiplier: { type: number }
+        avg_cost: { type: number }
+        last: { type: number }
+        prev_close: { type: number }
+        market_value: { type: number, description: Signed; notional for futures. }
+        weight: { type: number }
+        target_weight: { type: [number, "null"] }
+        day_pnl: { type: number }
+        day_return: { type: number }
+        unrealized_pnl: { type: number }
+        unrealized_return: { type: number }
+        beta: { type: number }
+
+    PositionsResponse:
+      type: object
+      required: [as_of, nav, positions]
+      properties:
+        as_of: { type: string, format: date-time }
+        nav: { type: number }
+        positions:
+          type: array
+          items: { $ref: "#/components/schemas/Position" }
+
+    IntradayPnl:
+      type: object
+      required: [trading_date, session_open, session_close, live, points]
+      properties:
+        trading_date: { type: string, format: date }
+        session_open: { type: string, format: date-time }
+        session_close: { type: string, format: date-time }
+        live: { type: boolean, description: True while the session is in progress. }
+        points:
+          type: array
+          items:
+            type: object
+            required: [t, pnl]
+            properties:
+              t: { type: string, format: date-time }
+              pnl: { type: number }
+
+    PerformanceRange:
+      type: string
+      enum: [1M, 3M, 6M, YTD, 1Y, ITD]
+      default: ITD
+
+    Benchmark:
+      type: object
+      required: [id, label]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        description: { type: string }
+
+    PerformanceStats:
+      type: object
+      required:
+        - total_return
+        - benchmark_total_return
+        - ann_return
+        - ann_vol
+        - sharpe
+        - max_drawdown
+        - beta
+        - alpha_ann
+        - tracking_error
+        - information_ratio
+        - sortino
+        - hit_rate
+        - best_day
+        - worst_day
+      properties:
+        total_return: { type: number }
+        benchmark_total_return: { type: number }
+        ann_return: { type: number }
+        ann_vol: { type: number }
+        sharpe: { $ref: "#/components/schemas/SharpeEstimate" }
+        max_drawdown: { type: number }
+        beta: { type: number }
+        alpha_ann: { type: number }
+        tracking_error: { type: number }
+        information_ratio: { type: number }
+        sortino: { type: number }
+        hit_rate: { type: number, description: Share of up days. }
+        best_day: { $ref: "#/components/schemas/DatedValue" }
+        worst_day: { $ref: "#/components/schemas/DatedValue" }
+
+    Performance:
+      type: object
+      required: [range, start, end, benchmark, series, drawdown, stats, monthly]
+      properties:
+        range: { $ref: "#/components/schemas/PerformanceRange" }
+        start: { type: string, format: date }
+        end: { type: string, format: date }
+        benchmark: { $ref: "#/components/schemas/Benchmark" }
+        series:
+          type: array
+          description: Total-return growth of $100 at `start`.
+          items:
+            type: object
+            required: [date, portfolio, benchmark]
+            properties:
+              date: { type: string, format: date }
+              portfolio: { type: number }
+              benchmark: { type: number }
+        drawdown:
+          type: array
+          items: { $ref: "#/components/schemas/DatedValue" }
+        stats: { $ref: "#/components/schemas/PerformanceStats" }
+        monthly:
+          type: array
+          description: Monthly returns since inception (not limited by range).
+          items:
+            type: object
+            required: [year, month, portfolio, benchmark]
+            properties:
+              year: { type: integer }
+              month: { type: integer, minimum: 1, maximum: 12 }
+              portfolio: { type: number }
+              benchmark: { type: number }
+
+    LimitCheck:
+      type: object
+      required: [id, label, value, limit, unit, status]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        value: { type: number }
+        limit: { type: number }
+        unit:
+          type: string
+          enum: [pct, ratio, count]
+        status:
+          type: string
+          enum: [ok, warning, breach]
+        detail: { type: string }
+
+    RiskReport:
+      type: object
+      required:
+        - as_of
+        - nav
+        - by_asset_class
+        - by_sleeve
+        - limits
+        - beta
+        - forecast_vol
+        - target_vol
+        - var_95_1d
+        - es_975_1d
+        - top5_weight
+        - scenarios
+      properties:
+        as_of: { type: string, format: date-time }
+        nav: { type: number }
+        by_asset_class:
+          type: array
+          items:
+            type: object
+            required: [asset_class, long, short, net]
+            properties:
+              asset_class: { $ref: "#/components/schemas/AssetClass" }
+              long: { type: number }
+              short: { type: number }
+              net: { type: number }
+        by_sleeve:
+          type: array
+          items:
+            type: object
+            required: [sleeve, gross, net, day_pnl, mandate]
+            properties:
+              sleeve: { type: string }
+              gross: { type: number }
+              net: { type: number }
+              day_pnl: { type: number }
+              mandate: { type: string }
+        limits:
+          type: array
+          items: { $ref: "#/components/schemas/LimitCheck" }
+        beta: { type: number }
+        forecast_vol: { type: number, description: Annualized ex-ante vol. }
+        target_vol: { type: number }
+        var_95_1d: { type: number, description: Historical 1-day VaR, fraction of NAV (positive = loss). }
+        es_975_1d: { type: number }
+        top5_weight: { type: number }
+        scenarios:
+          type: array
+          items:
+            type: object
+            required: [id, label, pnl, pnl_pct]
+            properties:
+              id: { type: string }
+              label: { type: string }
+              pnl: { type: number }
+              pnl_pct: { type: number }
+
+    OrderStatus:
+      type: string
+      enum: [pending, submitted, partial, filled, cancelled, rejected]
+
+    Order:
+      type: object
+      required:
+        - id
+        - symbol
+        - side
+        - quantity
+        - filled
+        - order_type
+        - status
+        - submitted_at
+        - sleeve
+      properties:
+        id: { type: string }
+        symbol: { type: string }
+        side:
+          type: string
+          enum: [BUY, SELL]
+        quantity: { type: number }
+        filled: { type: number }
+        order_type:
+          type: string
+          enum: [MKT, LMT, MOC, LOC]
+        limit_price: { type: number }
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        avg_fill_price: { type: number }
+        arrival_price: { type: number }
+        slippage_bps: { type: number, description: Signed cost vs arrival; positive = paid away. }
+        submitted_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        sleeve: { type: string }
+        reason: { type: string }
+
+    OrdersResponse:
+      type: object
+      required: [trading_date, orders]
+      properties:
+        trading_date: { type: string, format: date }
+        orders:
+          type: array
+          items: { $ref: "#/components/schemas/Order" }
+
+    PreTradeCheck:
+      type: object
+      required: [id, label, status, detail]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        status:
+          type: string
+          enum: [pass, warn, fail]
+        detail: { type: string }
+
+    RebalancePreview:
+      type: object
+      required: [as_of, sleeve, targets_date, execution, rows, totals, checks, can_submit]
+      properties:
+        as_of: { type: string, format: date-time }
+        sleeve: { type: string }
+        targets_date: { type: string, format: date }
+        execution:
+          type: string
+          description: How the orders will execute, e.g. "MOC Mon Oct 12 (cutoff 15:50 ET)".
+        rows:
+          type: array
+          items:
+            type: object
+            required:
+              - symbol
+              - current_weight
+              - target_weight
+              - current_qty
+              - target_qty
+              - trade_qty
+              - est_notional
+              - est_cost
+            properties:
+              symbol: { type: string }
+              current_weight: { type: number }
+              target_weight: { type: number }
+              current_qty: { type: number }
+              target_qty: { type: number }
+              trade_qty: { type: number, description: Signed. }
+              est_notional: { type: number }
+              est_cost: { type: number }
+        totals:
+          type: object
+          required: [buy_notional, sell_notional, turnover, est_cost, orders]
+          properties:
+            buy_notional: { type: number }
+            sell_notional: { type: number }
+            turnover: { type: number }
+            est_cost: { type: number }
+            orders: { type: integer }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/PreTradeCheck" }
+        can_submit: { type: boolean }
+
+    RebalanceRequest:
+      type: object
+      required: [confirm]
+      properties:
+        confirm:
+          type: string
+          const: SUBMIT
+          description: Must be the literal string SUBMIT.
+
+    RebalanceResult:
+      type: object
+      required: [submitted, orders, message]
+      properties:
+        submitted: { type: integer }
+        orders:
+          type: array
+          items: { $ref: "#/components/schemas/Order" }
+        message: { type: string }
+
+    DoctorResult:
+      type: object
+      required: [name, status, detail, fix]
+      properties:
+        name: { type: string }
+        status:
+          type: string
+          enum: [PASS, WARN, FAIL, SKIP]
+        detail: { type: string }
+        fix: { type: string }
+
+    DoctorReport:
+      type: object
+      required: [ran_at, profile, endpoint, results]
+      properties:
+        ran_at: { type: string, format: date-time }
+        profile: { type: string }
+        endpoint: { type: string }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/DoctorResult" }
+
+    Run:
+      type: object
+      required: [id, kind, started_at, ok, summary, steps]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          enum: [daily, reconcile, catchup, doctor, rebalance]
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        ok: { type: boolean }
+        dry_run: { type: boolean }
+        summary: { type: string }
+        steps:
+          type: array
+          items:
+            type: object
+            required: [name, ok, detail]
+            properties:
+              name: { type: string }
+              ok: { type: boolean }
+              detail: { type: string }
+
+    RunsResponse:
+      type: object
+      required: [runs]
+      properties:
+        runs:
+          type: array
+          items: { $ref: "#/components/schemas/Run" }

@@ -1,0 +1,287 @@
+.overview-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+@media (max-width: 1180px) {
+  .overview-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── overview ────────────────────────────────────────────────────────── */
+
+.kpi-band {
+  display: grid;
+  grid-template-columns: minmax(300px, 2.3fr) repeat(7, minmax(110px, 1fr));
+  gap: var(--space-4) var(--space-5);
+  align-items: start;
+  padding: var(--space-3) var(--space-4);
+}
+
+.kpi-band .stat-sub {
+  white-space: normal;
+}
+
+.kpi-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: var(--space-4);
+  border-right: 1px solid var(--rule);
+}
+
+.kpi-hero-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+}
+
+@media (max-width: 1400px) {
+  .kpi-band {
+    grid-template-columns: minmax(300px, 2fr) repeat(4, minmax(110px, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .kpi-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kpi-hero {
+    grid-column: 1 / -1;
+    border-right: 0;
+    padding-right: 0;
+  }
+}
+
+.next-job {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-3);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-sunken);
+}
+
+.next-job .kicker {
+  grid-row: span 2;
+  align-self: center;
+}
+
+.next-job-time {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.schedule {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schedule-row {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--row-h);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-sm);
+}
+
+.schedule-row:last-child {
+  border-bottom: 0;
+}
+
+.schedule-time {
+  color: var(--ink-2);
+}
+
+.schedule-row[data-status="done"] .schedule-label,
+.schedule-row[data-status="skipped"] .schedule-label {
+  color: var(--ink-2);
+}
+
+/* ── shared page pieces ──────────────────────────────────────────────── */
+
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-4);
+}
+
+.summary-strip .stat-sub {
+  white-space: normal;
+}
+
+.drift-flag {
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--status-warning);
+}
+
+.side-buy,
+.side-sell {
+  display: inline-block;
+  min-width: 34px;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* Buy/sell use neither P&L colour, so a sell never reads as a loss. */
+.side-buy {
+  color: var(--series-2);
+}
+
+.side-sell {
+  color: var(--accent-ink);
+}
+
+/* ── trading ─────────────────────────────────────────────────────────── */
+
+.preview-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: var(--space-4);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--rule);
+}
+
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+
+.checks li {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: var(--space-2);
+}
+
+.checks .badge {
+  font-size: var(--fs-sm);
+  color: var(--ink-1);
+}
+
+.preview-totals {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-content: start;
+}
+
+.preview-totals .stat-value {
+  font-size: var(--fs-lg);
+}
+
+.preview-submit {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+}
+
+@media (max-width: 1180px) {
+  .preview-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── performance ─────────────────────────────────────────────────────── */
+
+.table.monthly td.heat {
+  font-variant-numeric: tabular-nums;
+}
+
+.table.monthly .year-total {
+  border-left: 1px solid var(--rule-strong);
+  font-weight: 600;
+}
+
+/* ── operations ──────────────────────────────────────────────────────── */
+
+.health-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.health-list li {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 34px;
+  padding: 4px var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-sm);
+}
+
+.health-list li:last-child {
+  border-bottom: 0;
+}
+
+.health-list .badge {
+  font-size: var(--fs-sm);
+  color: var(--ink-1);
+}
+
+.killswitch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  font-size: var(--fs-sm);
+}
+
+.killswitch .badge {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.table.doctor td {
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  vertical-align: top;
+  white-space: normal;
+}
+
+.doctor-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.doctor-fix {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+}
+
+.table tr[data-status="FAIL"] td {
+  background: var(--down-wash);
+}
+
+.run-step td {
+  background: var(--bg-sunken);
+  font-size: var(--fs-xs);
+}
