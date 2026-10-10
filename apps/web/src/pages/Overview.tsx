@@ -6,17 +6,22 @@ import { DivergingBars } from "../charts/DivergingBars";
 import { LineChart, monthTicks } from "../charts/LineChart";
 import { Sparkline } from "../charts/Sparkline";
 import { Delta, LoadError, Meter, Panel, Stat } from "../components/bits";
+import { StatusIcon } from "../components/icons";
 import { NextJob, ScheduleList } from "../components/Schedule";
 import { Figure } from "../components/Figure";
 import { type Column, SortableTable } from "../components/SortableTable";
-import { dateLong, dateShort, money, num, pct, price, shortTimeET } from "../lib/format";
+import { dateLong, dateShort, money, num, pct, price, shortTimeET, timeET } from "../lib/format";
 import { ASSET_CLASS_LABEL, limitText } from "../lib/labels";
+import { type CheckState, type Issue, VERDICT_TEXT } from "../lib/readiness";
+import { useReadiness } from "../lib/useReadiness";
 import { useServerNow } from "../lib/serverClock";
 
 export function Overview() {
   return (
     <div className="page">
+      <CommandHead />
       <KpiBand />
+      <ReadinessRow />
       {/* Two independent stacks so a tall panel never leaves a gap beside it. */}
       <div className="overview-cols">
         <div className="stack">
@@ -34,13 +39,143 @@ export function Overview() {
   );
 }
 
+// ── head: what this page is for, and the one-line verdict ──────────────
+
+const VERDICT_TONE = { clear: "good", review: "warn", blocked: "bad", loading: "neutral" } as const;
+
+function CommandHead() {
+  const status = useStatus().data;
+  const ready = useReadiness();
+  const now = useServerNow();
+  const counts = [
+    ready.blockers.length && `${ready.blockers.length} blocker${ready.blockers.length === 1 ? "" : "s"}`,
+    ready.warnings.length && `${ready.warnings.length} warning${ready.warnings.length === 1 ? "" : "s"}`,
+  ].filter(Boolean);
+  return (
+    <header className="page-head">
+      <div>
+        <h1 className="page-title">Command Center</h1>
+        <p className="page-sub">
+          Daily cockpit. Is the book safe to act on today, what changed, and what needs a person to look at.
+        </p>
+        <p className="action-line" aria-live="polite" data-testid="verdict">
+          <span className={`tone-${VERDICT_TONE[ready.verdict]}`}>
+            <span className="action-dot" aria-hidden="true">
+              ●
+            </span>{" "}
+            {VERDICT_TEXT[ready.verdict]}
+          </span>
+          {counts.length > 0 && <span>{counts.join(" · ")}</span>}
+          <span className="num">{timeET(now)} ET</span>
+          {status && <span className="tone-accent">{status.mode}</span>}
+        </p>
+      </div>
+    </header>
+  );
+}
+
+// ── readiness, blockers, warnings ──────────────────────────────────────
+
+const STATE_ICON: Record<CheckState, "ok" | "warning" | "error" | "unknown"> = {
+  ok: "ok",
+  warn: "warning",
+  block: "error",
+  unknown: "unknown",
+};
+
+function ReadinessRow() {
+  const ready = useReadiness();
+  return (
+    <div className="readiness-row">
+      <Panel
+        title="Readiness"
+        meta={`${ready.checks.filter((c) => c.state === "ok").length} of ${ready.checks.length} ok`}
+        flush
+      >
+        <ul className="checklist">
+          {ready.checks.map((c) => (
+            <li key={c.id}>
+              <Link to={c.to} className="check-row" data-state={c.state} data-control={`overview.readiness.${c.id}`}>
+                <span className="badge-icon">
+                  <StatusIcon status={STATE_ICON[c.state]} />
+                </span>
+                <span className="check-label">{c.label}</span>
+                <span className="check-value">{c.value}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+      <div className="stack">
+        <IssuePanel
+          title="Blockers"
+          issues={ready.blockers}
+          tone="bad"
+          tag="Block"
+          empty="None. Nothing is stopping the next rebalance."
+        />
+        <IssuePanel title="Warnings" issues={ready.warnings} tone="warn" tag="Warn" empty="None." />
+      </div>
+    </div>
+  );
+}
+
+function IssuePanel({
+  title,
+  issues,
+  tone,
+  tag,
+  empty,
+}: {
+  title: string;
+  issues: Issue[];
+  tone: "bad" | "warn";
+  tag: string;
+  empty: string;
+}) {
+  return (
+    <Panel
+      title={title}
+      actions={
+        <span
+          className="tag"
+          data-tone={issues.length ? tone : "neutral"}
+          aria-label={`${issues.length} ${title.toLowerCase()}`}
+        >
+          {issues.length}
+        </span>
+      }
+      flush
+    >
+      {issues.length === 0 ? (
+        <p className="issue-empty">{empty}</p>
+      ) : (
+        <ul className="issues">
+          {issues.map((i) => (
+            <li key={i.id}>
+              <Link to={i.to} className="issue" data-control={`overview.issue.${i.id}`}>
+                <span className="tag" data-tone={tone}>
+                  {tag}
+                </span>
+                <span className="issue-text">
+                  <strong>{i.title}</strong> <span className="issue-detail">{i.detail}</span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
 // ── KPI band ───────────────────────────────────────────────────────────
 
 function KpiBand() {
   const { data: s, error } = useSummary();
   const status = useStatus().data;
   if (error) return <LoadError error={error} />;
-  if (!s) return <div className="kpi-band panel" aria-busy="true" style={{ minHeight: 92 }} />;
+  if (!s) return <div className="kpi-band panel" aria-busy="true" style={{ minHeight: 150 }} />;
   const live = status?.market.session === "open";
   return (
     <section className="kpi-band panel" aria-label="Portfolio summary">
@@ -57,40 +192,50 @@ function KpiBand() {
           paper since {dateShort(s.inception_date)}, {s.inception_date.slice(0, 4)}
         </span>
       </div>
-      <Stat
-        label="Day P&L"
-        value={<Delta value={s.day_pnl} kind="money" />}
-        sub={<Delta value={s.day_return} />}
-        testId="kpi-day"
-      />
-      <Stat label="Month to date" value={<Delta value={s.mtd_return} />} />
-      <Stat label="Year to date" value={<Delta value={s.ytd_return} />} />
-      <Stat
-        label="Since inception"
-        value={<Delta value={s.itd_return} />}
-        sub={
-          <>
-            {s.benchmark.label} <Delta value={s.benchmark_itd_return} />
-          </>
-        }
-      />
-      <Stat
-        label="Gross / net exposure"
-        value={<span className="num">{pct(s.gross_exposure, 0)}</span>}
-        sub={<span className="num">net {pct(s.net_exposure, 0)}</span>}
-      />
-      <Stat label="Beta" value={<span className="num">{num(s.beta, 2)}</span>} sub="to S&P 500, hedged" />
-      <Stat
-        label="Sharpe, since inception"
-        value={<span className="num">{num(s.sharpe_itd.value, 2)}</span>}
-        sub={
-          <>
-            95% CI {num(s.sharpe_itd.ci_low, 1)} to {num(s.sharpe_itd.ci_high, 1)}
-            <br />
-            {num(s.sharpe_itd.years, 1)} yr of returns
-          </>
-        }
-      />
+      <div className="kpi-grid">
+        <Stat
+          label="Day P&L"
+          value={<Delta value={s.day_pnl} kind="money" />}
+          sub={<Delta value={s.day_return} />}
+          testId="kpi-day"
+        />
+        <Stat label="Month to date" value={<Delta value={s.mtd_return} />} />
+        <Stat label="Year to date" value={<Delta value={s.ytd_return} />} />
+        <Stat
+          label="Since inception"
+          value={<Delta value={s.itd_return} />}
+          sub={
+            <>
+              {s.benchmark.label} <Delta value={s.benchmark_itd_return} />
+            </>
+          }
+        />
+        <Stat
+          label="Gross exposure"
+          value={<span className="num">{pct(s.gross_exposure, 0)}</span>}
+          sub={
+            <>
+              net <span className="num">{pct(s.net_exposure, 0)}</span> · short{" "}
+              <span className="num">{pct(s.short_exposure, 0)}</span>
+            </>
+          }
+        />
+        <Stat label="Beta" value={<span className="num">{num(s.beta, 2)}</span>} sub="to S&P 500, hedged" />
+        <Stat
+          label="Sharpe, inception"
+          value={<span className="num">{num(s.sharpe_itd.value, 2)}</span>}
+          sub={
+            <>
+              95% CI {num(s.sharpe_itd.ci_low, 1)} to {num(s.sharpe_itd.ci_high, 1)} · {num(s.sharpe_itd.years, 1)} yr
+            </>
+          }
+        />
+        <Stat
+          label="Cash"
+          value={<span className="num">{money(s.cash)}</span>}
+          sub={`${s.positions_count} positions`}
+        />
+      </div>
     </section>
   );
 }

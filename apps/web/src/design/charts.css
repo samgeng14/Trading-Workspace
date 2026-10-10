@@ -27,7 +27,8 @@
 
 .chart .tick {
   fill: var(--ink-3);
-  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
 }
 
 .chart .crosshair {
@@ -49,7 +50,8 @@
 
 .chart .end-value {
   fill: var(--ink-2);
-  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
 }
 
 .chart .fill-up {
@@ -67,7 +69,8 @@
 
 .chart .bar-value {
   fill: var(--ink-2);
-  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
 }
 
 .chart .bar-hit {

@@ -5,19 +5,23 @@
   align-items: center;
   gap: 6px;
   height: 26px;
-  padding: 0 10px;
+  padding: 0 11px;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius);
-  background: var(--bg-panel);
+  background: transparent;
   color: var(--ink-1);
-  font-size: var(--fs-sm);
-  font-weight: 500;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   white-space: nowrap;
   cursor: pointer;
 }
 
 .btn:hover:not(:disabled) {
+  border-color: var(--ink-3);
   background: var(--bg-hover);
+  text-decoration: none;
 }
 
 .btn:disabled {
@@ -26,19 +30,25 @@
 }
 
 .btn-primary {
-  border-color: var(--ink-1);
-  background: var(--ink-1);
-  color: var(--ink-inverse);
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--ink-2);
-  border-color: var(--ink-2);
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
+  filter: brightness(1.08);
 }
 
 .btn-danger {
-  border-color: var(--down);
-  color: var(--down);
+  border-color: var(--tone-bad);
+  color: var(--tone-bad);
+}
+
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--tone-bad);
+  background: var(--down-wash);
 }
 
 .btn-danger-solid {
@@ -55,6 +65,15 @@
 .btn-ghost {
   border-color: transparent;
   background: transparent;
+  color: var(--accent-ink);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  border-color: transparent;
+}
+
+.btn-icon.btn-ghost {
+  color: var(--ink-2);
 }
 
 .btn-icon {
@@ -76,10 +95,11 @@
   height: 24px;
   padding: 0 9px;
   border: 0;
-  border-left: 1px solid var(--rule);
-  background: var(--bg-panel);
+  border-left: 1px solid var(--rule-strong);
+  background: transparent;
   color: var(--ink-2);
-  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 
@@ -92,8 +112,8 @@
 }
 
 .segmented button[aria-pressed="true"] {
-  background: var(--bg-selected);
-  color: var(--accent-ink);
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
   font-weight: 600;
 }
 
@@ -113,7 +133,7 @@
   padding: 0 8px;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius);
-  background: var(--bg-panel);
+  background: var(--bg-sunken);
   color: var(--ink-1);
   font-size: var(--fs-sm);
 }
@@ -143,24 +163,26 @@
   min-width: 0;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-top: 2px solid var(--rule-ink); /* newspaper section rule */
-  border-radius: 0;
+  border-top: var(--panel-top-w) solid var(--panel-top);
+  border-radius: var(--radius);
 }
 
 .panel-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
-  min-height: 36px;
-  padding: 0 var(--space-3);
+  gap: 6px var(--space-3);
+  min-height: 40px;
+  padding: 6px var(--space-4);
   border-bottom: 1px solid var(--rule);
 }
 
 .panel-title {
-  font-family: var(--font-serif);
-  font-size: 16px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
   font-weight: 700;
-  letter-spacing: -0.005em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--ink-1);
   white-space: nowrap;
 }
@@ -180,7 +202,7 @@
 .panel-body {
   flex: 1;
   min-height: 0;
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-4);
 }
 
 .panel-body.flush {
@@ -188,10 +210,14 @@
 }
 
 .panel-foot {
-  padding: 6px var(--space-3);
+  padding: 7px var(--space-4);
   border-top: 1px solid var(--rule);
   font-size: var(--fs-xs);
   color: var(--ink-3);
+}
+
+.panel-foot .num {
+  white-space: normal;
 }
 
 /* ── stat tiles ──────────────────────────────────────────────────────── */
@@ -204,16 +230,22 @@
 }
 
 .stat-label {
-  font-size: var(--fs-xs);
-  color: var(--ink-2);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
   white-space: nowrap;
 }
 
+/* Headline values are set in the serif, like a newspaper's figures; the
+   mono stays for columns of numbers. */
 .stat-value {
+  margin-top: 2px;
+  font-family: var(--font-serif);
   font-size: var(--fs-xl);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.15;
-  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
@@ -224,11 +256,20 @@
 }
 
 .hero-value {
+  font-family: var(--font-serif);
   font-size: var(--fs-hero);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   white-space: nowrap;
+}
+
+.stat-value .num,
+.hero-value.num,
+.hero-value .num {
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
 }
 
 /* ── status badge: icon + label, never colour alone ─────────────────── */
@@ -254,26 +295,71 @@
 .mode-badge {
   display: inline-flex;
   align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mode-demo,
+.mode-paper {
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
+}
+
+.mode-live {
+  background: var(--halt-bg);
+  color: var(--halt-ink);
+}
+
+/* ── tag: outlined state label (BLOCK, WARN, FRESH) ──────────────────── */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
   height: 18px;
   padding: 0 6px;
   border: 1px solid currentColor;
   border-radius: var(--radius);
+  font-family: var(--font-mono);
   font-size: var(--fs-2xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-2);
 }
 
-.mode-demo {
+.tag[data-tone="good"],
+.tone-good {
+  color: var(--tone-good);
+}
+
+.tag[data-tone="warn"],
+.tone-warn {
+  color: var(--tone-warn);
+}
+
+.tag[data-tone="bad"],
+.tone-bad {
+  color: var(--tone-bad);
+}
+
+.tag[data-tone="accent"],
+.tone-accent {
   color: var(--accent-ink);
 }
 
-.mode-paper {
-  color: var(--ink-1);
-}
-
-.mode-live {
-  color: var(--down);
+.tag[data-tone="neutral"],
+.tone-neutral {
+  color: var(--ink-3);
 }
 
 /* ── tables ──────────────────────────────────────────────────────────── */
@@ -313,12 +399,14 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  height: 30px;
+  height: 32px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--rule-strong);
-  color: var(--ink-2);
-  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
   font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .table th.r,
@@ -327,7 +415,13 @@
 }
 
 .table td.r {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums lining-nums;
+}
+
+.table td.r .num {
+  font-size: inherit;
 }
 
 .table tbody tr:hover td {
@@ -341,6 +435,8 @@
 }
 
 .table .sym {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   font-weight: 600;
 }
 
@@ -366,7 +462,7 @@
 }
 
 .th-sort[data-active="true"] {
-  color: var(--ink-1);
+  color: var(--accent-ink);
 }
 
 .empty {
@@ -402,18 +498,18 @@
 .meter-track {
   grid-column: 1 / -1;
   position: relative;
-  height: 6px;
+  height: 4px;
   border-radius: 1px;
   background: var(--rule);
   overflow: hidden;
 }
 
-/* Neutral ink when within limits; amber / red only when the limit needs attention. */
+/* Neutral sand when within limits; amber / red only when the limit needs attention. */
 .meter-fill {
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: 0 2px 2px 0;
-  background: var(--ink-2);
+  background: var(--ink-3);
 }
 
 .meter-fill[data-status="warning"] {
@@ -439,7 +535,7 @@
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: rgba(11, 11, 11, 0.35);
+  background: var(--overlay);
 }
 
 .dialog {
@@ -461,7 +557,7 @@
 .dialog-title {
   font-family: var(--font-serif);
   font-size: var(--fs-xl);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .dialog-body {

@@ -9,7 +9,7 @@ const SECTIONS = [
   { id: "nav.operations", path: "/ops", title: "Operations", key: "s" },
 ];
 
-test("side navigation reaches every section and back to Overview", async ({ page }) => {
+test("side navigation reaches every section and back to the Command Center", async ({ page }) => {
   await open(page);
   for (const s of SECTIONS) {
     await ctl(page, s.id).click();
@@ -19,6 +19,7 @@ test("side navigation reaches every section and back to Overview", async ({ page
   }
   await ctl(page, "nav.overview").click();
   await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("h1.page-title")).toHaveText("Command Center");
   await expect(page.getByTestId("nav")).toBeVisible();
 });
 
@@ -30,7 +31,7 @@ test("g-then-key shortcuts navigate, and are ignored while typing", async ({ pag
     await expect(page).toHaveURL(new RegExp(`${s.path}$`));
   }
   await page.keyboard.press("g");
-  await page.keyboard.press("o");
+  await page.keyboard.press("c");
   await expect(page).toHaveURL(/\/$/);
 
   await ctl(page, "nav.positions").click();
@@ -45,19 +46,21 @@ test("system health opens Operations", async ({ page }) => {
   await expect(page).toHaveURL(/\/ops$/);
 });
 
-test("theme toggle switches and is remembered", async ({ page }) => {
+test("dark by default; the theme toggle switches to paper and is remembered", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "light" });
   await open(page);
   const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  const light = await bg();
-  await ctl(page, "topbar.theme").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  expect(await bg()).not.toBe(light);
-  await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const dark = await bg();
+  expect(dark).toBe("rgb(14, 13, 12)");
   await ctl(page, "topbar.theme").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  expect(await bg()).toBe(light);
+  expect(await bg()).not.toBe(dark);
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await ctl(page, "topbar.theme").click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await bg()).toBe(dark);
 });
 
 test("market session and clock follow the exchange", async ({ page }) => {

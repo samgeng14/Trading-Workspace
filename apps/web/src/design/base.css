@@ -58,10 +58,18 @@ a:hover {
   background: var(--accent-wash);
 }
 
-/* numbers that line up in columns */
+/* Figures are set in the mono so columns line up and digits never shift as
+   they tick. Slightly smaller, because a mono's digits run wide. */
 .num {
+  font-family: var(--font-mono);
+  font-size: 0.94em;
   font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
   white-space: nowrap;
+}
+
+.num .num {
+  font-size: inherit;
 }
 
 .up {
@@ -82,11 +90,11 @@ a:hover {
 
 /* small-caps label used for panel titles, column groups and kickers */
 .kicker {
-  font-size: var(--fs-xs);
+  font-size: var(--fs-2xs);
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-2);
+  color: var(--ink-3);
 }
 
 .visually-hidden {

@@ -1,8 +1,10 @@
+import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { useStatus } from "../api/hooks";
+import { useRebalancePreview, useStatus } from "../api/hooks";
 import { MoonIcon, SessionIcon, StatusIcon, SunIcon } from "../components/icons";
 import { useKillSwitchDialogs } from "../components/KillSwitch";
 import { countdown, timeET, weekdayTimeET } from "../lib/format";
+import { gate } from "../lib/readiness";
 import { useServerNow } from "../lib/serverClock";
 import { useTheme } from "../lib/useTheme";
 
@@ -11,15 +13,26 @@ const HEALTH_SHORT: Record<string, string> = {
   gateway: "IBKR",
   market_data: "Data",
   engine: "Engine",
-  scheduler: "Scheduler",
+  scheduler: "Sched",
   database: "DB",
 };
 
+function Seg({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
+  return (
+    <div className={`seg ${className}`}>
+      <span className="seg-label">{label}</span>
+      <span className="seg-value">{children}</span>
+    </div>
+  );
+}
+
+/** The status strip: what mode, which account, is the market open, can we trade, is everything up. */
 export function TopBar() {
   const { data: status } = useStatus();
   const now = useServerNow();
   const [theme, toggleTheme] = useTheme();
   const killSwitch = useKillSwitchDialogs();
+  const preview = useRebalancePreview().data;
 
   const market = status?.market;
   const untilChange = market ? Date.parse(market.next_change_at) - now.getTime() : 0;
@@ -29,43 +42,53 @@ export function TopBar() {
       : market
         ? `Opens ${weekdayTimeET(market.next_change_at)} ET`
         : "";
+  const g = gate(status, preview);
 
   return (
     <header className="topbar">
-      <div className="topbar-brand">
-        <span className="wordmark">DV02 Fund</span>
+      <div className="topbar-segs">
         {status && (
-          <span className={`mode-badge mode-${status.mode}`}>{status.mode === "demo" ? "Demo data" : status.mode}</span>
+          <Seg label="Mode">
+            <span className="tone-accent" data-mode={status.mode}>
+              {status.mode === "demo" ? "Demo" : status.mode === "paper" ? "Paper" : "Live"}
+            </span>
+          </Seg>
         )}
-        {status && <span className="topbar-account num">{status.account.id}</span>}
-      </div>
-
-      {market && (
-        <div className="topbar-session" aria-live="polite">
-          <SessionIcon session={market.session} />
-          <span className="session-label">{SESSION_LABEL[market.session]}</span>
-          <span className="muted num">{changeLabel}</span>
-        </div>
-      )}
-
-      <div className="topbar-right">
+        {market && (
+          <Seg label="Market" className="topbar-session">
+            <SessionIcon session={market.session} />
+            <span className="session-label">{SESSION_LABEL[market.session]}</span>
+            <span className="muted">· {changeLabel}</span>
+          </Seg>
+        )}
+        <Seg label="Gate">
+          <span className={`tone-${g.tone}`} title="Can the next rebalance be submitted now (pre-trade checks)">
+            {g.text}
+          </span>
+        </Seg>
         {status && (
           <Link
             to="/ops"
-            className="topbar-health"
+            className="seg topbar-health"
             data-control="topbar.health"
             aria-label="System health: open Operations"
           >
-            {status.components.map((c) => (
-              <span key={c.id} className="badge" title={`${c.label}: ${c.detail}`}>
-                <span className="badge-icon">
-                  <StatusIcon status={c.status} />
+            <span className="seg-label">Systems</span>
+            <span className="seg-value">
+              {status.components.map((c) => (
+                <span key={c.id} className="badge" title={`${c.label}: ${c.detail}`}>
+                  <span className="badge-icon">
+                    <StatusIcon status={c.status} />
+                  </span>
+                  {HEALTH_SHORT[c.id] ?? c.label}
                 </span>
-                {HEALTH_SHORT[c.id] ?? c.label}
-              </span>
-            ))}
+              ))}
+            </span>
           </Link>
         )}
+      </div>
+
+      <div className="topbar-right">
         <span className="topbar-clock num" aria-label="Exchange time">
           {timeET(now)} <span className="muted">ET</span>
         </span>

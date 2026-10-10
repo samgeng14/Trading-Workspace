@@ -12,25 +12,13 @@ function stored(): Theme | null {
   }
 }
 
-function system(): Theme {
-  return typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-/** Follows the OS until the viewer picks a theme; the pick is remembered per browser. */
+/** Dark unless the viewer picked light; the pick is remembered per browser. */
 export function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() => stored() ?? system());
+  const [theme, setTheme] = useState<Theme>(() => stored() ?? "dark");
 
   useEffect(() => {
-    if (stored() !== null) document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.theme = theme;
   }, [theme]);
-
-  useEffect(() => {
-    if (stored() !== null || typeof matchMedia === "undefined") return;
-    const mq = matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => setTheme(system());
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
 
   const toggle = useCallback(() => {
     setTheme((t) => {
@@ -40,7 +28,6 @@ export function useTheme(): [Theme, () => void] {
       } catch {
         // not persisted; still applied for this page
       }
-      document.documentElement.dataset.theme = next;
       return next;
     });
   }, []);

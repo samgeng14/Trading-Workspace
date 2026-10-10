@@ -34,3 +34,42 @@ test("movers table sorts by any column", async ({ page }) => {
     await expect(sorts.nth(i).locator("xpath=ancestor::th")).toHaveAttribute("aria-sort", /ascending|descending/);
   }
 });
+
+test("readiness lists every check and each row opens the page that owns it", async ({ page }) => {
+  covers("overview.readiness.*");
+  await open(page);
+  const rows = page.locator('[data-control^="overview.readiness."]');
+  await expect(rows).toHaveCount(7);
+  await expect(ctl(page, "overview.readiness.gateway")).toContainText("Connected");
+  await expect(ctl(page, "overview.readiness.market_data")).toContainText("Delayed 15 min");
+  const targets = [
+    ["overview.readiness.pretrade", "/trading"],
+    ["overview.readiness.limits", "/risk"],
+    ["overview.readiness.doctor", "/ops"],
+  ] as const;
+  for (const [id, path] of targets) {
+    await open(page);
+    await ctl(page, id).click();
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+  }
+});
+
+test("verdict, blockers and warnings follow the kill switch", async ({ page }) => {
+  covers("overview.issue.*");
+  await open(page);
+  // demo book at this moment: forecast vol is over its limit (blocker), quotes are delayed (warning)
+  await expect(page.getByTestId("verdict")).toContainText("Action required");
+  await expect(ctl(page, "overview.issue.limit.vol")).toContainText("vs limit");
+  await expect(ctl(page, "overview.issue.market_data")).toContainText("Delayed 15 min");
+  await expect(ctl(page, "overview.issue.kill_switch")).toHaveCount(0);
+
+  await ctl(page, "topbar.kill-switch").click();
+  await ctl(page, "killswitch.arm.reason").fill("verdict check");
+  await ctl(page, "killswitch.arm.confirm").click();
+  await expect(ctl(page, "overview.issue.kill_switch")).toContainText("verdict check");
+  await expect(ctl(page, "overview.readiness.kill_switch")).toContainText("Halted");
+  await expect(page.locator(".topbar")).toContainText("Halted");
+
+  await ctl(page, "overview.issue.kill_switch").click();
+  await expect(page).toHaveURL(/\/ops$/);
+});

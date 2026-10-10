@@ -1,18 +1,103 @@
 /*
  * Design tokens. Every colour, size and font in the app comes from here.
- * Light is newsprint: beige paper, black ink, a little gold. Dark ("night")
- * follows the OS unless the viewer picks a theme (data-theme on <html>).
  *
- * Chart colours were run through the dataviz palette validator on these
- * surfaces: gold + blue series (lightness band, chroma, CVD and contrast all
- * pass in both modes), a warm grey benchmark, and up/down/text colours that
- * clear WCAG 4.5:1.
+ * Dark is the default: near-black panels, beige-white ink, a sand/tan accent,
+ * sage and coral for gains and losses. Light ("paper") is beige newsprint with
+ * black ink and a little gold; the viewer switches with the theme button and
+ * the pick is remembered (data-theme on <html>).
+ *
+ * Chart series were run through the dataviz palette validator on each panel
+ * surface (lightness band, chroma, CVD and contrast all pass). Text colours
+ * clear WCAG 4.5:1 on panel and page; the benchmark line is a reference mark
+ * and clears 3:1.
  */
 
 :root {
+  color-scheme: dark;
+
+  --bg-page: #0e0d0c;
+  --bg-nav: #121110;
+  --bg-panel: #161513;
+  --bg-sunken: #121110;
+  --bg-hover: #1f1d1a;
+  --bg-selected: rgba(214, 176, 122, 0.1);
+
+  --ink-1: #ece4d6;
+  --ink-2: #b8ae9e;
+  --ink-3: #8b8274;
+  --ink-inverse: #151410;
+
+  --rule: #262420;
+  --rule-strong: #3a362f;
+  --rule-ink: #ece4d6;
+  --border: #2a2723;
+  --panel-top: #4a3f2f;
+  --panel-top-w: 1px;
+
+  --accent: #d6b07a;
+  --accent-ink: #d6b07a;
+  --accent-wash: rgba(214, 176, 122, 0.12);
+  --accent-fill: #d6b07a;
+  --accent-fill-ink: #151410;
+
+  --up: #79c07d;
+  --down: #ea6b5f;
+  --up-wash: rgba(121, 192, 125, 0.12);
+  --down-wash: rgba(234, 107, 95, 0.12);
+
+  --series-1: #bd8a3c;
+  --series-2: #5c8bd2;
+  --bench: #7d7568;
+
+  /* status fills (icons, meters) and status text; never reused as series colours */
+  --status-good: #79c07d;
+  --status-warning: #e0b04a;
+  --status-serious: #e08a5a;
+  --status-critical: #ea6b5f;
+  --status-unknown: #8b8274;
+  --tone-good: #79c07d;
+  --tone-warn: #e0b04a;
+  --tone-bad: #ea6b5f;
+
+  --halt-bg: #a8322a;
+  --halt-ink: #fff4ee;
+  --overlay: rgba(0, 0, 0, 0.55);
+
+  /* Newsreader (a news serif) for titles and headline values; Public Sans for
+     text and labels; IBM Plex Mono for figures, tickers and timestamps so
+     columns of numbers line up. */
+  --font-sans: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-2xs: 10.5px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 22px;
+  --fs-2xl: 26px;
+  --fs-hero: 40px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius: 2px;
+  --topbar-h: 34px;
+  --ticker-h: 28px;
+  --nav-w: 220px;
+  --row-h: 28px;
+}
+
+:root[data-theme="light"] {
   color-scheme: light;
 
   --bg-page: #f1eadb;
+  --bg-nav: #ece4d3;
   --bg-panel: #f9f5ec;
   --bg-sunken: #efe8d9;
   --bg-hover: #f0e9da;
@@ -27,10 +112,14 @@
   --rule-strong: #bdb29e;
   --rule-ink: #111111;
   --border: rgba(17, 17, 17, 0.12);
+  --panel-top: #111111;
+  --panel-top-w: 2px;
 
   --accent: #a87c12;
   --accent-ink: #7d5c12;
   --accent-wash: rgba(168, 124, 18, 0.12);
+  --accent-fill: #111111;
+  --accent-fill-ink: #f9f5ec;
 
   --up: #006300;
   --down: #b3261e;
@@ -46,95 +135,11 @@
   --status-serious: #ec835a;
   --status-critical: #d03b3b;
   --status-unknown: #898781;
+  --tone-good: #006300;
+  --tone-warn: #835400;
+  --tone-bad: #b3261e;
 
   --halt-bg: #b42318;
   --halt-ink: #ffffff;
-
-  /* WSJ sets headlines in Escrow and data in Retina (both proprietary). These are
-     open stand-ins: Newsreader, a news serif, for heads; Public Sans (derived
-     from Libre Franklin, Franklin Gothic lineage) for data, chosen because it
-     has true tabular figures so number columns align. Swap the first family
-     here if you license the originals. */
-  --font-sans: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
-
-  --fs-2xs: 10.5px;
-  --fs-xs: 11px;
-  --fs-sm: 12px;
-  --fs-md: 13px;
-  --fs-lg: 15px;
-  --fs-xl: 20px;
-  --fs-2xl: 26px;
-  --fs-hero: 40px;
-
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-
-  --radius: 2px;
-  --topbar-h: 44px;
-  --strip-h: 30px;
-  --nav-w: 188px;
-  --row-h: 28px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg-page: #11100e;
-    --bg-panel: #1a1916;
-    --bg-sunken: #151412;
-    --bg-hover: #24221e;
-    --bg-selected: rgba(184, 137, 42, 0.16);
-    --ink-1: #ece6d9;
-    --ink-2: #c9c1b2;
-    --ink-3: #958d7f;
-    --ink-inverse: #11100e;
-    --rule: #2e2b26;
-    --rule-strong: #413c34;
-    --rule-ink: #ece6d9;
-    --border: rgba(236, 230, 217, 0.1);
-    --accent: #b8892a;
-    --accent-ink: #d4a541;
-    --accent-wash: rgba(184, 137, 42, 0.16);
-    --up: #3fae4b;
-    --down: #ef6b62;
-    --up-wash: rgba(63, 174, 75, 0.14);
-    --down-wash: rgba(239, 107, 98, 0.14);
-    --series-1: #b8892a;
-    --series-2: #4f8ad6;
-    --bench: #7f786c;
-    --halt-bg: #c4352d;
-  }
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --bg-page: #11100e;
-  --bg-panel: #1a1916;
-  --bg-sunken: #151412;
-  --bg-hover: #24221e;
-  --bg-selected: rgba(184, 137, 42, 0.16);
-  --ink-1: #ece6d9;
-  --ink-2: #c9c1b2;
-  --ink-3: #958d7f;
-  --ink-inverse: #11100e;
-  --rule: #2e2b26;
-  --rule-strong: #413c34;
-  --rule-ink: #ece6d9;
-  --border: rgba(236, 230, 217, 0.1);
-  --accent: #b8892a;
-  --accent-ink: #d4a541;
-  --accent-wash: rgba(184, 137, 42, 0.16);
-  --up: #3fae4b;
-  --down: #ef6b62;
-  --up-wash: rgba(63, 174, 75, 0.14);
-  --down-wash: rgba(239, 107, 98, 0.14);
-  --series-1: #b8892a;
-  --series-2: #4f8ad6;
-  --bench: #7f786c;
-  --halt-bg: #c4352d;
+  --overlay: rgba(11, 11, 11, 0.35);
 }

@@ -39,6 +39,8 @@ export const CONTROLS = [
   "overview.performance.more",
   "overview.today.more",
   "overview.movers.sort.*",
+  "overview.readiness.*",
+  "overview.issue.*",
   // positions
   "positions.search",
   "positions.asset-class",

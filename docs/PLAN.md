@@ -19,7 +19,7 @@ a fixed API contract. That way nothing built early gets thrown away.
 | Topic | Recommendation | Why |
 |---|---|---|
 | Frontend language | **TypeScript + React + Vite**, hand-built design system, no UI kit theme. *Decided.* | Best tooling for dense, live, data-heavy screens. The "vibe-coded" look comes from default kits (Tailwind/shadcn gradients, glows, rounded cards), not from React. |
-| Look | **DV02 Fund, WSJ-style**: beige newsprint, black ink, a little gold; serif section heads, newspaper sans with tabular figures, black section rules; a PM cockpit layout. *Decided.* | What you asked for. It also suits a finance tool: dense, calm, readable. |
+| Look | **DV02 Fund, dark by default**: near-black panels, beige ink, sand/tan accent, sage and coral for gains and losses; serif titles and headline figures, mono for numbers; a Command Center cockpit. A beige "paper" theme stays one click away. *Decided.* | What you asked for. It also suits a finance tool: dense, calm, readable. |
 | Middle layer | **FastAPI service with a versioned contract** (OpenAPI + WebSocket schemas); TypeScript types generated from it | The frontend can ship now on the existing Python system. Later the C++ engine is swapped in underneath without touching the UI. |
 | Engine | **C++20 daemon (`tradeitd`)** for broker connections, order management, the central risk book, hedging and intraday strategies | This is where C++ pays off: one long-lived broker connection, deterministic event loop, replayable state, low latency later. |
 | Research | **Stays in Python** (Polars/DuckDB). C++ risk and simulation code is exposed to Python via bindings. | Sharpe comes from data and signals, not language. WRDS tooling is Python/SQL. Shared bindings keep research and production math identical. |
@@ -88,7 +88,7 @@ list is in Appendix A. The items that matter most:
 
 ```
                    ┌──────────────────────────────────────────────┐
-  Browser / phone  │  apps/web  — TypeScript + React (WSJ edition) │
+  Browser / phone  │  apps/web  — TypeScript + React (DV02 Fund)  │
                    └───────────────▲──────────────────────────────┘
                      REST + WebSocket (contract v1, generated types)
                    ┌───────────────┴──────────────────────────────┐
@@ -190,38 +190,43 @@ Alternatives considered:
 - **A native C++ UI (Qt/ImGui)** would match the engine language, but
   editorial typography is much harder, you lose phone access, and iteration is slower.
 
-### Design system: "the edition"
+### Design system
 
 Built in `apps/web/src/design/`. Every colour, font and size is a token in
 `tokens.css`, and components use only those.
 
 - **Type**
-  - WSJ sets headlines in Escrow and data in Retina. Both are proprietary, so
-    the tokens use open stand-ins:
-    - *Newsreader* (a news serif) for the wordmark, page titles and section heads.
-    - *Public Sans* (derived from Libre Franklin, in the Franklin Gothic
-      tradition) for everything else.
-  - Public Sans was chosen over Libre Franklin after measuring both: Libre
-    Franklin has no tabular figures, so number columns wouldn't line up.
-  - Numbers in columns use tabular figures and are right-aligned. Big
-    standalone numbers keep proportional figures.
-  - Swapping in licensed WSJ fonts is a one-line change in `tokens.css`.
-- **Colour**
-  - Beige newsprint page (`#f1eadb`), cream panels, near-black ink, warm grey rules.
-  - Gold (`#a87c12`) used sparingly: the portfolio line, long exposure, the
-    active section, selections and focus.
-  - Blue as the second chart series. Warm grey for benchmarks.
-  - Newspaper green and red for gains and losses, always with a sign.
-  - A "night edition" dark theme built from the same tokens.
+  - *Newsreader* (a news serif) for the wordmark, page titles and headline
+    figures (NAV, the KPI tiles).
+  - *IBM Plex Mono* for numbers in tables, the status strip, the ticker and
+    timestamps: digits line up and never shift as they tick.
+  - *Public Sans* for text, and for the small uppercase letterspaced labels
+    and panel titles.
+  - Libre Franklin was measured and rejected: it has no tabular figures.
+- **Colour (dark, the default)**
+  - Near-black page (`#0e0d0c`), panels `#161513`, beige-white ink (`#ece4d6`),
+    warm grey rules.
+  - Sand/tan (`#d6b07a`) for the active section, selected options, primary
+    buttons and the mode badge.
+  - Ochre (`#bd8a3c`) and blue (`#5c8bd2`) as chart series; warm grey for benchmarks.
+  - Sage (`#79c07d`) and coral (`#ea6b5f`) for gains and losses, always with a sign.
+  - Status text (good / warn / bad) has its own tokens, separate from P&L colours.
+  - The light "paper" theme (beige newsprint, black ink, gold) is the same
+    layout with other tokens; the toggle remembers the choice.
   - All chart colours were run through the dataviz palette validator
     (lightness band, chroma, colour-blind separation, contrast) in both
     themes. All text clears WCAG 4.5:1.
 - **Structure**
-  - Masthead: wordmark, mode badge (DEMO DATA / PAPER / LIVE), account, market
-    session with countdown, system health, exchange clock, Halt trading, theme toggle.
-  - A ticker strip of reference markets under the masthead.
-  - Page titles sit over a double rule. Every panel starts with a black
-    section rule and a serif head.
+  - Sidebar: wordmark, mode badge and account, sections, then read-only facts
+    (latest close, quote feed, gateway, today's orders, next job).
+  - Status strip along the top, in mono: mode, market session with countdown,
+    the pre-trade gate (Ready / Blocked / Submitted / Halted), system health
+    (links to Operations), exchange clock, Halt trading, theme.
+  - Ticker along the bottom: headline markets, the book's biggest gainers and
+    losers today, then other markets. No animation.
+  - Pages open with a serif title and a one-line purpose. Panels have
+    uppercase letterspaced titles and thin rules; no glow, gradients or
+    rounded cards.
   - Dense tables; source and as-of lines on every panel.
 - **Charts (WSJ graphics conventions)**
   - y labels sit on the gridlines.
@@ -263,7 +268,9 @@ Built in `apps/web/src/design/`. Every colour, font and size is a token in
 9. **Prediction Markets** (deferred). Kalshi and ForecastEx positions and event exposure.
 
 Built so far, on the demo backend:
-- Overview (the Front Page as a PM cockpit)
+- Command Center: the verdict (all clear / review / action required),
+  headline P&L and risk, a readiness checklist, and blockers and warnings,
+  each linking to the page that owns it
 - Positions
 - Performance
 - Risk
@@ -825,8 +832,8 @@ CI (none exists today) arrives in Phase 0:
 
 **Answered (October 10):**
 - **Frontend:** React + TypeScript; built first.
-- **Look and name:** "DV02 Fund", WSJ-style, beige and black with a little
-  gold, PM cockpit layout.
+- **Look and name:** "DV02 Fund", dark by default (beige ink, tan accent,
+  serif titles, mono numbers) with a beige paper theme, Command Center layout.
 - **Kalshi:** deferred.
 - **OptionMetrics and TAQ:** not now.
 - **Paid data:** about $10/month, which goes to the IBKR US Securities

@@ -26,10 +26,9 @@ export function App() {
         <ServerClockProvider>
           <BrowserRouter>
             <div className="app">
+              <SideNav />
               <TopBar />
               <KillBanner />
-              <TickerStrip />
-              <SideNav />
               <main className="main">
                 <Routes>
                   <Route path="/" element={<Overview />} />
@@ -40,6 +39,7 @@ export function App() {
                   <Route path="/ops" element={<Operations />} />
                 </Routes>
               </main>
+              <TickerStrip />
             </div>
           </BrowserRouter>
         </ServerClockProvider>
