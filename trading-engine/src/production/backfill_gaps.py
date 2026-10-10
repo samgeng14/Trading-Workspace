@@ -65,6 +65,40 @@ def _last_date_in_master() -> str | None:
         return None
 
 
+def _master_dates() -> "list":
+    import pandas as pd
+
+    if MASTER_PARQUET.exists():
+        df = pd.read_parquet(MASTER_PARQUET, columns=["date"])
+    else:
+        csv = MASTER_PARQUET.with_suffix(".csv")
+        if not csv.exists():
+            return []
+        df = pd.read_csv(csv, usecols=["date"])
+    return sorted(pd.to_datetime(df["date"]).dt.normalize().unique())
+
+
+def auto_lookback(today: "datetime | None" = None, within_days: int = 365, min_missing: int = 3) -> str | None:
+    """The lookback that refills the oldest hole in the last year, or None if there is none.
+
+    A hole is ``min_missing`` or more weekdays without a row: between two dates
+    in the file (an outage, or a stale file that later got recent days
+    appended) or between the last date and today. Single missing weekdays are
+    exchange holidays, not holes.
+    """
+    import pandas as pd
+
+    today = pd.Timestamp(today or datetime.now()).normalize()
+    dates = [d for d in _master_dates() if d >= today - pd.Timedelta(days=within_days)]
+    if not dates:
+        return f"{within_days} D"
+    for prev, nxt in zip([*dates], [*dates[1:], today]):
+        missing = len(pd.bdate_range(prev, nxt)) - 2
+        if missing >= min_missing:
+            return f"{min(within_days, (today - prev).days + 7)} D"
+    return None
+
+
 def backfill(
     host: str = "127.0.0.1",
     port: int = 4002,
@@ -115,8 +149,21 @@ def main() -> None:
         help="IBKR lookback string e.g. '45 D', '3 M'",
     )
     parser.add_argument("--profile", default="paper", choices=["paper", "live"])
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="find the oldest hole in the last year and pick the lookback that refills it; no-op if none",
+    )
     parser.add_argument("--json", action="store_true", help="Print result as JSON")
     args = parser.parse_args()
+
+    if args.auto:
+        lookback = auto_lookback()
+        if lookback is None:
+            log.info("No gaps in the master price file over the last year; nothing to backfill.")
+            sys.exit(0)
+        log.info("Found a gap; backfilling with lookback %s", lookback)
+        args.lookback = lookback
 
     result = backfill(
         host=args.host,

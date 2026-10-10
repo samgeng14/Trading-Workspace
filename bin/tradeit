@@ -5,7 +5,7 @@
 #   tradeit login     save the IB Gateway login on this Mac (for automatic login)
 #   tradeit gateway   start | stop | status | logs  the auto-login IB Gateway (Docker)
 #   tradeit flex      connect IBKR Flex: daily NAV since the account opened
-#   tradeit refresh   update daily bars and targets now (a dry run: no orders)
+#   tradeit refresh   fill price-history holes, update bars and targets (dry run: no orders)
 #   tradeit doctor    check the IBKR connection end to end
 #   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
 #   tradeit api       just the API
@@ -194,8 +194,12 @@ PY
 cmd_refresh() {
   need_venv
   cd "$ROOT/trading-engine"
-  local cid
+  local cid port
   cid="$("$PY" -c 'from src.broker.ibkr import settings; print(settings.client_id_for("backfill", "paper"))')"
+  port="$("$PY" -c 'from src.broker.ibkr import settings; print(settings.resolve_endpoint("paper").port)')"
+  say "Filling any holes in the price history (the engine's backfill_gaps --auto)"
+  "$PY" -m src.production.backfill_gaps --auto --profile paper --port "$port" --client-id "$cid" \
+    || die "backfill failed (reason above); is IB Gateway running?"
   say "Refreshing daily bars and targets through the engine's daily runner (dry run: no orders are sent)"
   exec "$PY" -m src.production.daily_runner --profile paper --dry-run --client-id "$cid" "$@"
 }
