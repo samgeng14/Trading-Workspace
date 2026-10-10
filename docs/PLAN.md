@@ -1,6 +1,6 @@
-# Trading Platform Plan
+# DV02 Fund: Trading Platform Plan
 
-October 10, 2026 · Status: draft for discussion
+October 10, 2026 · Status: Phase 0 IBKR plumbing done; Phase 1 (frontend) under way
 
 This is the plan for turning `Trading-Workspace` from a daily ETF rebalancer
 into a full paper-trading platform: a newspaper-style frontend, a C++
@@ -18,8 +18,8 @@ a fixed API contract. That way nothing built early gets thrown away.
 
 | Topic | Recommendation | Why |
 |---|---|---|
-| Frontend language | **TypeScript + React + Vite**, hand-built design system, no UI kit theme | Best tooling for dense, live, data-heavy screens. The "vibe-coded" look comes from default kits (Tailwind/shadcn gradients, glows, rounded cards), not from React. |
-| Look | **WSJ-style "edition"**: serif headlines, newspaper sans for data, hairline rules, tabular numbers, editorial charts | What you asked for. It also suits a finance tool: dense, calm, readable. |
+| Frontend language | **TypeScript + React + Vite**, hand-built design system, no UI kit theme. *Decided.* | Best tooling for dense, live, data-heavy screens. The "vibe-coded" look comes from default kits (Tailwind/shadcn gradients, glows, rounded cards), not from React. |
+| Look | **DV02 Fund, WSJ-style**: beige newsprint, black ink, a little gold; serif section heads, newspaper sans with tabular figures, black section rules; a PM cockpit layout. *Decided.* | What you asked for. It also suits a finance tool: dense, calm, readable. |
 | Middle layer | **FastAPI service with a versioned contract** (OpenAPI + WebSocket schemas); TypeScript types generated from it | The frontend can ship now on the existing Python system. Later the C++ engine is swapped in underneath without touching the UI. |
 | Engine | **C++20 daemon (`tradeitd`)** for broker connections, order management, the central risk book, hedging and intraday strategies | This is where C++ pays off: one long-lived broker connection, deterministic event loop, replayable state, low latency later. |
 | Research | **Stays in Python** (Polars/DuckDB). C++ risk and simulation code is exposed to Python via bindings. | Sharpe comes from data and signals, not language. WRDS tooling is Python/SQL. Shared bindings keep research and production math identical. |
@@ -192,38 +192,47 @@ Alternatives considered:
 
 ### Design system: "the edition"
 
-Write the rules down once as tokens and components, then use only those.
+Built in `apps/web/src/design/`. Every colour, font and size is a token in
+`tokens.css`, and components use only those.
 
 - **Type**
-  - A news serif for headlines and section heads: *Newsreader*, which has
-    optical sizes.
-  - A newspaper sans for UI and data: *Libre Franklin*, in the Franklin
-    Gothic tradition used by newspapers.
-  - Every number uses tabular figures (`font-variant-numeric: tabular-nums`)
-    and is right-aligned. Verify `tnum` support in the chosen sans; if it's
-    missing, use IBM Plex Sans for numerals.
-  - Kickers and labels in small caps.
+  - WSJ sets headlines in Escrow and data in Retina. Both are proprietary, so
+    the tokens use open stand-ins:
+    - *Newsreader* (a news serif) for the wordmark, page titles and section heads.
+    - *Public Sans* (derived from Libre Franklin, in the Franklin Gothic
+      tradition) for everything else.
+  - Public Sans was chosen over Libre Franklin after measuring both: Libre
+    Franklin has no tabular figures, so number columns wouldn't line up.
+  - Numbers in columns use tabular figures and are right-aligned. Big
+    standalone numbers keep proportional figures.
+  - Swapping in licensed WSJ fonts is a one-line change in `tokens.css`.
 - **Colour**
-  - Paper background (white or a faint warm off-white) and near-black ink.
-  - One accent blue.
-  - Market green and red at newspaper saturation, not neon.
-  - Chart series: ink, blue, ochre, grey.
-  - An optional "night edition" dark theme, built from the same tokens.
+  - Beige newsprint page (`#f1eadb`), cream panels, near-black ink, warm grey rules.
+  - Gold (`#a87c12`) used sparingly: the portfolio line, long exposure, the
+    active section, selections and focus.
+  - Blue as the second chart series. Warm grey for benchmarks.
+  - Newspaper green and red for gains and losses, always with a sign.
+  - A "night edition" dark theme built from the same tokens.
+  - All chart colours were run through the dataviz palette validator
+    (lightness band, chroma, colour-blind separation, contrast) in both
+    themes. All text clears WCAG 4.5:1.
 - **Structure**
-  - A masthead with the date and market status, e.g. "Friday, October 9, 2026 · Markets closed · As of 4:00 p.m. ET".
-  - Section heads with a double rule. 1px hairline rules between blocks.
-  - A 12-column newspaper grid. Dense tables.
-  - Source lines under every chart and table, e.g. "Source: IBKR Flex; CRSP. Total return."
+  - Masthead: wordmark, mode badge (DEMO DATA / PAPER / LIVE), account, market
+    session with countdown, system health, exchange clock, Halt trading, theme toggle.
+  - A ticker strip of reference markets under the masthead.
+  - Page titles sit over a double rule. Every panel starts with a black
+    section rule and a serif head.
+  - Dense tables; source and as-of lines on every panel.
 - **Charts (WSJ graphics conventions)**
-  - Title and one-line dek at top left.
-  - Horizontal gridlines only, no chart border.
-  - Lines labelled directly at their ends, with no legend boxes.
-  - Rebalances, kill-switch events and hedges annotated as small markers.
-- **Not allowed:** gradients, glows, glassmorphism, drop shadows, radius over
-  2px, emoji, animated counters, neon-on-black. Motion is limited to a brief
-  fade on a cell whose value just changed.
-- **Living style guide:** a `/design` route renders every component with real
-  data, so the look is reviewed in one place.
+  - y labels sit on the gridlines.
+  - Lines are labelled directly at their ends.
+  - Horizontal hairlines only.
+  - A crosshair tooltip lists every series and works from the keyboard
+    (arrows, Home, End).
+  - Every chart has a Table view.
+- **Not allowed:** gradients, glows, glassmorphism, drop shadows, rounded
+  cards, emoji, animated counters, neon-on-black.
+- **Still to build:** a `/design` style-guide route.
 
 ### Pages ("sections")
 
@@ -251,7 +260,17 @@ Write the rules down once as tokens and components, then use only those.
    ingest, row counts.
 8. **Operations.** Doctor results, schedule, run logs, kill switch, engine and
    gateway health.
-9. **Prediction Markets** (Phase 4+). Kalshi and ForecastEx positions and event exposure.
+9. **Prediction Markets** (deferred). Kalshi and ForecastEx positions and event exposure.
+
+Built so far, on the demo backend:
+- Overview (the Front Page as a PM cockpit)
+- Positions
+- Performance
+- Risk
+- Trading
+- Operations
+
+Still to come: Strategies and Data, which wait on the sleeve framework and the data platform.
 
 ### "Make all the buttons work": the control contract
 
@@ -276,13 +295,26 @@ tab has no backend and the Optimizer dropdown has no effect.
 - The server coalesces updates to at most 4 per second per topic. Tables update
   cells in place.
 
-### First two weeks of Phase 1
+### Phase 1 status
 
-1. Write API v1 in `schemas/`: OpenAPI plus WS messages, starting from the Front Page and Performance pages.
-2. Scaffold `apps/web`: tooling, design tokens, fonts, base components (Masthead,
-   SectionHead, StatLine, Figure, DataTable) and the `/design` page.
-3. MSW fixtures from real exported data. Build Front Page and Performance against them.
-4. Implement those endpoints in FastAPI over the Flex-based NAV history (Phase 0) and benchmark series.
+**Done:**
+- API contract v1: `schemas/api/v1.yaml`, 14 endpoints, with TypeScript types generated from it.
+- `apps/web`: shell, design system, and six sections.
+- A deterministic demo backend: MSW plus a seeded simulation of the $1M book
+  since inception, pinned to the real 22-ETF universe and a futures hedge.
+- The control contract (`e2e/controls.ts`), with Playwright tests for every
+  control and a meta-test that fails on unregistered or untested controls.
+- Web CI (`.github/workflows/web.yml`).
+
+**Next:**
+1. FastAPI v1 implementing the same contract over real data:
+   - account, positions and orders through the settings-based IBKR client
+   - the doctor report from `src/broker/ibkr/doctor.py`
+   - runs from `artifacts/runs`
+   - NAV history from Flex (Phase 0)
+2. A WebSocket feed for live positions and P&L.
+3. Strategies and Data sections.
+4. Delete the old static dashboard once Appendix B is covered.
 
 ---
 
@@ -383,6 +415,18 @@ until the C++ simulation core (through its bindings) covers it.
     - CME/CBOT/NYMEX/COMEX non-professional bundles for futures.
     - OPRA for options.
   - The doctor's `quotes` check shows whether you are getting live or delayed data.
+  - **With a ~$10/month budget,** subscribe the live login to the **US
+    Securities Snapshot and Futures Value Bundle** ($10/month).
+    - It covers real-time top-of-book for US stocks and ETFs and the CME,
+      CBOT, COMEX and NYMEX futures exchanges.
+    - The fee is waived in months with at least $30 of real commissions; paper
+      trades don't count.
+    - The live account must stay funded (IBKR terminates data below about
+      $500 equity).
+    - Then turn on sharing to the paper user.
+  - **Caveat for the VM:** if the live and paper sessions run at the same time
+    on *different* machines, the paper session gets no live data. Keep the live
+    login closed while the VM gateway runs, or add a second live user.
 - **Limits.**
   - About 100 concurrent market-data lines by default: stream holdings only,
     and use bars or snapshots for large universes.
@@ -394,6 +438,16 @@ until the C++ simulation core (through its bindings) covers it.
   - Recommended convention: signal computed on the close of day *t−1*, traded
     MOC on day *t*. The backtest does exactly the same thing, so live and
     backtest line up.
+- **Futures and options permissions.**
+  - Request them on the live account: Client Portal → Settings → Trading
+    Permissions. Paper permissions generally follow the live account's.
+  - IBKR approves based on the trading experience (years, trades per year),
+    knowledge, income, net worth and objectives in your profile. A request
+    "not working" usually means the profile doesn't meet their bar for that product.
+  - Update Trading Experience and Financial Information honestly, then
+    re-request. The denial reason is shown on screen, and support chat can tell
+    you what's missing.
+  - Until futures are approved, the CRB hedges beta with SPY (short) instead of MES.
 - **Shorting.** Requires a margin account with short permission; the doctor's
   `short preview` checks this. IBKR publishes shortable quantities and borrow
   fees. Use them in backtests, because **paper doesn't charge realistic borrow
@@ -611,11 +665,12 @@ tens of GB as Parquet. That fits comfortably on the laptop and on a 200 GB VM.
 | Research tooling | Event Study by WRDS, Eventus, Linking Queries |
 | Probably skip | European Short Data, MSRB, DMEF, IRI, NielsenIQ sample, OTC Markets, Bank Regulatory (unless trading banks), Subsidiary Data |
 
-**Gaps to ask the library about:**
+**Gaps (OptionMetrics and TAQ: not for now, revisit later):**
 
-- **OptionMetrics**, needed for options research in S3.
-- **TAQ**, needed for intraday research. The Intraday Indicators product
-  suggests you may have it.
+- **OptionMetrics**, needed for options research. Until then, S3 is limited to
+  the vol-managed overlay and VIX-futures term-structure work.
+- **TAQ**, needed for intraday research. Until then, use IBKR minute bars,
+  within pacing limits.
 - **RavenPack** or another news dataset, needed for S7.
 - **Which FactSet modules** are included; supply chain matters for one of the ideas above.
 
@@ -628,10 +683,11 @@ tens of GB as Parquet. That fits comfortably on the laptop and on a 200 GB VM.
 - Cboe VIX futures settlement history.
 - IBKR's free API news providers.
 
-**Paid sources, only if a sleeve needs them:**
+**Paid sources:**
 
-- Databento or a similar provider for minute bars and futures history.
-- A news feed for S7.
+- Budget is about $10/month, which goes to the IBKR Value Bundle above.
+- Databento or a similar provider (minute bars, futures history) and a news
+  feed for S7 wait until a sleeve proves it needs them.
 
 ### Practical WRDS notes
 
@@ -720,6 +776,8 @@ tradeit down        stop local services (never cancels resting orders without --
 
 ## 12. Prediction markets: Kalshi and IBKR ForecastEx
 
+**Deferred.** Kalshi is out of scope for now. The notes below are kept for when it comes back.
+
 - **Kalshi.**
   - The existing desk on the Oracle VM becomes an engine venue (`brokers/kalshi`).
   - Positions flow into the CRB as binary exposures, where maximum loss = premium paid.
@@ -748,7 +806,7 @@ Sizes are rough, assuming one person working part-time. Phases 1–3 overlap.
 | Phase | Scope | Exit criteria | Size |
 |---|---|---|---|
 | **0. Stabilize** | IBKR plumbing (this PR); MOC timing; adjusted prices; fix drift gate; schedule and fix EOD reconcile; wire `risk_limits.yaml` and kill switch into every submit path; holiday calendar; declare deps (pandas); MOSEK out of git with a free solver fallback (Clarabel/ECOS); backfill price data; **Flex history + NAV since inception**; delete dead code (GCS pipeline, simulations, 0-byte modules) | 10 consecutive trading days with doctor green, the run executing, EOD reconcile matching the broker to the share, and NAV matching the IBKR statement | 2–3 weeks |
-| **1. Frontend + API v1** | Contract, design system, all 8 sections, control contract with Playwright, simulated broker for CI; delete old static dashboard | Every control in Appendix B is replaced or deliberately dropped; e2e green in CI | 4–6 weeks |
+| **1. Frontend + API v1** (in progress) | Contract, design system, all 8 sections, control contract with Playwright, simulated broker for CI; delete old static dashboard. *Done: contract, design system, 6 sections on the demo backend, control contract, web CI. Next: FastAPI over real data.* | Every control in Appendix B is replaced or deliberately dropped; e2e green in CI | 4–6 weeks |
 | **2. Data platform** | Lake + DuckDB, Postgres, security master, point-in-time layer, WRDS jobs, dataset watermarks + `catchup`, Oracle VM setup, tunnel + Access, R2 backups | S2's full history rebuildable from scratch with one command; Data page all green | 4–8 weeks (parallel) |
 | **3. C++ engine** | Read-only mirror → shadow OMS → engine submits → CRB + auto-hedger; nanobind bindings | Two weeks of shadow orders matching Python; one month engine-only with zero unexplained breaks | 2–4 months |
 | **4. Sleeves** | S1, S2, S3a, S4, S5, S6 through the research gate, one at a time | Each passes the gate and 3 months of paper; book Sharpe tracked with confidence intervals | One sleeve per 4–8 weeks |
@@ -757,29 +815,33 @@ Sizes are rough, assuming one person working part-time. Phases 1–3 overlap.
 
 CI (none exists today) arrives in Phase 0:
 - Python tests and lint.
-- In Phase 1: frontend typecheck, lint and e2e.
+- In Phase 1: frontend typecheck, lint and e2e. *(Added.)*
 - In Phase 3: C++ build with sanitizers and tests, plus replay tests that run a
   recorded day through the engine and compare the result.
 
 ---
 
-## 14. Decisions needed from you
+## 14. Decisions
 
-1. **Frontend stack:** React + TypeScript as recommended, or Svelte?
-2. **Oracle VM:** shape (ARM Ampere or x86), RAM, disk. Is it OK to run the
-   IBKR gateway and Postgres there next to the Kalshi desk?
-3. **IBKR account settings:**
-   - market-data subscriptions on the live login, shared to paper
-   - margin account with short permission
-   - futures and options permissions on paper
-4. **WRDS:** which subscriptions are actually active, especially OptionMetrics,
-   TAQ, RavenPack and the FactSet modules. Do unattended connections pass Duo?
-5. **Budget for paid data**, if any (minute bars, news, options).
-6. **Kalshi desk:** where the code lives and what language it's in, so it can
-   become an engine venue.
-7. **Collaborators:** Rithwik (original engine), the News Engine project with
+**Answered (October 10):**
+- **Frontend:** React + TypeScript; built first.
+- **Look and name:** "DV02 Fund", WSJ-style, beige and black with a little
+  gold, PM cockpit layout.
+- **Kalshi:** deferred.
+- **OptionMetrics and TAQ:** not now.
+- **Paid data:** about $10/month, which goes to the IBKR US Securities
+  Snapshot and Futures Value Bundle.
+
+**Still open:**
+1. **Oracle VM shape.** On the VM, `uname -m` (aarch64 = ARM Ampere), `nproc`,
+   `free -h` and `df -h /` give everything needed. Is it OK to run the IBKR
+   gateway and Postgres there?
+2. **IBKR permissions.** Re-request futures and options after updating the
+   profile (Section 7). Confirm the account is a margin account (needed for shorts).
+3. **WRDS:** which FactSet modules are active. Do unattended connections pass Duo?
+4. **Collaborators:** Rithwik (original engine), the News Engine project with
    Prof. Singh. One monorepo, or separate repos with shared `schemas/`?
-8. **Benchmark default** for the Performance page: S&P 500 total return?
+5. **Benchmark default** for the Performance page: S&P 500 total return (current default)?
 
 ---
 
