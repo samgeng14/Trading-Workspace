@@ -1,17 +1,27 @@
 default_broker: ibkr
 
+# Connection settings for every IBKR client in the repo. Resolved by
+# src/broker/ibkr/settings.py; environment variables override these
+# (IBKR_HOST, IBKR_PORT_PAPER, IBKR_PORT_LIVE, IBKR_ACCOUNT_PAPER, ...).
+#
+# Host ports:  IB Gateway paper 4002 / live 4001,  TWS paper 7497 / live 7496.
+# ibgw/docker-compose.yml publishes the container's paper socket on 4002.
+#
+# Client IDs are fixed per role (client_id_base + offset, see ROLE_OFFSETS
+# in settings.py): orders = base+0, account = base+1, market data = base+2,
+# ..., dashboard = base+7, doctor = base+9.
 ibkr:
   host: 127.0.0.1
 
   paper:
-    port: 4004
-    client_id: 21
+    port: 4002
+    client_id_base: 300
     readonly: false
-    account: ""
+    account: ""        # empty = first managed account (must start with "D")
 
   live:
-    port: 4003
-    client_id: 22
+    port: 4001
+    client_id_base: 400
     readonly: false
     account: ""
 

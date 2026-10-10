@@ -53,12 +53,14 @@ log = logging.getLogger("daily_runner")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DEFAULT_HOST = os.environ.get("IBKR_HOST", "127.0.0.1")
-# Allow overriding the IBKR API port via env so the same plist/script works
-# whether the user runs IB Gateway (4002 paper / 4001 live) or TWS
-# (7497 paper / 7496 live). CLI --port still wins over env.
-DEFAULT_PORT_PAPER = int(os.environ.get("IBKR_PORT_PAPER", "4002"))
-DEFAULT_PORT_LIVE = int(os.environ.get("IBKR_PORT_LIVE", "4001"))
+from src.broker.ibkr.settings import client_id_for, resolve_endpoint
+
+# Host / ports come from env (IBKR_HOST, IBKR_PORT_PAPER, IBKR_PORT_LIVE)
+# or config/broker.yaml — see src/broker/ibkr/settings.py. Works for IB
+# Gateway (4002 paper / 4001 live) and TWS (7497 / 7496). CLI --port wins.
+DEFAULT_HOST = resolve_endpoint("paper").host
+DEFAULT_PORT_PAPER = resolve_endpoint("paper").port
+DEFAULT_PORT_LIVE = resolve_endpoint("live").port
 DEFAULT_CLIENT_ID = int(os.environ.get("IBKR_CLIENT_ID", "101"))
 
 # Momentum strategy params
@@ -389,6 +391,10 @@ def _already_ran_today_successfully() -> Optional[Path]:
     successful 16:32 run and the runner exits without doing anything,
     but log in after a *missed* 16:32 (Mac was off, asleep, or you'd
     user-switched away too long) and it executes the catch-up.
+
+    Dry runs don't count: the dashboard's "Run audit" button runs the
+    pipeline with ``dry_run=True``, and that must not cancel the real
+    scheduled run.
     """
     run_dir = PROJECT_ROOT / "artifacts" / "runs"
     if not run_dir.exists():
@@ -398,7 +404,7 @@ def _already_ran_today_successfully() -> Optional[Path]:
         try:
             with open(path) as f:
                 doc = json.load(f)
-            if doc.get("ok") is True:
+            if doc.get("ok") is True and not doc.get("dry_run"):
                 return path
         except Exception:
             continue
@@ -778,8 +784,10 @@ def run(
         return run_result
 
     # ── Step 4: Submit orders ─────────────────────────────────────────────────
+    # Orders always go out on the fixed "orders" clientId so they can be
+    # cancelled / modified later from any tool that uses that role.
     submit_result = step_submit_orders(
-        host=host, port=port, client_id=client_id + 20,
+        host=host, port=port, client_id=client_id_for("orders", profile),
         profile=profile, dry_run=dry_run,
     )
     run_result["steps"]["submit_orders"] = submit_result

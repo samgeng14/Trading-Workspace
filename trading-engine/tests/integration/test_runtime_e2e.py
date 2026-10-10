@@ -77,7 +77,7 @@ def isolated_runtime(tmp_path, monkeypatch):
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_full_cycle_happy_path(isolated_runtime):
+def test_full_cycle_happy_path(isolated_runtime, monkeypatch):
     today = date(2026, 4, 30)
     sink_calls: list[OrderTicket] = []
 
@@ -137,7 +137,10 @@ def test_full_cycle_happy_path(isolated_runtime):
         assert record["stage"] == "post_submit"
         assert record["broker_response"]["ok"] is True
 
-    # 7. EOD reconcile (no broker available → graceful empty-diff path)
+    # 7. EOD reconcile against a broker whose positions match the book.
+    monkeypatch.setattr(
+        "src.broker.ibkr.reconciler.diff_book_vs_account", lambda **_: []
+    )
     eod = reconcile_end_of_day(profile="paper", as_of=today)
     assert eod.ok is True
     assert eod.material_mismatch is False

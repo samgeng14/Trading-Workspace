@@ -30,9 +30,10 @@ class AppendResult:
     preview: list[dict[str, Any]]
 
 
-MASTER_CSV = Path("/Users/tradingworkspace/TradingWorkspace/trading-engine/data/market/cleaned/prices/futures_prices_master.csv")
-MASTER_PARQUET = Path("/Users/tradingworkspace/TradingWorkspace/trading-engine/data/market/cleaned/prices/futures_prices_master.parquet")
-SNAPSHOTS_DIR = Path("/Users/tradingworkspace/TradingWorkspace/trading-engine/data/market/snapshots")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+MASTER_CSV = PROJECT_ROOT / "data/market/cleaned/prices/futures_prices_master.csv"
+MASTER_PARQUET = PROJECT_ROOT / "data/market/cleaned/prices/futures_prices_master.parquet"
+SNAPSHOTS_DIR = PROJECT_ROOT / "data/market/snapshots"
 
 MASTER_COLUMNS = [
     "date", "symbol",

@@ -9,6 +9,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+from src.broker.ibkr.settings import resolve_endpoint
 from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig
 
 
@@ -24,8 +25,8 @@ class BasketBuildConfig:
     account_snapshot_dir: Path
     positions_snapshot_dir: Path
     host: str = "127.0.0.1"
-    port: int = 4004
-    client_id: int = 21
+    port: int = 4002
+    client_id: int = 301
     account: str | None = None
     cash_buffer: float = 0.005
     min_trade_dollars: float = 1000.0
@@ -39,6 +40,7 @@ def _project_root() -> Path:
 
 def default_config() -> BasketBuildConfig:
     root = _project_root()
+    endpoint = resolve_endpoint("paper")
     return BasketBuildConfig(
         targets_path=root / "data/market/cleaned/targets/etf_targets_monthly.parquet",
         reconciliation_csv_path=root / "data/broker/reconciliations/paper_reconciliation.csv",
@@ -49,9 +51,10 @@ def default_config() -> BasketBuildConfig:
         orders_parquet_path=root / "data/broker/orders/paper_orders_only.parquet",
         account_snapshot_dir=root / "data/broker/account",
         positions_snapshot_dir=root / "data/broker/positions",
-        host="127.0.0.1",
-        port=4004,
-        client_id=21,
+        host=endpoint.host,
+        port=endpoint.port,
+        client_id=endpoint.client_id("account"),
+        account=endpoint.account,
         cash_buffer=0.005,
         min_trade_dollars=1000.0,
     )
@@ -298,6 +301,7 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
             port=config.port,
             client_id=config.client_id,
             account=config.account,
+            expected_profile="paper",
         )
     )
     client.connect()

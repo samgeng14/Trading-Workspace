@@ -4,12 +4,12 @@ from typing import Any
 
 from ib_async import IB
 
+from src.broker.ibkr.settings import resolve_endpoint
+
 
 def _resolve_connection(profile: str = "paper") -> tuple[str, int, int]:
-    profile = (profile or "paper").lower()
-    if profile == "live":
-        return ("127.0.0.1", 4001, 997)
-    return ("127.0.0.1", 4002, 998)
+    endpoint = resolve_endpoint((profile or "paper").lower())
+    return (endpoint.host, endpoint.port, endpoint.client_id("dashboard"))
 
 
 def get_broker_status(

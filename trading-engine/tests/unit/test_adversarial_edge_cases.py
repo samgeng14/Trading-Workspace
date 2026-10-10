@@ -881,10 +881,14 @@ def test_reconcile_rerun_does_not_double_arm(
     arm_kill_switch("first arm reason", by="initial")
     state_before = read_kill_switch_state()
 
-    # Reconcile (no broker available → returns ok=True with empty diffs,
-    # so it shouldn't re-arm; this also exercises the idempotent check).
+    # A material mismatch on the rerun must hit the idempotent check.
+    monkeypatch.setattr(
+        "src.broker.ibkr.reconciler.diff_book_vs_account",
+        lambda **_: [{"symbol": "SPY", "notional_diff_usd": 50_000.0}],
+    )
     res = reconcile_end_of_day(profile="paper", as_of=date(2026, 4, 30))
     assert res.ok is True
+    assert res.material_mismatch is True
 
     state_after = read_kill_switch_state()
     # Original arm metadata preserved.

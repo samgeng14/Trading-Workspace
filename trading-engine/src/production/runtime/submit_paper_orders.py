@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig
+from src.broker.ibkr.settings import resolve_endpoint
 from src.broker.ibkr.orders import IBKROrderManager, OrderRequest
 
 
@@ -29,8 +30,8 @@ class SubmitPaperOrdersConfig:
     submissions_dir: Path
     fills_dir: Path
     host: str = "127.0.0.1"
-    port: int = 4004
-    client_id: int = 31
+    port: int = 4002
+    client_id: int = 300
     account: str | None = None
     dry_run: bool = True
     order_type: str = "MKT"
@@ -45,13 +46,15 @@ def _project_root() -> Path:
 
 def default_config() -> SubmitPaperOrdersConfig:
     root = _project_root()
+    endpoint = resolve_endpoint("paper")
     return SubmitPaperOrdersConfig(
         orders_path=root / "data/broker/orders/paper_orders_only.parquet",
         submissions_dir=root / "data/broker/orders",
         fills_dir=root / "data/broker/fills",
-        host="127.0.0.1",
-        port=4002,
-        client_id=31,
+        host=endpoint.host,
+        port=endpoint.port,
+        client_id=endpoint.client_id("orders"),
+        account=endpoint.account,
         dry_run=True,
         order_type="MKT",
         wait_for_status=True,
@@ -149,6 +152,7 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
             port=config.port,
             client_id=config.client_id,
             account=config.account,
+            expected_profile="paper",
         )
     )
     client.connect()

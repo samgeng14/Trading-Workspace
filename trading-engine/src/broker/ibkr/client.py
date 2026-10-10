@@ -17,6 +17,15 @@ class IBKRNotConnectedError(IBKRClientError):
     """Raised when an operation requires an active IB connection."""
 
 
+class IBKRWrongAccountError(IBKRClientError):
+    """Raised when a paper-profile connection lands on a live account, or vice versa."""
+
+
+def is_paper_account(account_id: str) -> bool:
+    """IBKR paper account IDs start with "D" (DU…, DF…); live ones never do."""
+    return str(account_id).strip().upper().startswith("D")
+
+
 @dataclass(slots=True)
 class IBKRConnectionConfig:
     host: str = "127.0.0.1"
@@ -25,6 +34,9 @@ class IBKRConnectionConfig:
     readonly: bool = False
     account: str | None = None
     timeout: float = 10.0
+    # "paper" / "live": verify the session's accounts match on connect.
+    # None skips the check (legacy call sites).
+    expected_profile: str | None = None
 
 
 class IBKRClient:
@@ -60,6 +72,26 @@ class IBKRClient:
         )
         if not self.ib.isConnected():
             raise IBKRClientError("IBKR connection failed")
+        self._verify_profile()
+
+    def _verify_profile(self) -> None:
+        expected = self.config.expected_profile
+        if expected is None:
+            return
+        accounts = [str(a) for a in self.ib.managedAccounts()]
+        if not accounts:
+            return
+        if expected == "paper":
+            wrong = [a for a in accounts if not is_paper_account(a)]
+        else:
+            wrong = [a for a in accounts if is_paper_account(a)]
+        if wrong:
+            self.ib.disconnect()
+            raise IBKRWrongAccountError(
+                f"profile={expected} but {self.config.host}:{self.config.port} serves "
+                f"account(s) {wrong}; refusing to continue. Check the port: "
+                "paper is 4002 (Gateway) / 7497 (TWS), live is 4001 / 7496."
+            )
 
     def disconnect(self) -> None:
         if self.ib.isConnected():
@@ -142,7 +174,8 @@ class IBKRClient:
     def qualify_contract(self, contract: Any) -> Any:
         self.ensure_connected()
         qualified = self.ib.qualifyContracts(contract)
-        if not qualified:
+        # ib_async 2.x returns [None] (not []) for unknown / ambiguous contracts.
+        if not qualified or qualified[0] is None:
             raise IBKRClientError(f"Failed to qualify contract: {contract}")
         return qualified[0]
 

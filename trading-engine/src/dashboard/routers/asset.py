@@ -13,7 +13,6 @@ Sub-views:
 from __future__ import annotations
 
 import re
-import socket
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -741,18 +740,10 @@ def _load_positions(path: Path, nav: float | None) -> pd.DataFrame:
 
 
 def _autodetect_port(profile: str) -> int:
-    candidates = (
-        [7497, 4002, 4001, 7496] if profile == "paper" else [7496, 4001, 4002, 7497]
-    )
-    for port in candidates:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
-        try:
-            if sock.connect_ex(("127.0.0.1", port)) == 0:
-                return port
-        finally:
-            sock.close()
-    return 4002 if profile == "paper" else 4001
+    # Only ever probes ports for the same profile; see settings.candidate_ports.
+    from src.broker.ibkr.settings import detect_port
+
+    return detect_port(profile)
 
 
 def _ibkr_endpoint_choices(profile: str) -> list[dict[str, Any]]:

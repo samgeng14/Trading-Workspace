@@ -233,7 +233,7 @@ def submit_paper_orders(
     dry_run: bool = False,
     host: str | None = None,
     port: int | None = None,
-    client_id: int = 31,
+    client_id: int | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     if profile != "paper":
@@ -257,10 +257,9 @@ def submit_paper_orders(
     # The runtime ``submit_paper_orders`` function takes a single
     # ``SubmitPaperOrdersConfig`` argument, not ``profile=`` kwargs. Build
     # the config here so all callers (CLI, dashboard, daily_runner) end up
-    # in the same code path.
-    import os as _os
+    # in the same code path. default_config() already resolves host, port
+    # and the fixed "orders" clientId from env / config/broker.yaml.
     from src.production.runtime.submit_paper_orders import (
-        SubmitPaperOrdersConfig,
         default_config,
         submit_paper_orders as _runtime_submit,
     )
@@ -270,17 +269,8 @@ def submit_paper_orders(
         cfg.host = host
     if port is not None:
         cfg.port = int(port)
-    else:
-        # Use whichever IBKR port is configured for this profile via env.
-        env_port = _os.environ.get(
-            "IBKR_PORT_PAPER" if profile == "paper" else "IBKR_PORT_LIVE"
-        )
-        if env_port:
-            try:
-                cfg.port = int(env_port)
-            except ValueError:
-                pass
-    cfg.client_id = int(client_id)
+    if client_id is not None:
+        cfg.client_id = int(client_id)
     cfg.dry_run = bool(dry_run)
 
     # Filter additional kwargs to fields actually on the dataclass.

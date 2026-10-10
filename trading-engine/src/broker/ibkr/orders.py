@@ -6,7 +6,7 @@ from typing import Any, Literal, Optional
 
 from ib_async import Contract, LimitOrder, MarketOrder, Order, Stock, StopOrder
 
-from .client import IBKRClient, IBKRConnectionConfig
+from .client import IBKRClient
 
 logger = logging.getLogger(__name__)
 
@@ -317,18 +317,10 @@ def submit_one(
 
     owns_manager = manager is None
     if manager is None:
-        # Lazy import — avoids a circular if executions.py is loaded later.
-        from .executions import _broker_profile_config
+        from .settings import make_client
 
-        cfg = _broker_profile_config(profile)
         try:
-            client = IBKRClient(IBKRConnectionConfig(
-                host=cfg["host"],
-                port=cfg["port"],
-                client_id=int(cfg["client_id"]),
-                readonly=False,
-                account=cfg["account"],
-            ))
+            client = make_client(profile, "orders")
             client.connect()
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"connect failed: {exc}", "symbol": sym}
