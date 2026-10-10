@@ -115,13 +115,18 @@ Open whichever you installed and **log into your paper account**. Then:
 **IB Gateway:** Configure → Settings → API → Settings — same options;
 ports are `4002` (paper) and `4001` (live).
 
-Verify the API is listening:
+Point the engine at it. Copy `.env.example` (repo root) to `.env` and set
+`IBKR_PORT_PAPER` to 4002 (IB Gateway) or 7497 (TWS). Then run the
+connection doctor, which checks the socket, API handshake, account type,
+balances, contracts, daily bars, live vs. delayed quotes and order
+permissions, and prints the fix for anything that fails:
 
 ```bash
-# In Terminal, with TWS or Gateway running:
-lsof -nP -iTCP -sTCP:LISTEN | grep -E '7497|7496|4001|4002'
-# You should see one line with `java` listening on whichever port you picked.
+python -m src.broker.ibkr.doctor
 ```
+
+Every IBKR connection in the repo reads its host, port and clientId from
+`src/broker/ibkr/settings.py` (env > `.env` > `config/broker.yaml`).
 
 ### Step 5 · Bootstrap the autonomous schedule
 
