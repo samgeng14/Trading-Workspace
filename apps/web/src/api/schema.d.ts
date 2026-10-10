@@ -368,11 +368,14 @@ export interface components {
             cash: number;
             day_pnl: number;
             day_return: number;
-            mtd_return: number;
-            ytd_return: number;
-            itd_return: number;
+            /** @description Null when the NAV history doesn't reach the start of the month. */
+            mtd_return: number | null;
+            /** @description Null when the NAV history doesn't reach the start of the year. */
+            ytd_return: number | null;
+            /** @description Null with fewer than two days of NAV history. */
+            itd_return: number | null;
             benchmark: components["schemas"]["Benchmark"];
-            benchmark_itd_return: number;
+            benchmark_itd_return: number | null;
             long_exposure: number;
             /** @description Negative fraction of NAV. */
             short_exposure: number;
@@ -380,10 +383,25 @@ export interface components {
             net_exposure: number;
             /** @description Ex-ante beta to the S&P 500. */
             beta: number;
-            sharpe_itd: components["schemas"]["SharpeEstimate"];
+            /** @description Null with fewer than 20 daily returns. */
+            sharpe_itd: components["schemas"]["SharpeEstimate"] | null;
             positions_count: number;
             /** @description Daily NAV for the last ~30 sessions (sparkline). */
             nav_history: components["schemas"]["DatedValue"][];
+            history: components["schemas"]["HistoryCoverage"];
+        };
+        /** @description How much daily NAV history backs the returns and ratios. */
+        HistoryCoverage: {
+            /**
+             * Format: date
+             * @description Inception: the first day with a NAV.
+             */
+            first_date: string;
+            /** @description Trading days with a NAV. */
+            days: number;
+            /** @description True when the history is known to start at inception (IBKR Flex, or a configured start). */
+            complete: boolean;
+            sources: string[];
         };
         DatedValue: {
             /** Format: date */
@@ -446,17 +464,21 @@ export interface components {
             description?: string;
         };
         PerformanceStats: {
+            /** @description Daily returns in the window. */
+            observations: number;
             total_return: number;
             benchmark_total_return: number;
-            ann_return: number;
-            ann_vol: number;
-            sharpe: components["schemas"]["SharpeEstimate"];
+            /** @description Null under a year of daily returns; shorter periods are not annualized. */
+            ann_return: number | null;
+            /** @description Null with fewer than 20 daily returns, as are the ratios below. */
+            ann_vol: number | null;
+            sharpe: components["schemas"]["SharpeEstimate"] | null;
             max_drawdown: number;
-            beta: number;
-            alpha_ann: number;
-            tracking_error: number;
-            information_ratio: number;
-            sortino: number;
+            beta: number | null;
+            alpha_ann: number | null;
+            tracking_error: number | null;
+            information_ratio: number | null;
+            sortino: number | null;
             /** @description Share of up days. */
             hit_rate: number;
             best_day: components["schemas"]["DatedValue"];

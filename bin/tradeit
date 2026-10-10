@@ -4,6 +4,8 @@
 #   tradeit setup     one-time: Python env (.venv), dashboard packages, .env
 #   tradeit login     save the IB Gateway login on this Mac (for automatic login)
 #   tradeit gateway   start | stop | status | logs  the auto-login IB Gateway (Docker)
+#   tradeit flex      connect IBKR Flex: daily NAV since the account opened
+#   tradeit refresh   update daily bars and targets now (a dry run: no orders)
 #   tradeit doctor    check the IBKR connection end to end
 #   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
 #   tradeit api       just the API
@@ -132,6 +134,57 @@ cmd_gateway() {
   esac
 }
 
+cmd_flex() {
+  need_venv
+  local qid token
+  say "IBKR Flex: your daily NAV since the account opened"
+  cat <<'TXT'
+One time, in Client Portal, logged in with your PAPER username:
+  1. Performance & Reports > Flex Queries > Activity Flex Query > "+".
+     Name it DV02 NAV. Section: "Net Asset Value (NAV) in Base", select all fields.
+     Format XML, period "Last 365 Calendar Days". Save and note its Query ID.
+  2. On the same Flex Queries page: Flex Web Service Configuration (gear icon).
+     Turn it on and generate a token.
+Paste both below. They are saved only in .env on this Mac (gitignored, readable only by you).
+
+TXT
+  read -r -p "Query ID: " qid
+  read -r -s -p "Token (hidden): " token
+  echo
+  [ -n "$qid" ] && [ -n "$token" ] || die "both the Query ID and the token are needed"
+  touch "$ROOT/.env"
+  chmod 600 "$ROOT/.env"
+  DV02_QID="$qid" DV02_TOKEN="$token" "$PY" - "$ROOT/.env" <<'PY'
+import os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+pairs = {"IBKR_FLEX_QUERY_ID": os.environ["DV02_QID"].strip(), "IBKR_FLEX_TOKEN": os.environ["DV02_TOKEN"].strip()}
+out, seen = [], set()
+for line in path.read_text().splitlines():
+    key = line.split("=", 1)[0].strip()
+    if key in pairs:
+        out.append(f"{key}={pairs[key]}")
+        seen.add(key)
+    else:
+        out.append(line)
+out += [f"{k}={v}" for k, v in pairs.items() if k not in seen]
+path.write_text("\n".join(out) + "\n")
+PY
+  unset token
+  say "Saved. Fetching your statement from IBKR (can take a minute)"
+  (cd "$ROOT/services/api" && "$PY" -m dv02_api.flex paper) \
+    || die "not loaded (reason above). Check the Query ID and token, then run bin/tradeit flex again"
+  say "Done. A running dashboard picks it up on its next refresh; the API also re-fetches every 6 hours."
+}
+
+cmd_refresh() {
+  need_venv
+  cd "$ROOT/trading-engine"
+  local cid
+  cid="$("$PY" -c 'from src.broker.ibkr import settings; print(settings.client_id_for("backfill", "paper"))')"
+  say "Refreshing daily bars and targets through the engine's daily runner (dry run: no orders are sent)"
+  exec "$PY" -m src.production.daily_runner --profile paper --dry-run --client-id "$cid" "$@"
+}
+
 cmd_doctor() {
   need_venv
   cd "$ROOT/trading-engine" && exec "$PY" -m src.broker.ibkr.doctor "$@"
@@ -175,10 +228,12 @@ cmd_demo() {
 case "${1:-help}" in
   setup) shift; cmd_setup "$@" ;;
   login) shift; cmd_login "$@" ;;
+  flex) shift; cmd_flex "$@" ;;
+  refresh) shift; cmd_refresh "$@" ;;
   gateway) shift; cmd_gateway "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
   up) shift; cmd_up "$@" ;;
   api) shift; cmd_api "$@" ;;
   demo) shift; cmd_demo "$@" ;;
-  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac

@@ -46,6 +46,9 @@ def engine_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     from src.execution import kill_switch
 
     monkeypatch.setattr(kill_switch, "KILL_SWITCH_PATH", root / "artifacts" / "runs" / "kill_switch.json")
+    from src.broker.ibkr import settings
+
+    monkeypatch.setattr(settings, "load_dotenv", lambda *a, **k: None)  # never read the developer's .env
     monkeypatch.setenv("DV02_INCEPTION_DATE", "2025-10-15")
     monkeypatch.setenv("DV02_INCEPTION_NAV", "1000000")
     for var in ("IBKR_FLEX_TOKEN", "IBKR_FLEX_QUERY_ID", "IBKR_FLEX_NAV_QUERY_ID", "DV02_ENGINE_PYTHON"):

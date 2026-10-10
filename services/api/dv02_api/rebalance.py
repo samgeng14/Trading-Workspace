@@ -155,7 +155,8 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
                 continue
             checks.append(_check("gate", "Engine pre-trade gate", "fail", reason))
         for warning in gate.warnings:
-            checks.append(_check("gate_warn", "Engine pre-trade gate", "warn", warning))
+            # the price validator appends raw examples ("e.g. [('BIL', ...)]"); the count says enough
+            checks.append(_check("gate_warn", "Engine pre-trade gate", "warn", warning.split(" e.g. ")[0]))
         if gate.ok:
             gross = expo.get("gross_exposure")
             detail = "exposure limits, price file and NAV pass"

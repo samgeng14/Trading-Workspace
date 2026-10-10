@@ -276,12 +276,14 @@ class Broker:
         return self.status.connected and self._ib is not None and self._ib.isConnected()
 
     def market_data_type(self) -> int | None:
+        """The worst feed among quotes that answered: one delayed line means the book is priced
+        on delayed data somewhere (FX quotes are free real-time, so the best would mislead)."""
         types = [
             line.ticker.marketDataType
             for line in [*self._position_lines.values(), *self._strip_lines]
             if _num(line.ticker.last) is not None or _num(line.ticker.close) is not None
         ]
-        return min(types) if types else None
+        return max(types) if types else None
 
     def snapshot(self) -> AccountSnap | None:
         if not self.connected:

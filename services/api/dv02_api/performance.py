@@ -33,12 +33,20 @@ def align(nav: list[tuple[date, float]], bench: dict[date, float]) -> list[tuple
     return out
 
 
-def period_return(nav: list[tuple[date, float]], since: date) -> float:
-    """Return from the last NAV on or before ``since`` to the latest NAV."""
+def period_return(nav: list[tuple[date, float]], since: date, complete: bool) -> float | None:
+    """Return from the last NAV on or before ``since`` to the latest NAV.
+
+    When the history starts after ``since``, the return is only known if the
+    history is complete (the account itself started then); otherwise None.
+    """
     if not nav:
-        return 0.0
-    base = next((v for d, v in reversed(nav) if d <= since), nav[0][1])
-    return nav[-1][1] / base - 1 if base else 0.0
+        return None
+    base = next((v for d, v in reversed(nav) if d <= since), None)
+    if base is None:
+        if not complete:
+            return None
+        base = nav[0][1]
+    return nav[-1][1] / base - 1 if base else None
 
 
 def performance(
@@ -60,6 +68,9 @@ def performance(
     b_rets = stats.returns_of([b for _, _, b in window])
     dds = stats.drawdowns(levels)
     rel = stats.relative(p_rets, b_rets)
+    n = len(p_rets)
+    enough = n >= stats.MIN_RATIO_OBS
+    year = n >= stats.DAYS_PER_YEAR
     days = [d for d, _, _ in window[1:]]
     best = max(range(len(p_rets)), key=lambda i: p_rets[i]) if p_rets else None
     worst = min(range(len(p_rets)), key=lambda i: p_rets[i]) if p_rets else None
@@ -71,17 +82,18 @@ def performance(
         "series": series,
         "drawdown": [{"date": d.isoformat(), "value": dd} for (d, _, _), dd in zip(window, dds, strict=False)],
         "stats": {
+            "observations": n,
             "total_return": levels[-1] / levels[0] - 1,
             "benchmark_total_return": window[-1][2] / window[0][2] - 1,
-            "ann_return": stats.annualized_return(p_rets),
-            "ann_vol": stats.annualized_vol(p_rets),
-            "sharpe": stats.sharpe(p_rets),
+            "ann_return": stats.annualized_return(p_rets) if year else None,
+            "ann_vol": stats.annualized_vol(p_rets) if enough else None,
+            "sharpe": stats.sharpe(p_rets) if enough else None,
             "max_drawdown": stats.max_drawdown(levels),
-            "beta": rel["beta"],
-            "alpha_ann": rel["alpha_ann"],
-            "tracking_error": rel["tracking_error"],
-            "information_ratio": rel["information_ratio"],
-            "sortino": stats.sortino(p_rets),
+            "beta": rel["beta"] if enough else None,
+            "alpha_ann": rel["alpha_ann"] if enough else None,
+            "tracking_error": rel["tracking_error"] if enough else None,
+            "information_ratio": rel["information_ratio"] if enough else None,
+            "sortino": stats.sortino(p_rets) if enough else None,
             "hit_rate": stats.hit_rate(p_rets),
             "best_day": {"date": days[best].isoformat(), "value": p_rets[best]}
             if best is not None

@@ -24,7 +24,17 @@ import {
   START_NAV,
   type Trade,
 } from "./sim";
-import { annualizedVol, drawdowns, hitRate, mean, relative, sharpe, sortino } from "./stats";
+import {
+  annualizedVol,
+  DAYS_PER_YEAR,
+  drawdowns,
+  hitRate,
+  mean,
+  MIN_RATIO_OBS,
+  relative,
+  sharpe,
+  sortino,
+} from "./stats";
 
 type S = components["schemas"];
 
@@ -291,6 +301,7 @@ function summary(): S["PortfolioSummary"] {
     sharpe_itd: sharpe(rets, RF_DAILY),
     positions_count: pos.length,
     nav_history: navHistory.slice(-30),
+    history: { first_date: INCEPTION, days: book.length, complete: true, sources: ["demo simulation"] },
   };
 }
 
@@ -400,6 +411,7 @@ function performance(range: S["PerformanceRange"], benchmarkId: string): S["Perf
   }
   const dd = drawdowns(series.map((s) => s.portfolio));
   const rel = relative(portRets, benchRets);
+  const enough = portRets.length >= MIN_RATIO_OBS;
   const best = portRets.reduce((m, r, i) => (r > m.value ? { date: dates[i + 1]!, value: r } : m), {
     date: dates[0]!,
     value: -Infinity,
@@ -416,17 +428,19 @@ function performance(range: S["PerformanceRange"], benchmarkId: string): S["Perf
     series,
     drawdown: dates.map((date, i) => ({ date, value: dd[i]! })),
     stats: {
+      observations: portRets.length,
       total_return: p / 100 - 1,
       benchmark_total_return: b / 100 - 1,
-      ann_return: (p / 100) ** (252 / Math.max(1, portRets.length)) - 1,
-      ann_vol: annualizedVol(portRets),
-      sharpe: sharpe(portRets, RF_DAILY),
+      // Same rules as the real API: no annualizing under a year, no ratios on a handful of days.
+      ann_return: portRets.length >= DAYS_PER_YEAR ? (p / 100) ** (DAYS_PER_YEAR / portRets.length) - 1 : null,
+      ann_vol: enough ? annualizedVol(portRets) : null,
+      sharpe: enough ? sharpe(portRets, RF_DAILY) : null,
       max_drawdown: Math.min(...dd),
-      beta: rel.beta,
-      alpha_ann: rel.alpha_ann,
-      tracking_error: rel.tracking_error,
-      information_ratio: rel.information_ratio,
-      sortino: sortino(portRets, RF_DAILY),
+      beta: enough ? rel.beta : null,
+      alpha_ann: enough ? rel.alpha_ann : null,
+      tracking_error: enough ? rel.tracking_error : null,
+      information_ratio: enough ? rel.information_ratio : null,
+      sortino: enough ? sortino(portRets, RF_DAILY) : null,
       hit_rate: hitRate(portRets),
       best_day: best,
       worst_day: worst,

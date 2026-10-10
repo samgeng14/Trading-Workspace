@@ -5,6 +5,7 @@ import { LineChart, monthTicks } from "../charts/LineChart";
 import { Delta, LoadError, PageHead, Panel, Segmented, Stat } from "../components/bits";
 import { Figure } from "../components/Figure";
 import { dateLong, monthName, num, pct } from "../lib/format";
+import { MIN_RATIO_OBS } from "../lib/labels";
 
 type Range = Schemas["PerformanceRange"];
 const RANGES: { value: Range; label: string }[] = [
@@ -85,27 +86,45 @@ export function Performance() {
               </>
             }
           />
-          <Stat label="Annualized" value={<Delta value={s.ann_return} />} sub={`vol ${pct(s.ann_vol, 1)}`} />
+          <Stat
+            label="Annualized"
+            value={<Delta value={s.ann_return} />}
+            sub={s.ann_return === null ? "not annualized under a year" : `vol ${pct(s.ann_vol, 1)}`}
+          />
           <Stat
             label="Sharpe"
-            value={<span className="num">{num(s.sharpe.value, 2)}</span>}
-            sub={`95% CI ${num(s.sharpe.ci_low, 1)} to ${num(s.sharpe.ci_high, 1)}`}
+            value={<span className="num">{num(s.sharpe?.value, 2)}</span>}
+            sub={
+              s.sharpe
+                ? `95% CI ${num(s.sharpe.ci_low, 1)} to ${num(s.sharpe.ci_high, 1)}`
+                : `needs ${MIN_RATIO_OBS}+ days; have ${s.observations}`
+            }
           />
-          <Stat label="Sortino" value={<span className="num">{num(s.sortino, 2)}</span>} />
+          <Stat
+            label="Sortino"
+            value={<span className="num">{num(s.sortino, 2)}</span>}
+            sub={s.sortino === null ? `needs ${MIN_RATIO_OBS}+ days` : undefined}
+          />
           <Stat label="Max drawdown" value={<Delta value={s.max_drawdown} decimals={1} />} />
           <Stat
             label={`Beta to ${benchLabel}`}
             value={<span className="num">{num(s.beta, 2)}</span>}
             sub={
-              <>
-                alpha <Delta value={s.alpha_ann} decimals={1} /> /yr
-              </>
+              s.beta === null ? (
+                `needs ${MIN_RATIO_OBS}+ days`
+              ) : (
+                <>
+                  alpha <Delta value={s.alpha_ann} decimals={1} /> /yr
+                </>
+              )
             }
           />
           <Stat
             label="Tracking error"
             value={<span className="num">{pct(s.tracking_error, 1)}</span>}
-            sub={`info ratio ${num(s.information_ratio, 2)}`}
+            sub={
+              s.tracking_error === null ? `needs ${MIN_RATIO_OBS}+ days` : `info ratio ${num(s.information_ratio, 2)}`
+            }
           />
           <Stat
             label="Up days"

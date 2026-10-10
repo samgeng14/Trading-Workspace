@@ -370,6 +370,7 @@ components:
         - sharpe_itd
         - positions_count
         - nav_history
+        - history
       properties:
         as_of: { type: string, format: date-time }
         inception_date: { type: string, format: date }
@@ -377,22 +378,47 @@ components:
         cash: { type: number }
         day_pnl: { type: number }
         day_return: { type: number }
-        mtd_return: { type: number }
-        ytd_return: { type: number }
-        itd_return: { type: number }
+        mtd_return:
+          type: [number, "null"]
+          description: Null when the NAV history doesn't reach the start of the month.
+        ytd_return:
+          type: [number, "null"]
+          description: Null when the NAV history doesn't reach the start of the year.
+        itd_return:
+          type: [number, "null"]
+          description: Null with fewer than two days of NAV history.
         benchmark: { $ref: "#/components/schemas/Benchmark" }
-        benchmark_itd_return: { type: number }
+        benchmark_itd_return: { type: [number, "null"] }
         long_exposure: { type: number }
         short_exposure: { type: number, description: Negative fraction of NAV. }
         gross_exposure: { type: number }
         net_exposure: { type: number }
         beta: { type: number, description: Ex-ante beta to the S&P 500. }
-        sharpe_itd: { $ref: "#/components/schemas/SharpeEstimate" }
+        sharpe_itd:
+          description: Null with fewer than 20 daily returns.
+          oneOf:
+            - $ref: "#/components/schemas/SharpeEstimate"
+            - type: "null"
         positions_count: { type: integer }
         nav_history:
           type: array
           description: Daily NAV for the last ~30 sessions (sparkline).
           items: { $ref: "#/components/schemas/DatedValue" }
+        history: { $ref: "#/components/schemas/HistoryCoverage" }
+
+    HistoryCoverage:
+      type: object
+      description: How much daily NAV history backs the returns and ratios.
+      required: [first_date, days, complete, sources]
+      properties:
+        first_date: { type: string, format: date, description: "Inception: the first day with a NAV." }
+        days: { type: integer, description: Trading days with a NAV. }
+        complete:
+          type: boolean
+          description: True when the history is known to start at inception (IBKR Flex, or a configured start).
+        sources:
+          type: array
+          items: { type: string }
 
     DatedValue:
       type: object
@@ -504,18 +530,27 @@ components:
         - hit_rate
         - best_day
         - worst_day
+        - observations
       properties:
+        observations: { type: integer, description: Daily returns in the window. }
         total_return: { type: number }
         benchmark_total_return: { type: number }
-        ann_return: { type: number }
-        ann_vol: { type: number }
-        sharpe: { $ref: "#/components/schemas/SharpeEstimate" }
+        ann_return:
+          type: [number, "null"]
+          description: Null under a year of daily returns; shorter periods are not annualized.
+        ann_vol:
+          type: [number, "null"]
+          description: Null with fewer than 20 daily returns, as are the ratios below.
+        sharpe:
+          oneOf:
+            - $ref: "#/components/schemas/SharpeEstimate"
+            - type: "null"
         max_drawdown: { type: number }
-        beta: { type: number }
-        alpha_ann: { type: number }
-        tracking_error: { type: number }
-        information_ratio: { type: number }
-        sortino: { type: number }
+        beta: { type: [number, "null"] }
+        alpha_ann: { type: [number, "null"] }
+        tracking_error: { type: [number, "null"] }
+        information_ratio: { type: [number, "null"] }
+        sortino: { type: [number, "null"] }
         hit_rate: { type: number, description: Share of up days. }
         best_day: { $ref: "#/components/schemas/DatedValue" }
         worst_day: { $ref: "#/components/schemas/DatedValue" }

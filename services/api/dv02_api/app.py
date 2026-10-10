@@ -188,10 +188,12 @@ def position_rows(ctx: Ctx, snap: AccountSnap) -> list[dict[str, Any]]:
     return out
 
 
-def nav_series(ctx: Ctx, snap: AccountSnap | None, now: datetime) -> tuple[list[tuple[date, float]], list[str]]:
+def nav_series(ctx: Ctx, snap: AccountSnap | None, now: datetime) -> history.NavHistory:
+    """NAV history plus today's NAV: live from IBKR, else the saved snapshot's."""
     live = None
-    if snap is not None and snap.source == "ibkr":
-        live = (nyse.session_state(now).trading_date, snap.nav)
+    if snap is not None:
+        when = now if snap.source == "ibkr" else snap.as_of
+        live = (nyse.session_state(when).trading_date, snap.nav)
     return history.nav_history(ctx.profile, live)
 
 
@@ -276,14 +278,16 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
         now = _now()
         snap = require_snapshot(ctx)
         rows = position_rows(ctx, snap)
-        navs, _ = nav_series(ctx, snap, now)
-        start, _capital = history.inception()
+        h = nav_series(ctx, snap, now)
+        navs = h.navs
+        start = navs[0][0]
         day_pnl = snap.day_pnl if snap.day_pnl is not None else sum(r["day_pnl"] for r in rows)
         last = navs[-1][0]
         month_base = date(last.year, last.month, 1) - timedelta(days=1)
         year_base = date(last.year - 1, 12, 31)
+        itd = navs[-1][1] / navs[0][1] - 1 if len(navs) >= 2 else None
         spy = history.closes("SPY")
-        spy_base = next((c for d, c in reversed(spy) if d <= start), spy[0][1] if spy else None)
+        spy_base = next((c for d, c in reversed(spy) if d <= start), None)
         rets = stats.returns_of([v for _, v in navs])
         long_ = sum(r["weight"] for r in rows if r["weight"] > 0)
         short = sum(r["weight"] for r in rows if r["weight"] < 0)
@@ -294,19 +298,20 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
             "cash": snap.cash,
             "day_pnl": day_pnl,
             "day_return": day_pnl / (snap.nav - day_pnl) if snap.nav - day_pnl else 0.0,
-            "mtd_return": performance.period_return(navs, month_base),
-            "ytd_return": performance.period_return(navs, year_base),
-            "itd_return": navs[-1][1] / navs[0][1] - 1,
+            "mtd_return": performance.period_return(navs, month_base, h.complete),
+            "ytd_return": performance.period_return(navs, year_base, h.complete),
+            "itd_return": itd,
             "benchmark": BENCHMARKS[0],
-            "benchmark_itd_return": spy[-1][1] / spy_base - 1 if spy and spy_base else 0.0,
+            "benchmark_itd_return": spy[-1][1] / spy_base - 1 if itd is not None and spy and spy_base else None,
             "long_exposure": long_,
             "short_exposure": short,
             "gross_exposure": long_ - short,
             "net_exposure": long_ + short,
             "beta": sum(r["weight"] * r["beta"] for r in rows),
-            "sharpe_itd": stats.sharpe(rets),
+            "sharpe_itd": stats.sharpe(rets) if len(rets) >= stats.MIN_RATIO_OBS else None,
             "positions_count": len(rows),
             "nav_history": [{"date": d.isoformat(), "value": v} for d, v in navs[-30:]],
+            "history": h.coverage(),
         }
 
     @app.get(f"{v1}/portfolio/positions")
@@ -342,18 +347,19 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
         bench = next((b for b in BENCHMARKS if b["id"] == benchmark), None)
         if bench is None:
             raise Problem(400, "Unknown benchmark", benchmark)
-        navs, sources = nav_series(ctx, ctx.broker.snapshot(), _now())
+        live = ctx.broker.snapshot()
+        h = nav_series(ctx, live if live is not None else offline_snapshot(ctx.profile), _now())
         levels = history.benchmark_levels(benchmark)
         if not levels:
             raise Problem(503, f"No price history for {benchmark}", "Start IB Gateway so the API can load daily bars.")
         try:
-            return performance.performance(navs, levels, range_, bench)
+            return performance.performance(h.navs, levels, range_, bench)
         except ValueError:
             raise Problem(
                 503,
                 "Not enough NAV history yet",
-                f"{len(navs)} day(s) from {', '.join(sources)}. Set up IBKR Flex (services/api/README.md) to load "
-                "daily NAV since inception; the API also records each close from now on.",
+                f"{len(h.navs)} day(s) so far ({', '.join(h.sources) or 'none'}). Run bin/tradeit flex once to load "
+                "your daily NAV since the account opened; the API also records each close from now on.",
             ) from None
 
     # ── risk ──────────────────────────────────────────────────────────
@@ -364,7 +370,7 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
         now = _now()
         snap = require_snapshot(ctx)
         rows = position_rows(ctx, snap)
-        navs, _ = nav_series(ctx, snap, now)
+        navs = nav_series(ctx, snap, now).navs
         peak = max(v for _, v in navs)
         weights: dict[str, float] = {}
         for r in rows:

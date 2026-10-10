@@ -63,17 +63,33 @@ def test_flex_nav_parsing() -> None:
 def test_flex_wins_over_recorded_closes(engine_tree) -> None:
     path = flex.cache_path("paper")
     path.write_text("date,nav\n2025-10-16,999999.00\n")
-    navs, sources = history.nav_history("paper")
-    assert dict(navs)[date(2025, 10, 16)] == 999_999.0
-    assert "IBKR Flex" in sources and "recorded closes" in sources
-    assert navs[0][0] == date(2025, 10, 15)
+    h = history.nav_history("paper")
+    assert dict(h.navs)[date(2025, 10, 16)] == 999_999.0
+    assert "IBKR Flex" in h.sources and "recorded closes" in h.sources
+    assert h.navs[0][0] == date(2025, 10, 15) and h.complete
 
 
-def test_inception_capital_fills_a_missing_start(engine_tree) -> None:
+def test_a_configured_start_fills_a_missing_inception(engine_tree) -> None:
     (engine_tree / "artifacts" / "api" / "nav_paper.csv").write_text("date,nav\n2026-10-08,1020000\n")
-    navs, sources = history.nav_history("paper")
-    assert navs[0] == (date(2025, 10, 15), 1_000_000.0)
-    assert any(s.startswith("inception capital") for s in sources)
+    h = history.nav_history("paper")
+    assert h.navs[0] == (date(2025, 10, 15), 1_000_000.0)
+    assert any(s.startswith("configured start") for s in h.sources) and h.complete
+
+
+def test_without_a_configured_start_inception_is_the_first_real_nav(engine_tree, monkeypatch) -> None:
+    monkeypatch.delenv("DV02_INCEPTION_DATE")
+    (engine_tree / "artifacts" / "api" / "nav_paper.csv").write_text("date,nav\n2026-10-08,1020000\n")
+    h = history.nav_history("paper", live=(date(2026, 10, 9), 1_025_000.0))
+    assert h.navs == [(date(2026, 10, 8), 1_020_000.0), (date(2026, 10, 9), 1_025_000.0)]
+    assert not h.complete and h.coverage()["first_date"] == "2026-10-08"
+
+
+def test_period_returns_need_history_that_reaches_the_period_start() -> None:
+    navs = [(date(2026, 10, 5), 100.0), (date(2026, 10, 9), 103.0)]
+    assert performance.period_return(navs, date(2026, 9, 30), complete=False) is None
+    # a complete history that starts mid-month means the account itself started then
+    assert performance.period_return(navs, date(2026, 9, 30), complete=True) == pytest.approx(0.03)
+    assert performance.period_return(navs, date(2026, 10, 6), complete=False) == pytest.approx(0.03)
 
 
 def test_order_mapping() -> None:

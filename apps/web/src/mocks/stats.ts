@@ -1,6 +1,8 @@
 // Performance statistics on daily returns (fractions). Used by the demo
 // backend; the real backend computes the same quantities in Python.
 
+export { MIN_RATIO_OBS } from "../lib/labels";
+
 export const DAYS_PER_YEAR = 252;
 
 export function mean(xs: readonly number[]): number {

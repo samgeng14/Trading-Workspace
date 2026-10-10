@@ -62,7 +62,9 @@ export function LineChart({
     const all = series.flatMap((s) => s.values.filter((v): v is number => v !== null));
     if (baseline !== undefined) all.push(baseline);
     const [lo = 0, hi = 1] = extent(all);
-    const pad = (hi - lo || Math.abs(hi) || 1) * 0.08;
+    // A flat series (or float noise around one value) still gets a readable axis.
+    const span = hi - lo > 1e-9 ? hi - lo : Math.abs(hi) > 1e-9 ? Math.abs(hi) : 1;
+    const pad = span * 0.08;
     const top = yMax !== undefined ? Math.min(hi + pad, yMax) : hi + pad;
     const yScale = scaleLinear()
       .domain([lo - pad, top])

@@ -39,7 +39,8 @@ http://127.0.0.1:8000/docs.
 | NAV, cash, positions, day P&L | Live IBKR account updates and P&L subscriptions, on client ID 307 (paper) |
 | Prices, previous close, ticker strip | IBKR quotes. Delayed 15 min unless real-time data is shared to the paper login |
 | Intraday P&L | The API samples account P&L every minute while the market is open, to `artifacts/api/intraday/` |
-| NAV history, performance | IBKR Flex (below), plus the NAV the API records after each close, plus the engine's account snapshots. Before any history exists, inception capital ($1M on 2025-10-15) |
+| NAV history, performance | IBKR Flex (below), plus the NAV the API records after each close, plus the engine's account snapshots. Inception is the first day with a NAV; `DV02_INCEPTION_DATE` (and `DV02_INCEPTION_NAV`) in `.env` pins it instead |
+| Returns and ratios on a short record | Not invented. Ratios (vol, Sharpe, Sortino, beta, tracking error) need 20+ daily returns; under a year nothing is annualized; MTD/YTD need history that reaches the period start. Until then the API sends `null` and the dashboard says why |
 | Benchmarks, betas, VaR | IBKR dividend-adjusted daily bars (cached in `artifacts/api/bars/`), else the engine's price master |
 | Rebalance preview | The engine's own `build_reconciliation` and `run_pre_trade_risk_checks` on live positions |
 | Submit | Starts the engine's daily runner with `--force-rebalance`, using the LaunchAgent's Python and environment. One order path, the engine's risk gate and kill switch, and the 16:32 run then skips the day |
@@ -55,7 +56,9 @@ snapshot where one exists. Previews show but can't be submitted.
 ## NAV history since inception (IBKR Flex)
 
 The TWS API has no account history, so the full record comes from a Flex
-query. One-time setup, in Client Portal (logged in to the **paper** account):
+query. `bin/tradeit flex` walks through it: it asks for the Query ID and the
+token (hidden), saves them to `.env`, and fetches the statement right away.
+The Client Portal part, logged in with the **paper** username:
 
 1. **Performance & Reports → Flex Queries → Activity Flex Query → +**.
    - Name: `DV02 NAV`
@@ -64,13 +67,17 @@ query. One-time setup, in Client Portal (logged in to the **paper** account):
    - Period: Last 365 Calendar Days
 2. Save, and note the **Query ID**.
 3. **Flex Web Service Configuration**: enable it and generate a **token**.
-4. Add both to `.env` at the repo root. It is gitignored; never commit the token.
-   ```
-   IBKR_FLEX_TOKEN=...
-   IBKR_FLEX_QUERY_ID=...
-   ```
-5. Restart `bin/tradeit up`. The API fetches the statement at startup and
-   every 6 hours, and caches it in `artifacts/api/flex_nav_paper.csv`.
+4. Run `bin/tradeit flex` and paste both. They go to `.env` at the repo root,
+   which is gitignored; never commit the token.
+5. The API re-fetches at startup and every 6 hours, and caches the
+   statement in `artifacts/api/flex_nav_paper.csv`.
+
+## Stale data
+
+"Targets and prices … sessions old" means the daily runner hasn't refreshed
+the engine's price and target files. `bin/tradeit refresh` runs it now as a
+dry run: new bars and targets, no orders. The scheduled run then keeps them
+fresh.
 
 ## Tests
 

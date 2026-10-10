@@ -1,6 +1,9 @@
 import type { Schemas } from "../api/client";
 import { num, pct } from "./format";
 
+/** Fewer daily returns than this and vol, Sharpe, beta and the like are noise; the API sends null. */
+export const MIN_RATIO_OBS = 20;
+
 export const ASSET_CLASS_LABEL: Record<Schemas["AssetClass"], string> = {
   equity: "Equities",
   fixed_income: "Treasuries",

@@ -447,3 +447,7 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 }
+
+.history-note {
+  color: var(--tone-warn);
+}

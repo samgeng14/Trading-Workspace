@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import logging
 import os
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -28,20 +29,17 @@ log = logging.getLogger(__name__)
 # ── inception ──────────────────────────────────────────────────────────
 
 
-def inception() -> tuple[date, float]:
-    """Fund start date and starting capital (paper: 2025-10-15, $1,000,000)."""
-    d = os.environ.get("DV02_INCEPTION_DATE")
-    if not d:
-        try:
-            import yaml
+def inception() -> tuple[date, float] | None:
+    """A start you set yourself: DV02_INCEPTION_DATE (and DV02_INCEPTION_NAV, default
+    $1,000,000) in the environment or .env. Without it, inception is simply the first
+    day with a NAV, which is what IBKR Flex gives once it's connected."""
+    from src.broker.ibkr import settings  # trading-engine: loads .env
 
-            cfg = yaml.safe_load((engine.config_dir() / "paper.yaml").read_text()) or {}
-            d = str(cfg.get("ib_gateway", {}).get("fund_inception_date") or "")
-        except (OSError, ValueError, ImportError):
-            d = ""
-    start = date.fromisoformat(d) if d else date(2025, 10, 15)
-    capital = float(os.environ.get("DV02_INCEPTION_NAV", "1000000"))
-    return start, capital
+    settings.load_dotenv()
+    raw = os.environ.get("DV02_INCEPTION_DATE", "").strip()
+    if not raw:
+        return None
+    return date.fromisoformat(raw), float(os.environ.get("DV02_INCEPTION_NAV", "1000000"))
 
 
 # ── NAV history ────────────────────────────────────────────────────────
@@ -116,26 +114,47 @@ def record_close_nav(profile: str, trading_date: date, nav: float) -> None:
     tmp.replace(path)
 
 
-def nav_history(profile: str, live: tuple[date, float] | None = None) -> tuple[list[tuple[date, float]], list[str]]:
-    """Daily NAV, oldest first, and the sources used."""
-    start, capital = inception()
+@dataclass
+class NavHistory:
+    navs: list[tuple[date, float]]  # oldest first, trading days only
+    sources: list[str]
+    complete: bool  # known to start at inception: from IBKR Flex, or a start you configured
+
+    def coverage(self) -> dict:
+        return {
+            "first_date": (self.navs[0][0] if self.navs else date.today()).isoformat(),
+            "days": len(self.navs),
+            "complete": self.complete,
+            "sources": self.sources,
+        }
+
+
+def nav_history(profile: str, live: tuple[date, float] | None = None) -> NavHistory:
     merged: dict[date, float] = {}
     sources = []
+    flex_rows = dict(flex.read_cache(profile))
     for name, rows in (
         ("account snapshots", snapshot_navs(profile)),
         ("recorded closes", own_navs(profile)),
-        ("IBKR Flex", dict(flex.read_cache(profile))),
+        ("IBKR Flex", flex_rows),
     ):
         if rows:
             sources.append(name)
             merged.update(rows)
     if live is not None:
         merged[live[0]] = live[1]
-    merged = {d: v for d, v in merged.items() if d >= start and v > 0 and nyse.is_trading_day(d)}
-    if not merged or min(merged) > start:
-        merged[start] = capital
-        sources.append(f"inception capital ${capital:,.0f} on {start}")
-    return sorted(merged.items()), sources
+        sources.append("live NAV")
+    merged = {d: v for d, v in merged.items() if v > 0 and nyse.is_trading_day(d)}
+    complete = bool(flex_rows)
+    configured = inception()
+    if configured is not None:
+        start, capital = configured
+        merged = {d: v for d, v in merged.items() if d >= start}
+        if not merged or min(merged) > start:
+            merged[start] = capital
+            sources.append(f"configured start ${capital:,.0f} on {start}")
+        complete = True
+    return NavHistory(sorted(merged.items()), sources, complete)
 
 
 # ── closes ─────────────────────────────────────────────────────────────

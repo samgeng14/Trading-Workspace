@@ -9,6 +9,8 @@ import math
 from collections.abc import Sequence
 
 DAYS_PER_YEAR = 252
+# Fewer daily returns than this and vol, Sharpe, beta and the like are noise: report null.
+MIN_RATIO_OBS = 20
 
 
 def mean(xs: Sequence[float]) -> float:

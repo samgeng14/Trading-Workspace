@@ -222,3 +222,48 @@ def test_offline_falls_back_to_the_engine_snapshot(engine_tree, frozen_now) -> N
         assert p["can_submit"] is False
         assert any(ch["id"] == "broker" and ch["status"] == "fail" for ch in p["checks"])
         assert c.get("/api/v1/market/strip").json()["items"] == []
+
+
+def _client_with_history(engine_tree, monkeypatch, navs: str | None):
+    """No configured start: history is only what the files and the live NAV say."""
+    from .conftest import FakeBroker
+
+    monkeypatch.delenv("DV02_INCEPTION_DATE")
+    path = engine_tree / "artifacts" / "api" / "nav_paper.csv"
+    if navs is None:
+        path.unlink()
+    else:
+        path.write_text(navs)
+    return TestClient(create_app("paper", broker=FakeBroker(), background=False))
+
+
+def test_a_brand_new_record_shows_no_invented_returns(engine_tree, frozen_now, monkeypatch) -> None:  # noqa: ARG001
+    (engine_tree / "data" / "broker" / "account" / "paper_account_summary_20261008_163210.csv").unlink()
+    with _client_with_history(engine_tree, monkeypatch, None) as c:
+        s = c.get("/api/v1/portfolio/summary").json()
+        assert_schema(s, response_schema("/portfolio/summary", "get"))
+        assert s["itd_return"] is None and s["mtd_return"] is None and s["sharpe_itd"] is None
+        assert s["history"] == {"first_date": "2026-10-09", "days": 1, "complete": False, "sources": ["live NAV"]}
+        assert s["inception_date"] == "2026-10-09"
+        res = c.get("/api/v1/performance")
+        assert res.status_code == 503 and "bin/tradeit flex" in res.json()["detail"]
+
+
+def test_a_short_record_reports_returns_but_no_ratios(engine_tree, frozen_now, monkeypatch) -> None:  # noqa: ARG001
+    from datetime import date
+
+    from dv02_api import nyse
+
+    days = nyse.trading_days(date(2026, 9, 25), date(2026, 10, 8))
+    rows = "".join(f"{d.isoformat()},{1_000_000 + 1000 * i}\n" for i, d in enumerate(days))
+    with _client_with_history(engine_tree, monkeypatch, "date,nav\n" + rows) as c:
+        p = c.get("/api/v1/performance", params={"range": "ITD"}).json()
+        assert_schema(p, response_schema("/performance", "get"))
+        st = p["stats"]
+        assert st["observations"] == len(days)  # the recorded days plus today, minus the base day
+        assert st["ann_return"] is None and st["sharpe"] is None and st["beta"] is None
+        assert st["total_return"] > 0 and p["start"] == "2026-09-25"
+        s = c.get("/api/v1/portfolio/summary").json()
+        assert s["itd_return"] is not None and s["history"]["complete"] is False
+        assert s["mtd_return"] is not None  # the record reaches Sep 30
+        assert s["ytd_return"] is None  # but not last Dec 31, and it isn't known to be complete

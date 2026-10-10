@@ -125,3 +125,25 @@ def refresh(profile: str) -> str:
             w.writerow([d.isoformat(), f"{v:.2f}"])
     tmp.replace(path)
     return f"Flex NAV: {len(rows)} days through {rows[-1][0]}"
+
+
+def main() -> int:
+    """python -m dv02_api.flex [profile]: fetch now and say what happened, in one line."""
+    import sys
+    import urllib.error
+
+    profile = sys.argv[1] if len(sys.argv) > 1 else "paper"
+    try:
+        print(refresh(profile))
+        return 0
+    except FlexError as exc:
+        print(f"IBKR Flex said no: {exc}", file=sys.stderr)
+    except urllib.error.URLError as exc:
+        print(f"Could not reach IBKR's Flex service: {exc.reason}", file=sys.stderr)
+    except ET.ParseError:
+        print("IBKR's Flex service returned something that isn't XML; try again in a minute", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -11,7 +11,7 @@ import { NextJob, ScheduleList } from "../components/Schedule";
 import { Figure } from "../components/Figure";
 import { type Column, SortableTable } from "../components/SortableTable";
 import { dateLong, dateShort, money, num, pct, price, shortTimeET, timeET } from "../lib/format";
-import { ASSET_CLASS_LABEL, limitText } from "../lib/labels";
+import { ASSET_CLASS_LABEL, limitText, MIN_RATIO_OBS } from "../lib/labels";
 import { type CheckState, type Issue, VERDICT_TEXT } from "../lib/readiness";
 import { useReadiness } from "../lib/useReadiness";
 import { useServerNow } from "../lib/serverClock";
@@ -189,7 +189,13 @@ function KpiBand() {
         </div>
         <span className="stat-sub">
           {live ? `Live, ${shortTimeET(s.as_of)} ET` : `Close, ${status ? dateLong(status.market.trading_date) : ""}`} ·
-          paper since {dateShort(s.inception_date)}, {s.inception_date.slice(0, 4)}
+          since {dateShort(s.inception_date)}, {s.inception_date.slice(0, 4)}
+          {!s.history.complete && (
+            <span className="history-note">
+              {" "}
+              · history so far: {s.history.days} days. Load the rest: bin/tradeit flex
+            </span>
+          )}
         </span>
       </div>
       <div className="kpi-grid">
@@ -199,15 +205,27 @@ function KpiBand() {
           sub={<Delta value={s.day_return} />}
           testId="kpi-day"
         />
-        <Stat label="Month to date" value={<Delta value={s.mtd_return} />} />
-        <Stat label="Year to date" value={<Delta value={s.ytd_return} />} />
+        <Stat
+          label="Month to date"
+          value={<Delta value={s.mtd_return} />}
+          sub={s.mtd_return === null ? "history doesn't reach the month start" : undefined}
+        />
+        <Stat
+          label="Year to date"
+          value={<Delta value={s.ytd_return} />}
+          sub={s.ytd_return === null ? "history doesn't reach the year start" : undefined}
+        />
         <Stat
           label="Since inception"
           value={<Delta value={s.itd_return} />}
           sub={
-            <>
-              {s.benchmark.label} <Delta value={s.benchmark_itd_return} />
-            </>
+            s.itd_return === null ? (
+              "needs 2+ days of NAV"
+            ) : (
+              <>
+                {s.benchmark.label} <Delta value={s.benchmark_itd_return} />
+              </>
+            )
           }
         />
         <Stat
@@ -223,11 +241,15 @@ function KpiBand() {
         <Stat label="Beta" value={<span className="num">{num(s.beta, 2)}</span>} sub="to S&P 500, hedged" />
         <Stat
           label="Sharpe, inception"
-          value={<span className="num">{num(s.sharpe_itd.value, 2)}</span>}
+          value={<span className="num">{num(s.sharpe_itd?.value, 2)}</span>}
           sub={
-            <>
-              95% CI {num(s.sharpe_itd.ci_low, 1)} to {num(s.sharpe_itd.ci_high, 1)} · {num(s.sharpe_itd.years, 1)} yr
-            </>
+            s.sharpe_itd ? (
+              <>
+                95% CI {num(s.sharpe_itd.ci_low, 1)} to {num(s.sharpe_itd.ci_high, 1)} · {num(s.sharpe_itd.years, 1)} yr
+              </>
+            ) : (
+              `needs ${MIN_RATIO_OBS}+ days of NAV; have ${Math.max(0, s.history.days - 1)}`
+            )
           }
         />
         <Stat
