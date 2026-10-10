@@ -108,26 +108,28 @@ export function Positions() {
         <Segmented value={side} options={SIDES} onChange={setSide} label="Side" control="positions.side" />
       </PageHead>
 
-      <section className="panel summary-strip" aria-label="Totals for the positions shown">
-        <Stat
-          label={filtered ? "Long (filtered)" : "Long"}
-          value={<span className="num">{money(totals.long, { compact: true })}</span>}
-          sub={pct(data ? totals.long / data.nav : 0, 1)}
-        />
-        <Stat
-          label="Short"
-          value={<span className="num">{money(totals.short, { compact: true })}</span>}
-          sub={pct(data ? totals.short / data.nav : 0, 1)}
-        />
-        <Stat
-          label="Net"
-          value={<span className="num">{money(totals.mv, { compact: true })}</span>}
-          sub={pct(totals.weight, 1)}
-        />
-        <Stat label="Day P&L" value={<Delta value={totals.dayPnl} kind="money" />} />
-        <Stat label="Unrealized P&L" value={<Delta value={totals.unrealized} kind="money" />} />
-        <Stat label="Shown" value={<span className="num">{rows.length}</span>} sub={`of ${all.length}`} />
-      </section>
+      {data && (
+        <section className="panel summary-strip" aria-label="Totals for the positions shown">
+          <Stat
+            label={filtered ? "Long (filtered)" : "Long"}
+            value={<span className="num">{money(totals.long, { compact: true })}</span>}
+            sub={pct(data ? totals.long / data.nav : 0, 1)}
+          />
+          <Stat
+            label="Short"
+            value={<span className="num">{money(totals.short, { compact: true })}</span>}
+            sub={pct(data ? totals.short / data.nav : 0, 1)}
+          />
+          <Stat
+            label="Net"
+            value={<span className="num">{money(totals.mv, { compact: true })}</span>}
+            sub={pct(totals.weight, 1)}
+          />
+          <Stat label="Day P&L" value={<Delta value={totals.dayPnl} kind="money" />} />
+          <Stat label="Unrealized P&L" value={<Delta value={totals.unrealized} kind="money" />} />
+          <Stat label="Shown" value={<span className="num">{rows.length}</span>} sub={`of ${all.length}`} />
+        </section>
+      )}
 
       <Panel title="Book" meta="futures shown at notional; drift = weight minus target" flush>
         {error ? (

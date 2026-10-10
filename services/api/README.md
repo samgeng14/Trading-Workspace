@@ -7,18 +7,27 @@ FastAPI service behind the dashboard. It implements the contract in
 ## Run it
 
 ```bash
-bin/tradeit setup     # once: .venv (Python 3.11/3.12), dashboard packages, .env
-bin/tradeit doctor    # IBKR connection check, end to end
-bin/tradeit up        # API on 127.0.0.1:8000 + dashboard on localhost:5173
+bin/tradeit setup
+bin/tradeit doctor
+bin/tradeit up
 ```
 
-Start IB Gateway (or TWS) first. Use paper, port 4002 (TWS: 7497), and set
-these in **Configure → Settings → API → Settings**:
+- `setup` runs once. It creates `.venv` (Python 3.11/3.12), installs the
+  dashboard packages and writes `.env`.
+- `doctor` checks the IBKR connection end to end.
+- `up` serves the API on 127.0.0.1:8000 and the dashboard on localhost:5173.
 
-- **Enable ActiveX and Socket Clients:** on.
-- **Read-Only API:** off. The doctor's order previews and the dashboard's
-  cancel need it off. Nothing is sent without your typed confirmation.
-- **Trusted IPs:** include 127.0.0.1.
+IB Gateway has to be running and logged in. Either:
+
+- **Let it log in for you:** run `bin/tradeit login` once to save the paper
+  login on this Mac (`ibgw/README.md`); `bin/tradeit up` then starts it
+  in Docker.
+- **Run it yourself:** start IB Gateway (or TWS) on paper, port 4002 (TWS:
+  7497), and set these in **Configure → Settings → API → Settings**:
+  - **Enable ActiveX and Socket Clients:** on.
+  - **Read-Only API:** off. The doctor's order previews and the dashboard's
+    cancel need it off. Nothing is sent without your typed confirmation.
+  - **Trusted IPs:** include 127.0.0.1.
 
 The API binds to 127.0.0.1 only. Interactive docs are at
 http://127.0.0.1:8000/docs.

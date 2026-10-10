@@ -2,12 +2,14 @@
 # tradeit: run the DV02 Fund stack on this machine.
 #
 #   tradeit setup     one-time: Python env (.venv), dashboard packages, .env
+#   tradeit login     save the IB Gateway login on this Mac (for automatic login)
+#   tradeit gateway   start | stop | status | logs  the auto-login IB Gateway (Docker)
 #   tradeit doctor    check the IBKR connection end to end
-#   tradeit up        API (:8000) + dashboard (:5173) on real data from IBKR
+#   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
 #   tradeit api       just the API
 #   tradeit demo      dashboard on simulated data, no IBKR needed
 #
-# Start IB Gateway (paper, port 4002, API enabled) before `doctor` or `up`.
+# Without `tradeit login`, start IB Gateway yourself (paper, port 4002, API enabled).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,6 +35,22 @@ need_venv() {
   [ -x "$PY" ] || die "no Python environment yet; run: bin/tradeit setup"
 }
 
+GW_ENV="$ROOT/ibgw/.env"
+GW_PORT="${IBKR_PORT_PAPER:-4002}"
+
+port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+compose() { docker compose -f "$ROOT/ibgw/docker-compose.yml" "$@"; }
+gateway_running() { [ -n "$(compose ps --status running -q 2>/dev/null)" ]; }
+
+# Single-quote a value for a compose env file; fall back to double quotes
+# (escaping \, " and $) when the value itself contains a single quote.
+env_quote() {
+  case "$1" in
+    *"'"*) printf '"%s"' "$(printf '%s' "$1" | sed -e 's/[\\"]/\\&/g' -e 's/\$/$$/g')" ;;
+    *) printf "'%s'" "$1" ;;
+  esac
+}
+
 cmd_setup() {
   local py
   py="$(pick_python)" || die "needs Python 3.11 or 3.12 (brew install python@3.12)"
@@ -53,6 +71,67 @@ cmd_setup() {
   say "Done. Next: start IB Gateway (paper, 4002), then bin/tradeit doctor and bin/tradeit up"
 }
 
+cmd_login() {
+  local user pass
+  say "IB Gateway automatic login"
+  echo "Use your PAPER trading username (Client Portal: Settings > Paper Trading Account),"
+  echo "not your live one. It is saved only in ibgw/.env on this Mac: gitignored and"
+  echo "readable only by your user. Never paste it into a chat."
+  echo
+  read -r -p "Paper username: " user
+  read -r -s -p "Password (hidden): " pass
+  echo
+  [ -n "$user" ] && [ -n "$pass" ] || die "username and password are both required"
+  (
+    umask 077
+    {
+      echo "TWS_USERID=$(env_quote "$user")"
+      echo "TWS_PASSWORD=$(env_quote "$pass")"
+      echo "TRADING_MODE=paper"
+      echo "READ_ONLY_API=no"
+      echo "TIME_ZONE=America/New_York"
+      echo "AUTO_RESTART_TIME='11:45 PM'"
+      echo "TWOFA_TIMEOUT_ACTION=restart"
+      echo "RELOGIN_AFTER_TWOFA_TIMEOUT=yes"
+      echo "EXISTING_SESSION_DETECTED_ACTION=primary"
+    } > "$GW_ENV"
+  )
+  chmod 600 "$GW_ENV"
+  unset pass
+  say "Saved. Start it with: bin/tradeit gateway   (bin/tradeit up also starts it)"
+}
+
+cmd_gateway() {
+  command -v docker >/dev/null 2>&1 || die "automatic login runs IB Gateway in Docker; install Docker Desktop or OrbStack"
+  docker info >/dev/null 2>&1 || die "Docker isn't running; open Docker Desktop (or OrbStack) first"
+  case "${1:-start}" in
+    start)
+      [ -f "$GW_ENV" ] || die "no login saved yet; run: bin/tradeit login"
+      if ! gateway_running && port_open "$GW_PORT"; then
+        die "something else is already on port $GW_PORT (the IB Gateway app?); quit it or use that one"
+      fi
+      compose up -d
+      say "Logging in (about a minute)"
+      for _ in $(seq 1 60); do
+        if compose logs --tail 200 2>/dev/null | grep -q "Login has completed"; then
+          say "IB Gateway is logged in on 127.0.0.1:$GW_PORT"
+          return 0
+        fi
+        if compose logs --tail 200 2>/dev/null | grep -qi "login failed"; then
+          compose logs --tail 30
+          die "login failed; check the saved login with: bin/tradeit login"
+        fi
+        sleep 2
+      done
+      echo "Still logging in; follow along with: bin/tradeit gateway logs"
+      ;;
+    stop) compose down ;;
+    status) compose ps ;;
+    logs) compose logs -f --tail 100 ;;
+    *) die "usage: tradeit gateway start|stop|status|logs" ;;
+  esac
+}
+
 cmd_doctor() {
   need_venv
   cd "$ROOT/trading-engine" && exec "$PY" -m src.broker.ibkr.doctor "$@"
@@ -67,6 +146,11 @@ cmd_up() {
   need_venv
   [ -d "$ROOT/apps/web/node_modules" ] || die "dashboard packages missing; run: bin/tradeit setup"
   local api_pid web_pid
+  if [ -f "$GW_ENV" ] && ! port_open "$GW_PORT"; then
+    cmd_gateway start
+  elif ! port_open "$GW_PORT"; then
+    echo "Note: nothing on port $GW_PORT yet. Start IB Gateway, or save a login once with: bin/tradeit login"
+  fi
   (cd "$ROOT/services/api" && exec "$PY" -m dv02_api --port "$API_PORT" "$@") &
   api_pid=$!
   trap 'kill $api_pid ${web_pid:-} 2>/dev/null; wait 2>/dev/null; exit 0' INT TERM
@@ -90,9 +174,11 @@ cmd_demo() {
 
 case "${1:-help}" in
   setup) shift; cmd_setup "$@" ;;
+  login) shift; cmd_login "$@" ;;
+  gateway) shift; cmd_gateway "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
   up) shift; cmd_up "$@" ;;
   api) shift; cmd_api "$@" ;;
   demo) shift; cmd_demo "$@" ;;
-  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
