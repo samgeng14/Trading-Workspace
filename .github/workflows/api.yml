@@ -1,0 +1,27 @@
+name: api
+
+on:
+  pull_request:
+    paths: ["services/api/**", "schemas/**", "trading-engine/src/**", ".github/workflows/api.yml"]
+  push:
+    branches: [main]
+    paths: ["services/api/**", "schemas/**", "trading-engine/src/**", ".github/workflows/api.yml"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      - run: pip install -r requirements.txt pytest jsonschema httpx ruff==0.8.6
+      - run: ruff check dv02_api tests
+      - run: ruff format --check dv02_api tests
+      - name: Contract and unit tests (fake broker, no gateway)
+        run: python -m pytest

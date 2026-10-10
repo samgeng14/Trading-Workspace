@@ -313,12 +313,20 @@ tab has no backend and the Optimizer dropdown has no effect.
   control and a meta-test that fails on unregistered or untested controls.
 - Web CI (`.github/workflows/web.yml`).
 
+- `services/api`: the same contract over real data (see its README).
+  - **Live from IBKR:** one long-lived connection (client 307) for account,
+    positions, P&L, quotes and orders.
+  - **History:** NAV from IBKR Flex plus the API's own close records; bars
+    cached from IBKR.
+  - **Engine reuse:** the rebalance preview uses the engine's basket math and
+    risk gate.
+  - **Submit:** starts the engine's daily runner, so there is one order path.
+  - **Kill switch, runs and doctor:** read from the engine's own files and modules.
+- `bin/tradeit setup | doctor | up | demo`: the first cut of `tradeit up`.
+- API CI (`.github/workflows/api.yml`): contract tests with a fake broker.
+
 **Next:**
-1. FastAPI v1 implementing the same contract over real data:
-   - account, positions and orders through the settings-based IBKR client
-   - the doctor report from `src/broker/ibkr/doctor.py`
-   - runs from `artifacts/runs`
-   - NAV history from Flex (Phase 0)
+1. Run it against the paper account. Set up Flex for NAV since inception.
 2. A WebSocket feed for live positions and P&L.
 3. Strategies and Data sections.
 4. Delete the old static dashboard once Appendix B is covered.
@@ -813,7 +821,7 @@ Sizes are rough, assuming one person working part-time. Phases 1–3 overlap.
 | Phase | Scope | Exit criteria | Size |
 |---|---|---|---|
 | **0. Stabilize** | IBKR plumbing (this PR); MOC timing; adjusted prices; fix drift gate; schedule and fix EOD reconcile; wire `risk_limits.yaml` and kill switch into every submit path; holiday calendar; declare deps (pandas); MOSEK out of git with a free solver fallback (Clarabel/ECOS); backfill price data; **Flex history + NAV since inception**; delete dead code (GCS pipeline, simulations, 0-byte modules) | 10 consecutive trading days with doctor green, the run executing, EOD reconcile matching the broker to the share, and NAV matching the IBKR statement | 2–3 weeks |
-| **1. Frontend + API v1** (in progress) | Contract, design system, all 8 sections, control contract with Playwright, simulated broker for CI; delete old static dashboard. *Done: contract, design system, 6 sections on the demo backend, control contract, web CI. Next: FastAPI over real data.* | Every control in Appendix B is replaced or deliberately dropped; e2e green in CI | 4–6 weeks |
+| **1. Frontend + API v1** (in progress) | Contract, design system, all 8 sections, control contract with Playwright, simulated broker for CI; delete old static dashboard. *Done: contract, design system, 6 sections, control contract, web CI, real-data API (`services/api`) and `bin/tradeit`. Next: first run on the paper account, then the WebSocket feed.* | Every control in Appendix B is replaced or deliberately dropped; e2e green in CI | 4–6 weeks |
 | **2. Data platform** | Lake + DuckDB, Postgres, security master, point-in-time layer, WRDS jobs, dataset watermarks + `catchup`, Oracle VM setup, tunnel + Access, R2 backups | S2's full history rebuildable from scratch with one command; Data page all green | 4–8 weeks (parallel) |
 | **3. C++ engine** | Read-only mirror → shadow OMS → engine submits → CRB + auto-hedger; nanobind bindings | Two weeks of shadow orders matching Python; one month engine-only with zero unexplained breaks | 2–4 months |
 | **4. Sleeves** | S1, S2, S3a, S4, S5, S6 through the research gate, one at a time | Each passes the gate and 3 months of paper; book Sharpe tracked with confidence intervals | One sleeve per 4–8 weeks |

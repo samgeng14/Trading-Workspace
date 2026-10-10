@@ -122,3 +122,39 @@ describe("gate", () => {
     expect(gate(status({ kill_switch: { armed: true } }), pass).text).toBe("Halted");
   });
 });
+
+describe("readiness when the gateway is down", () => {
+  const down = status({
+    components: [
+      { id: "gateway", label: "IB Gateway", status: "error", detail: "nothing is listening on 127.0.0.1:4002" },
+      { id: "market_data", label: "Market data", status: "unknown", detail: "IBKR not connected" },
+    ],
+  });
+  const doctor = (results: Schemas["DoctorResult"][]): Schemas["DoctorReport"] => ({
+    ran_at: "2026-10-09T13:00:00Z",
+    profile: "paper",
+    endpoint: "127.0.0.1:4002",
+    results,
+  });
+
+  it("reports the outage once, not once per symptom", () => {
+    const r = readiness({
+      status: down,
+      preview: preview([check("broker", "fail"), check("gross", "pass")]),
+      risk: risk([]),
+      doctor: doctor([{ name: "socket", status: "FAIL", detail: "refused", fix: "start IB Gateway" }]),
+    });
+    expect(r.blockers.map((b) => b.id)).toEqual(["gateway"]);
+    expect(r.checks.find((c) => c.id === "doctor")?.state).toBe("block");
+  });
+
+  it("shows a doctor that hasn't run as unknown, not passing", () => {
+    const r = readiness({
+      status: status(),
+      preview: preview([]),
+      risk: risk([]),
+      doctor: doctor([{ name: "doctor", status: "SKIP", detail: "not run yet", fix: "" }]),
+    });
+    expect(r.checks.find((c) => c.id === "doctor")).toMatchObject({ state: "unknown", value: "Not run" });
+  });
+});

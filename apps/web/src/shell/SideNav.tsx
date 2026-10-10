@@ -78,7 +78,9 @@ export function SideNav() {
             <dt>Latest close</dt>
             <dd className="num">{preview ? preview.targets_date : "…"}</dd>
             <dt>Quotes</dt>
-            <dd>{strip ? (strip.delayed ? "Delayed 15 min" : "Real-time") : "…"}</dd>
+            <dd>
+              {strip ? (strip.items.length === 0 ? "None" : strip.delayed ? "Delayed 15 min" : "Real-time") : "…"}
+            </dd>
           </dl>
         </div>
 

@@ -92,7 +92,7 @@ function RebalancePanel() {
                 <Stat
                   label="Est. cost"
                   value={<span className="num">{money(data.totals.est_cost)}</span>}
-                  sub="commission + 2 bp"
+                  sub="estimated"
                 />
                 <div className="preview-submit">
                   <button
@@ -386,9 +386,7 @@ function BlotterPanel() {
           control="trading.orders.table"
           rowKey={(o) => o.id}
           initialSort={[{ id: "submitted_at", desc: true }]}
-          empty={
-            filter === "all" ? "No orders this session. MOC orders go out at 15:40 ET." : "No orders with this status"
-          }
+          empty={filter === "all" ? "No orders this session." : "No orders with this status"}
         />
       )}
     </Panel>

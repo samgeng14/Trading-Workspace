@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# tradeit: run the DV02 Fund stack on this machine.
+#
+#   tradeit setup     one-time: Python env (.venv), dashboard packages, .env
+#   tradeit doctor    check the IBKR connection end to end
+#   tradeit up        API (:8000) + dashboard (:5173) on real data from IBKR
+#   tradeit api       just the API
+#   tradeit demo      dashboard on simulated data, no IBKR needed
+#
+# Start IB Gateway (paper, port 4002, API enabled) before `doctor` or `up`.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV="$ROOT/.venv"
+PY="$VENV/bin/python"
+API_PORT="${DV02_API_PORT:-8000}"
+WEB_PORT="${DV02_WEB_PORT:-5173}"
+
+say() { printf '\033[1m%s\033[0m\n' "$*"; }
+die() { printf 'tradeit: %s\n' "$*" >&2; exit 1; }
+
+pick_python() {
+  for c in python3.12 python3.11 python3.13 python3; do
+    if command -v "$c" >/dev/null 2>&1; then
+      v="$("$c" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+      case "$v" in 3.11|3.12|3.13) echo "$c"; return 0 ;; esac
+    fi
+  done
+  return 1
+}
+
+need_venv() {
+  [ -x "$PY" ] || die "no Python environment yet; run: bin/tradeit setup"
+}
+
+cmd_setup() {
+  local py
+  py="$(pick_python)" || die "needs Python 3.11 or 3.12 (brew install python@3.12)"
+  if [ ! -x "$PY" ]; then
+    say "Creating $VENV with $py ($("$py" --version))"
+    "$py" -m venv "$VENV"
+  fi
+  say "Installing Python packages"
+  "$PY" -m pip install --quiet --upgrade pip
+  "$PY" -m pip install --quiet -r "$ROOT/services/api/requirements.txt"
+  if [ ! -f "$ROOT/.env" ]; then
+    cp "$ROOT/.env.example" "$ROOT/.env"
+    say "Created .env from .env.example (IBKR ports, optional Flex token)"
+  fi
+  command -v npm >/dev/null 2>&1 || die "needs Node.js 20.19+ for the dashboard (brew install node)"
+  say "Installing dashboard packages"
+  (cd "$ROOT/apps/web" && npm install --no-fund --no-audit --loglevel=error)
+  say "Done. Next: start IB Gateway (paper, 4002), then bin/tradeit doctor and bin/tradeit up"
+}
+
+cmd_doctor() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.broker.ibkr.doctor "$@"
+}
+
+cmd_api() {
+  need_venv
+  cd "$ROOT/services/api" && exec "$PY" -m dv02_api --port "$API_PORT" "$@"
+}
+
+cmd_up() {
+  need_venv
+  [ -d "$ROOT/apps/web/node_modules" ] || die "dashboard packages missing; run: bin/tradeit setup"
+  local api_pid web_pid
+  (cd "$ROOT/services/api" && exec "$PY" -m dv02_api --port "$API_PORT" "$@") &
+  api_pid=$!
+  trap 'kill $api_pid ${web_pid:-} 2>/dev/null; wait 2>/dev/null; exit 0' INT TERM
+  for _ in $(seq 1 40); do
+    curl -fsS "http://127.0.0.1:$API_PORT/api/v1/status" >/dev/null 2>&1 && break
+    kill -0 "$api_pid" 2>/dev/null || die "the API exited during startup (see above)"
+    sleep 0.5
+  done
+  (cd "$ROOT/apps/web" && API_URL="http://127.0.0.1:$API_PORT" exec npx vite --port "$WEB_PORT" --strictPort) &
+  web_pid=$!
+  sleep 2
+  say "DV02 Fund: http://localhost:$WEB_PORT  (API http://127.0.0.1:$API_PORT/docs)  Ctrl-C stops both"
+  command -v open >/dev/null 2>&1 && open "http://localhost:$WEB_PORT" || true
+  wait
+}
+
+cmd_demo() {
+  [ -d "$ROOT/apps/web/node_modules" ] || die "dashboard packages missing; run: bin/tradeit setup"
+  cd "$ROOT/apps/web" && exec npx vite --mode demo --port "$WEB_PORT"
+}
+
+case "${1:-help}" in
+  setup) shift; cmd_setup "$@" ;;
+  doctor) shift; cmd_doctor "$@" ;;
+  up) shift; cmd_up "$@" ;;
+  api) shift; cmd_api "$@" ;;
+  demo) shift; cmd_demo "$@" ;;
+  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac

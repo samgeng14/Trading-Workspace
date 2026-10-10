@@ -265,6 +265,15 @@ function IntradayPanel({ className }: { className: string }) {
         <LoadError error={error} />
       </Panel>
     );
+  if (data && data.points.length === 0)
+    return (
+      <Panel title="Today's P&L" meta={dateLong(data.trading_date)} className={className}>
+        <p className="empty">
+          No intraday P&L recorded for this session. P&L is sampled every minute while the market is open and IBKR is
+          connected.
+        </p>
+      </Panel>
+    );
   return (
     <Figure
       className={className}

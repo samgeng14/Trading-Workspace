@@ -95,8 +95,9 @@ export function readiness({ status, preview, risk, doctor, runs }: ReadinessInpu
   // Rebalance gate
   if (preview) {
     const submitted = preview.checks.some((c) => c.id === "duplicate" && c.status === "fail");
-    // The kill switch has its own row; the duplicate guard failing means orders are already in.
-    const gating = preview.checks.filter((c) => c.id !== "duplicate" && c.id !== "kill_switch");
+    // The kill switch and the broker connection have their own rows; the duplicate
+    // guard failing means orders are already in.
+    const gating = preview.checks.filter((c) => !["duplicate", "kill_switch", "broker"].includes(c.id));
     const fails = gating.filter((c) => c.status === "fail");
     const warns = gating.filter((c) => c.status === "warn");
     const state: CheckState = submitted ? "ok" : fails.length ? "block" : warns.length ? "warn" : "ok";
@@ -135,25 +136,32 @@ export function readiness({ status, preview, risk, doctor, runs }: ReadinessInpu
     checks.push({ id: "limits", label: "Risk limits", state: "unknown", value: "…", to: "/risk" });
   }
 
-  // IBKR doctor
+  // IBKR doctor. When the gateway itself is down, its failures are that same
+  // problem seen again, so they don't get their own blockers.
+  const gatewayDown = status?.components.find((c) => c.id === "gateway")?.status === "error";
   if (doctor) {
     const fail = doctor.results.filter((r) => r.status === "FAIL");
     const warn = doctor.results.filter((r) => r.status === "WARN");
     const pass = doctor.results.filter((r) => r.status === "PASS").length;
-    const state: CheckState = fail.length ? "block" : warn.length ? "warn" : "ok";
+    const ran = doctor.results.some((r) => r.status !== "SKIP");
+    const state: CheckState = !ran ? "unknown" : fail.length ? "block" : warn.length ? "warn" : "ok";
     checks.push({
       id: "doctor",
       label: "IBKR doctor",
       state,
-      value: [`${pass} pass`, fail.length && `${fail.length} fail`, warn.length && `${warn.length} warn`]
-        .filter(Boolean)
-        .join(" · "),
+      value: !ran
+        ? "Not run"
+        : [`${pass} pass`, fail.length && `${fail.length} fail`, warn.length && `${warn.length} warn`]
+            .filter(Boolean)
+            .join(" · "),
       to: "/ops",
     });
-    for (const r of fail)
-      blockers.push({ id: `doctor.${r.name}`, title: `Doctor: ${r.name}`, detail: r.fix || r.detail, to: "/ops" });
-    for (const r of warn)
-      warnings.push({ id: `doctor.${r.name}`, title: `Doctor: ${r.name}`, detail: r.fix || r.detail, to: "/ops" });
+    if (!gatewayDown) {
+      for (const r of fail)
+        blockers.push({ id: `doctor.${r.name}`, title: `Doctor: ${r.name}`, detail: r.fix || r.detail, to: "/ops" });
+      for (const r of warn)
+        warnings.push({ id: `doctor.${r.name}`, title: `Doctor: ${r.name}`, detail: r.fix || r.detail, to: "/ops" });
+    }
   } else {
     checks.push({ id: "doctor", label: "IBKR doctor", state: "unknown", value: "…", to: "/ops" });
   }
