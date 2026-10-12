@@ -3,7 +3,7 @@ import inspect
 from typing import List, Union, Dict, Sequence, Optional
 
 import polars as pl
-from hawk_backtester import HawkBacktester
+from dv02_engine.backtest import HawkBacktester
 from polars import DataFrame, LazyFrame
 
 from common.bundles import RawDataBundle, ModelStateBundle

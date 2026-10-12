@@ -2,7 +2,7 @@ pyyaml
 polars==1.32.2
 pyarrow
 gcsfs
-hawk-backtester
+# backtester: dv02_engine (C++, engine/), pip install ./engine
 opentelemetry-api
 opentelemetry-sdk
 opentelemetry-exporter-otlp

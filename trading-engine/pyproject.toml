@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
-hawk-backtester = "^0.5.4"
+# the backtester is dv02_engine.backtest (C++, engine/), installed from ./engine by bin/tradeit setup
 polars = "1.32.0"
 pyyaml = "^6.0.2"
 pyarrow = "^21.0.0"

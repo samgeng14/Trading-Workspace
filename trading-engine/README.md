@@ -202,7 +202,7 @@ trading-engine/
 │   ├── runtime/               ← scheduling, health checks, risk gates
 │   ├── broker/                ← IBKR API wrappers
 │   ├── storage/               ← persistence repos (DB-backed, future)
-│   ├── backtest/              ← Rust hawk-backtester wiring (future)
+│   ├── backtest/              ← backtester wiring (future); the backtester is C++, in engine/
 │   ├── cli/                   ← command-line entry points
 │   ├── production/            ← daily runner, scheduler, generate_targets
 │   └── dashboard/             ← Streamlit UI

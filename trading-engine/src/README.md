@@ -14,7 +14,7 @@ how to extend it. Read in this order if you're new:
 | 7 | [`execution/`](execution/) | Kill switch, order routing, fill monitor | You're going live or adding a new venue |
 | 8 | [`broker/`](broker/) | IBKR API wrappers | You're swapping or extending the broker layer |
 | 9 | [`storage/`](storage/) | Persistence repos (DB-backed; future) | You hit the limit of CSV/parquet on disk |
-| 10 | [`backtest/`](backtest/) | hawk-backtester wiring (future) | You want fast historical sims |
+| 10 | [`backtest/`](backtest/) | Backtester wiring (future); the backtester itself is C++, `dv02_engine.backtest` in [`engine/`](../../engine/) | You want fast historical sims |
 | 11 | [`cli/`](cli/) | `python -m src.cli.<command>` entry points | You're scripting ops |
 | 12 | [`production/`](production/) | Daily runner, scheduler, generate_targets | You want to understand the actual orchestration |
 | 13 | [`dashboard/`](dashboard/) | Streamlit UI | You want to add a new screen |
