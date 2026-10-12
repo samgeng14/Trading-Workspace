@@ -47,12 +47,11 @@ a fixed API contract. That way nothing built early gets thrown away.
   rebuilt on complete history.
 - **The book is levered today.** It is 102.5% long with a margin loan of about
   $26k, and about 15 of its holdings are outside the 22-ETF model; the engine
-  never trades those. The new C++ no-leverage check counts every holding, so
-  until you decide what to do with them (Section 15) it blocks any basket that
-  leaves the book levered. A basket that only sells down may still go.
-- **The model itself holds leverage:** TQQQ (a 3× ETF) is 4.7% of its
-  targets. The check counts it at 3×, so a fully invested model is about 109%
-  gross and is blocked too, until you decide (Section 15).
+  used to leave those alone. The new C++ no-leverage check counts every
+  holding and blocks any basket that leaves the book levered. Decided
+  (Section 15): those holdings are sold at the next rebalance, and TQQQ (a 3×
+  ETF, counted at 3×) leaves the model, so the rebalance brings the book back
+  under 100% gross with no margin loan.
 - **Live streaming over a WebSocket.** About every 2 seconds the API sends the
   dashboard status, quotes, the summary, positions, intraday P&L and orders,
   whichever changed. On paper the quotes are 15 minutes delayed unless
@@ -1036,34 +1035,29 @@ CI, by phase:
   The Journal (WSJ-style newspaper) theme is the default, with a dark theme
   one click away; Command Center layout. (Dark was the default until
   October 12.)
+- **Holdings outside the model (October 12):** sold at the next rebalance.
+  The book becomes the model alone, under 100% gross with no margin loan.
+- **TQQQ (October 12):** out of the model. QQQ was already in the
+  universe, so the model holds unlevered Nasdaq-100 exposure through QQQ and
+  places TQQQ's weight wherever its signals say.
 - **Kalshi:** deferred.
 - **OptionMetrics and TAQ:** not now.
 - **Paid data:** about $10/month, which goes to the IBKR US Securities
   Snapshot and Futures Value Bundle.
 
 **Still open:**
-1. **Holdings outside the model.** About 15 holdings outside the 22-ETF model
-   leave the book 102.5% long on a margin loan of about $26k, and the
-   no-leverage check blocks any basket that leaves the book levered. Sell them
-   at the next rebalance, or keep them and shrink the model so gross stays
-   ≤ 100%?
-2. **Leveraged ETFs in the model.** TQQQ (3× Nasdaq-100) is 4.7% of the
-   model's targets. Counted at 3×, as the mandate requires, a fully invested
-   model is about 109% gross, so the no-leverage check blocks it even after
-   item 1 is settled. Drop TQQQ from the universe (or swap it for QQQ), or
-   keep it and shrink the rest of the model?
-3. **Rust-built third-party tools.** Polars (in research code) and the ruff
+1. **Rust-built third-party tools.** Polars (in research code) and the ruff
    linter (in API CI) are written in Rust; our own code has none. Keep them,
    or replace them (pandas for Polars, a Python linter for ruff)?
-4. **Oracle VM shape.** On the VM, `uname -m` (aarch64 = ARM Ampere), `nproc`,
+2. **Oracle VM shape.** On the VM, `uname -m` (aarch64 = ARM Ampere), `nproc`,
    `free -h` and `df -h /` give everything needed. Is it OK to run the IBKR
    gateway and Postgres there?
-5. **IBKR permissions.** Re-request futures and options after updating the
+3. **IBKR permissions.** Re-request futures and options after updating the
    profile (Section 7). Confirm the account is a margin account (needed for shorts).
-6. **WRDS:** which FactSet modules are active. Do unattended connections pass Duo?
-7. **Collaborators:** Rithwik (original engine), the News Engine project with
+4. **WRDS:** which FactSet modules are active. Do unattended connections pass Duo?
+5. **Collaborators:** Rithwik (original engine), the News Engine project with
    Prof. Singh. One monorepo, or separate repos with shared `schemas/`?
-8. **Benchmark default** for the Performance page: S&P 500 total return (current default)?
+6. **Benchmark default** for the Performance page: S&P 500 total return (current default)?
 
 ---
 

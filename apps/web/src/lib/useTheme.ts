@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
 export type Theme = "light" | "dark";
-const KEY = "theme";
+// A new key, so a pick saved before the Journal theme became the default
+// (when dark was the default) doesn't keep anyone on dark.
+const KEY = "dv02.theme";
 
 function stored(): Theme | null {
   try {
