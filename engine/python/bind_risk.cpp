@@ -32,15 +32,17 @@ void bind_risk(nb::module_& m) {
     nb::class_<Position>(m, "Position")
         .def(
             "__init__",
-            [](Position* self, std::string symbol, double quantity, double price, double multiplier, AssetClass ac) {
-                new (self) Position{std::move(symbol), quantity, price, multiplier, ac};
-            },
-            "symbol"_a, "quantity"_a, "price"_a, "multiplier"_a = 1.0, "asset_class"_a = AssetClass::Stock)
+            [](Position* self, std::string symbol, double quantity, double price, double multiplier, AssetClass ac,
+               double exposure) { new (self) Position{std::move(symbol), quantity, price, multiplier, ac, exposure}; },
+            "symbol"_a, "quantity"_a, "price"_a, "multiplier"_a = 1.0, "asset_class"_a = AssetClass::Stock,
+            "exposure"_a = 1.0)
         .def_rw("symbol", &Position::symbol)
         .def_rw("quantity", &Position::quantity)
         .def_rw("price", &Position::price)
         .def_rw("multiplier", &Position::multiplier)
         .def_rw("asset_class", &Position::asset_class)
+        .def_rw("exposure", &Position::exposure)
+        .def_prop_ro("market_value", &Position::market_value)
         .def_prop_ro("notional", &Position::notional)
         .def("__repr__", [](const Position& p) {
             return "Position(" + p.symbol + ", " + std::to_string(p.quantity) + " @ " + std::to_string(p.price) + ")";
@@ -50,17 +52,18 @@ void bind_risk(nb::module_& m) {
         .def(
             "__init__",
             [](Order* self, std::string symbol, double quantity, double price, double multiplier, AssetClass ac,
-               double commission) {
-                new (self) Order{std::move(symbol), quantity, price, multiplier, ac, commission};
+               double commission, double exposure) {
+                new (self) Order{std::move(symbol), quantity, price, multiplier, ac, commission, exposure};
             },
             "symbol"_a, "quantity"_a, "price"_a, "multiplier"_a = 1.0, "asset_class"_a = AssetClass::Stock,
-            "commission"_a = 0.0)
+            "commission"_a = 0.0, "exposure"_a = 1.0)
         .def_rw("symbol", &Order::symbol)
         .def_rw("quantity", &Order::quantity)
         .def_rw("price", &Order::price)
         .def_rw("multiplier", &Order::multiplier)
         .def_rw("asset_class", &Order::asset_class)
         .def_rw("commission", &Order::commission)
+        .def_rw("exposure", &Order::exposure)
         .def("__repr__", [](const Order& o) {
             return "Order(" + o.symbol + ", " + std::to_string(o.quantity) + " @ " + std::to_string(o.price) + ")";
         });

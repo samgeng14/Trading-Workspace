@@ -1,7 +1,8 @@
 // Pre-trade risk: the fund's no-leverage mandate.
 //
 // The fund is long/short with no leverage:
-//   gross = (long + |short|) / NAV <= 100%, with futures and options at notional
+//   gross = (long + |short|) / NAV <= 100%, with futures at notional and
+//           leveraged or inverse ETFs at their economic exposure (TQQQ at 3x)
 //   cash >= 0 after the orders, so no margin loan
 //
 // check() takes the whole account (every holding, not only the model's) plus
@@ -32,9 +33,13 @@ struct Position {
     double price = 0.0;       // per unit, in base currency
     double multiplier = 1.0;  // 1 for stocks and ETFs; contract size for futures and options
     AssetClass asset_class = AssetClass::Stock;
+    // Economic exposure per dollar of market value: 3 for a 3x ETF, -1 for an
+    // inverse ETF. Counts toward gross and net; cash still moves at market value.
+    double exposure = 1.0;
 
+    double market_value() const { return quantity * price * multiplier; }
     // Signed notional: what the position is exposed to.
-    double notional() const { return quantity * price * multiplier; }
+    double notional() const { return market_value() * exposure; }
 };
 
 struct Order {
@@ -44,6 +49,7 @@ struct Order {
     double multiplier = 1.0;
     AssetClass asset_class = AssetClass::Stock;
     double commission = 0.0;
+    double exposure = 1.0;  // as Position::exposure
 };
 
 struct Book {

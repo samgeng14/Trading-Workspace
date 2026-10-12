@@ -199,3 +199,37 @@ TEST(ibkr_sec_types) {
     CHECK(settles_in_cash(AssetClass::ETF));
     CHECK(to_string(AssetClass::FutureOption) == "future_option");
 }
+
+TEST(leveraged_etfs_count_at_their_exposure) {
+    // 90% in plain ETFs plus 5% of NAV in a 3x ETF: 105% of exposure, 95% of cash spent
+    Position tqqq{"TQQQ", 500, 100, 1.0, AssetClass::ETF, 3.0};
+    Book book{1'000'000, 50'000, {etf("SPY", 1800, 500), tqqq}};
+    auto idle = check(book, {}, mandate());
+    CHECK_NEAR(idle.before.long_value, 900'000 + 150'000, 1e-6);
+    CHECK_NEAR(idle.before.gross, 1.05, 1e-12);
+    CHECK(has(idle, "gross", false));
+
+    Order more{"TQQQ", 10, 100, 1.0, AssetClass::ETF, 0.0, 3.0};
+    auto r = check(book, {more}, mandate());
+    CHECK(!r.ok);
+    CHECK_NEAR(r.after.cash, 50'000 - 1'000, 1e-6);  // cash moves at market value, not exposure
+    const Breach* g = find(r, "gross");
+    CHECK(g && g->blocking && g->message.find("TQQQ 3x") != std::string::npos);
+}
+
+TEST(inverse_etfs_are_short_exposure) {
+    Position sh{"SH", 1000, 40, 1.0, AssetClass::ETF, -1.0};
+    Book book{1'000'000, 560'000, {etf("SPY", 800, 500), sh}};
+    auto r = check(book, {}, mandate());
+    CHECK(r.ok);
+    CHECK_NEAR(r.before.long_value, 400'000, 1e-6);
+    CHECK_NEAR(r.before.short_value, 40'000, 1e-6);
+    CHECK_NEAR(r.before.net, 0.36, 1e-12);
+}
+
+TEST(zero_exposure_is_unmeasurable) {
+    Position odd{"ODD", 10, 100, 1.0, AssetClass::ETF, 0.0};
+    auto r = check(Book{1'000'000, 999'000, {odd}}, {});
+    CHECK(!r.ok);
+    CHECK(has(r, "unpriced", true));
+}

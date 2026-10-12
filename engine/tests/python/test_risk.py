@@ -50,3 +50,13 @@ def test_unpriced_blocks():
     r = risk.check(risk.Book(1_000_000, 0, [etf("XLE", 100, float("nan"))]), [])
     assert not r.ok
     assert "XLE" in r.breaches[0].message
+
+
+def test_leveraged_etf_exposure():
+    book = risk.Book(1_000_000, 50_000, [etf("SPY", 1800, 500), risk.Position("TQQQ", 500, 100, exposure=3.0)])
+    r = risk.check(book, [risk.Order("TQQQ", 10, 100, exposure=3.0)], risk.Policy(max_single_name=1.0))
+    assert not r.ok
+    assert r.after.gross == pytest.approx((900_000 + 510 * 300) / 1_000_000)
+    assert "TQQQ 3x" in r.breaches[0].message
+    assert book.positions[1].market_value == 50_000
+    assert book.positions[1].notional == 150_000

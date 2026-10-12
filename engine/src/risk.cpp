@@ -13,10 +13,10 @@ constexpr double kTol = 1e-9;
 
 bool is_option(AssetClass ac) { return ac == AssetClass::Option || ac == AssetClass::FutureOption; }
 
-bool priced(double quantity, double price, double multiplier) {
+bool priced(double quantity, double price, double multiplier, double exposure) {
     if (quantity == 0.0) return true;
     return std::isfinite(quantity) && std::isfinite(price) && price > 0.0 && std::isfinite(multiplier) &&
-           multiplier > 0.0;
+           multiplier > 0.0 && std::isfinite(exposure) && exposure != 0.0;
 }
 
 std::string money(double v) {
@@ -108,7 +108,7 @@ Exposure exposure(const Book& book) {
     e.cash = book.cash;
     std::map<std::string, double> by_name;
     for (const auto& p : book.positions) {
-        if (p.quantity == 0.0 || !priced(p.quantity, p.price, p.multiplier)) continue;
+        if (p.quantity == 0.0 || !priced(p.quantity, p.price, p.multiplier, p.exposure)) continue;
         const double n = p.notional();
         if (n > 0.0) e.long_value += n;
         else e.short_value -= n;
@@ -137,7 +137,7 @@ Book apply(const Book& book, const std::vector<Order>& orders) {
         auto it = std::find_if(out.positions.begin(), out.positions.end(),
                                [&](const Position& p) { return p.symbol == o.symbol; });
         if (it == out.positions.end()) {
-            out.positions.push_back({o.symbol, o.quantity, o.price, o.multiplier, o.asset_class});
+            out.positions.push_back({o.symbol, o.quantity, o.price, o.multiplier, o.asset_class, o.exposure});
         } else {
             // re-mark what is already held at the expected fill price
             if (it->price > 0.0) out.nav += it->quantity * (o.price - it->price) * it->multiplier;
@@ -163,14 +163,24 @@ Result check(const Book& book, const std::vector<Order>& orders, const Policy& p
         r.ok = false;
         r.breaches.push_back({"cash", true, 0.0, policy.min_cash, "cash balance is missing"});
     }
-    std::vector<std::string> unpriced, options;
+    std::vector<std::string> unpriced, options, geared;
+    auto note_gearing = [&](const std::string& symbol, double exposure) {
+        if (exposure == 1.0 || !std::isfinite(exposure)) return;
+        char buf[32];
+        std::snprintf(buf, sizeof buf, " %gx", exposure);
+        const std::string item = symbol + buf;
+        if (std::find(geared.begin(), geared.end(), item) == geared.end()) geared.push_back(item);
+    };
     for (const auto& p : book.positions) {
-        if (!priced(p.quantity, p.price, p.multiplier)) unpriced.push_back(p.symbol);
+        if (!priced(p.quantity, p.price, p.multiplier, p.exposure)) unpriced.push_back(p.symbol);
         if (p.quantity != 0.0 && is_option(p.asset_class)) options.push_back(p.symbol);
+        if (p.quantity != 0.0) note_gearing(p.symbol, p.exposure);
     }
     std::map<std::string, double> traded;  // net order quantity per symbol
     for (const auto& o : orders) {
-        if (!priced(o.quantity, o.price, o.multiplier) || !std::isfinite(o.commission)) unpriced.push_back(o.symbol);
+        if (!priced(o.quantity, o.price, o.multiplier, o.exposure) || !std::isfinite(o.commission))
+            unpriced.push_back(o.symbol);
+        if (o.quantity != 0.0) note_gearing(o.symbol, o.exposure);
         if (o.quantity != 0.0 && is_option(o.asset_class)) options.push_back(o.symbol);
         traded[o.symbol] += o.quantity;
     }
@@ -212,7 +222,8 @@ Result check(const Book& book, const std::vector<Order>& orders, const Policy& p
     const double gross_dollars = a.long_value + a.short_value;
     judge(r, "gross", a.gross > policy.max_gross + kTol, a.gross > b.gross + kTol, a.gross, policy.max_gross,
           "gross " + pct(a.gross) + " of NAV after these orders, over the " + pct(policy.max_gross) + " limit by " +
-              money(gross_dollars - policy.max_gross * a.nav));
+              money(gross_dollars - policy.max_gross * a.nav) +
+              (geared.empty() ? std::string() : " (counting " + join(geared) + " at that exposure)"));
     judge(r, "cash", a.cash_ratio < policy.min_cash - kTol, a.cash_ratio < b.cash_ratio - kTol, a.cash_ratio,
           policy.min_cash,
           "cash " + money(a.cash) + " after these orders" +
