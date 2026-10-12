@@ -7,7 +7,7 @@ export const AFTER_REBALANCE = "2026-10-01T21:00:00Z";
 
 export async function open(page: Page, path = "/", now = MARKET_OPEN) {
   await page.goto(`${path}${path.includes("?") ? "&" : "?"}demo_now=${now}`);
-  await expect(page.locator(".wordmark")).toHaveText("DV02 Fund");
+  await expect(page.locator(".wordmark")).toHaveText("DV02");
   await expect(page.locator(".mode-badge")).toBeVisible(); // status loaded
 }
 

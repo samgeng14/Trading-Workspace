@@ -46,21 +46,21 @@ test("system health opens Operations", async ({ page }) => {
   await expect(page).toHaveURL(/\/ops$/);
 });
 
-test("dark by default; the theme toggle switches to paper and is remembered", async ({ page }) => {
-  await page.emulateMedia({ colorScheme: "light" });
+test("journal (light) by default; the theme toggle switches to dark and is remembered", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
   await open(page);
   const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  const dark = await bg();
-  expect(dark).toBe("rgb(14, 13, 12)");
-  await ctl(page, "topbar.theme").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  expect(await bg()).not.toBe(dark);
+  const paper = await bg();
+  expect(paper).toBe("rgb(250, 249, 245)");
+  await ctl(page, "topbar.theme").click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await bg()).toBe("rgb(14, 13, 12)");
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  await ctl(page, "topbar.theme").click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  expect(await bg()).toBe(dark);
+  await ctl(page, "topbar.theme").click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  expect(await bg()).toBe(paper);
 });
 
 test("market session and clock follow the exchange", async ({ page }) => {

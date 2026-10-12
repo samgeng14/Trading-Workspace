@@ -130,7 +130,17 @@ const weekdayTimeFmt = new Intl.DateTimeFormat("en-US", {
   hourCycle: "h23",
 });
 
+const datelineFmt = new Intl.DateTimeFormat("en-US", {
+  timeZone: EXCHANGE_TZ,
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+});
+
 export const timeET = (iso: string | Date) => timeFmt.format(new Date(iso));
+/** A newspaper dateline in exchange time: "Monday, October 12, 2026". */
+export const datelineET = (iso: string | Date) => datelineFmt.format(new Date(iso));
 export const shortTimeET = (iso: string | Date) => shortTimeFmt.format(new Date(iso));
 export const weekdayTimeET = (iso: string | Date) => weekdayTimeFmt.format(new Date(iso));
 

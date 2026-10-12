@@ -12,9 +12,9 @@ function stored(): Theme | null {
   }
 }
 
-/** Dark unless the viewer picked light; the pick is remembered per browser. */
+/** The Journal (light) theme unless the viewer picked dark; the pick is remembered per browser. */
 export function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() => stored() ?? "dark");
+  const [theme, setTheme] = useState<Theme>(() => stored() ?? "light");
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

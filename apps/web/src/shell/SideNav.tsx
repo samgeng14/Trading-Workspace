@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import { NavLink, useNavigate } from "react-router";
 import { useMarketStrip, useOrders, useRebalancePreview, useStatus } from "../api/hooks";
 import { StatusIcon } from "../components/icons";
-import { dateShort, shortTimeET } from "../lib/format";
+import { dateShort, datelineET, shortTimeET } from "../lib/format";
+import { useServerNow } from "../lib/serverClock";
 import { useGoHotkeys } from "../lib/useHotkeys";
 
 export const NAV = [
@@ -23,6 +24,7 @@ const MODE_NOTE = {
 
 export function SideNav() {
   const navigate = useNavigate();
+  const now = useServerNow();
   const status = useStatus().data;
   const preview = useRebalancePreview().data;
   const orders = useOrders().data;
@@ -40,8 +42,13 @@ export function SideNav() {
   return (
     <nav className="sidenav" aria-label="Sections">
       <div className="brand">
-        <span className="wordmark">DV02 Fund</span>
-        <span className="brand-sub">Dashboard</span>
+        <span className="wordmark">DV02</span>
+        <span className="brand-sub">
+          <span className="brand-name">Dashboard</span>
+          <time className="brand-date" dateTime={now.toISOString().slice(0, 10)}>
+            {datelineET(now)}
+          </time>
+        </span>
       </div>
 
       {status && (

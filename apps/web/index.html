@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="color-scheme" content="light dark" />
     <title>DV02 Fund</title>
     <script>
       // Apply a remembered theme before first paint so the page never flashes.
       try {
-        if (localStorage.getItem("theme") === "light") document.documentElement.dataset.theme = "light";
+        document.documentElement.dataset.theme = localStorage.getItem("theme") === "dark" ? "dark" : "light";
       } catch (e) {}
     </script>
   </head>

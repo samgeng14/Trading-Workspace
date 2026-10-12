@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bps, compact, countdown, dateLong, direction, MINUS, money, num, pct, price } from "./format";
+import { bps, compact, countdown, dateLong, datelineET, direction, MINUS, money, num, pct, price } from "./format";
 
 describe("format", () => {
   it("formats money with grouping, sign and true minus", () => {
@@ -40,5 +40,14 @@ describe("format", () => {
     expect(countdown(65_000)).toBe("1m 05s");
     expect(countdown(3 * 86_400_000 + 3600_000)).toBe("3d 1h");
     expect(countdown(-1)).toBe("now");
+  });
+});
+
+describe("datelineET", () => {
+  it("spells the exchange date out, as a newspaper dateline", () => {
+    expect(datelineET("2026-10-12T18:00:00Z")).toBe("Monday, October 12, 2026");
+  });
+  it("uses New York's date, not UTC's, late in the evening", () => {
+    expect(datelineET("2026-10-13T02:30:00Z")).toBe("Monday, October 12, 2026");
   });
 });
