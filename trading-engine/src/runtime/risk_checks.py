@@ -112,15 +112,17 @@ def run_pre_trade_risk_checks(
                 "warnings": v.warnings,
                 "summary": v.summary,
             }
-            if not v.ok:
+            if not v.ok or v.errors:
                 res.ok = False
                 res.blocking_reasons.extend(
-                    f"prices: {e}" for e in v.errors
+                    f"prices: {e}" for e in (v.errors or ["price validation failed"])
                 )
             res.warnings.extend(f"prices: {w}" for w in v.warnings)
         except Exception as exc:
-            res.warnings.append(
-                f"Price validation skipped (could not load): {type(exc).__name__}: {exc}"
+            # Fail closed: prices that couldn't be validated are not a pass.
+            res.ok = False
+            res.blocking_reasons.append(
+                f"prices: validation could not run: {type(exc).__name__}: {exc}"
             )
 
     # ── 5. Exposure limits ────────────────────────────────────────────────

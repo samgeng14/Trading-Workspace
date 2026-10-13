@@ -11,6 +11,13 @@ Usage:
     python -m src.production.backfill_gaps
     # or with options:
     python -m src.production.backfill_gaps --lookback "45 D" --port 4002
+    # repair a master that already mixes price bases (e.g. after a split):
+    python -m src.production.backfill_gaps --repair-basis [--symbols ETHA]
+
+Every merge checks the price basis: new IBKR bars are compared with the
+master's rows on overlapping dates, and a symbol whose basis changed (a
+split, a reverse split) gets its whole history refetched instead of being
+spliced (see src/data/cleaning/price_basis.py).
 """
 from __future__ import annotations
 
@@ -24,7 +31,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.production.pipeline.append_ibkr_daily import append_ibkr_daily
+from src.production.pipeline.append_ibkr_daily import append_ibkr_daily, repair_ibkr_basis  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -133,7 +140,54 @@ def backfill(
         log.info("  Snapshot saved   : %s", result.get("snapshot_path"))
     else:
         log.error("✗ Backfill failed: %s", result.get("error"))
+    if result.get("refetched"):
+        log.warning("  Basis changed, history refetched: %s", ", ".join(result["refetched"]))
+        log.warning("  Previous master kept at: %s", result.get("backup_path"))
 
+    log.info("-" * 60)
+    return result
+
+
+def repair_basis(
+    host: str = "127.0.0.1",
+    port: int = 4002,
+    client_id: int = 101,
+    symbols: "list[str] | None" = None,
+    window: str = "1 Y",
+    profile: str = "paper",
+) -> dict:
+    """Find symbols whose stored history mixes price bases and refetch them from IBKR."""
+    log.info("=" * 60)
+    log.info("Price basis repair")
+    log.info("  Symbols          : %s", ", ".join(symbols) if symbols else "all in the master")
+    log.info("  Compared with    : IBKR bars over %s, plus a scan for split-ratio jumps", window)
+    log.info("  IBKR endpoint    : %s:%s (client %s)", host, port, client_id)
+    log.info("=" * 60)
+
+    result = repair_ibkr_basis(
+        profile=profile,
+        host=host,
+        port=port,
+        client_id=client_id,
+        symbols=symbols,
+        window=window,
+    )
+
+    if "symbols_checked" not in result:
+        log.error("✗ Basis repair failed: %s", result.get("error"))
+    else:
+        log.info("  Symbols checked  : %s", len(result["symbols_checked"]))
+        if result["refetched"]:
+            log.warning("  Repaired (history refetched from IBKR): %s", ", ".join(result["refetched"]))
+            log.warning("  Previous master kept at: %s", result.get("backup_path"))
+        else:
+            log.info("  Nothing to repair: every checked symbol is on one price basis.")
+        for item in result.get("unchecked") or []:
+            log.warning("  Not compared with IBKR: %s (%s)", item["symbol"], item["reason"])
+        if result["refused"]:
+            log.error("✗ %s", result.get("error"))
+        else:
+            log.info("✓ Basis repair complete.")
     log.info("-" * 60)
     return result
 
@@ -154,8 +208,41 @@ def main() -> None:
         action="store_true",
         help="find the oldest hole in the last year and pick the lookback that refills it; no-op if none",
     )
+    parser.add_argument(
+        "--repair-basis",
+        action="store_true",
+        dest="repair_basis",
+        help=(
+            "find symbols whose stored history mixes price bases (split-ratio jumps, "
+            "or disagreement with IBKR's bars) and refetch their whole history from IBKR"
+        ),
+    )
+    parser.add_argument(
+        "--symbols",
+        nargs="+",
+        default=None,
+        help="with --repair-basis: only these symbols (default: every symbol in the master)",
+    )
+    parser.add_argument(
+        "--window",
+        default="1 Y",
+        help="with --repair-basis: how much recent IBKR history to compare against (default '1 Y')",
+    )
     parser.add_argument("--json", action="store_true", help="Print result as JSON")
     args = parser.parse_args()
+
+    if args.repair_basis:
+        result = repair_basis(
+            host=args.host,
+            port=args.port,
+            client_id=args.client_id,
+            symbols=args.symbols,
+            window=args.window,
+            profile=args.profile,
+        )
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        sys.exit(0 if result.get("ok") else 1)
 
     if args.auto:
         lookback = auto_lookback()
