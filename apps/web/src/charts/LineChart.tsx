@@ -14,6 +14,8 @@ export interface LineSeries {
   values: (number | null)[];
   /** Soft 10% wash under the line (single-series charts). */
   area?: boolean;
+  /** With the chart's signedFill, whether this line gets the up/down washes (default yes). */
+  fill?: boolean;
   /** Text shown after the label at the line's end, e.g. "+9.8%". */
   endText?: string;
 }
@@ -208,10 +210,12 @@ export function LineChart({
               ))}
               {paths.map(({ s, area }) =>
                 signedFill && zeroY !== null ? (
-                  <g key={`a-${s.id}`}>
-                    <path d={area} className="fill-up" clipPath={`url(#${clipId}-above)`} />
-                    <path d={area} className="fill-down" clipPath={`url(#${clipId}-below)`} />
-                  </g>
+                  s.fill === false ? null : (
+                    <g key={`a-${s.id}`}>
+                      <path d={area} className="fill-up" clipPath={`url(#${clipId}-above)`} />
+                      <path d={area} className="fill-down" clipPath={`url(#${clipId}-below)`} />
+                    </g>
+                  )
                 ) : s.area ? (
                   <path key={`a-${s.id}`} d={area} fill={s.color} fillOpacity={0.1} />
                 ) : null,

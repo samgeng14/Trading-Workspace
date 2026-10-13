@@ -427,18 +427,27 @@ function rangeStart(range: S["PerformanceRange"], end: string): string {
     d.setUTCMonth(d.getUTCMonth() - months);
     return d.toISOString().slice(0, 10);
   };
+  const days = (n: number) => {
+    const d = new Date(end + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
   const start =
-    range === "1M"
-      ? shift(1)
-      : range === "3M"
-        ? shift(3)
-        : range === "6M"
-          ? shift(6)
-          : range === "1Y"
-            ? shift(12)
-            : range === "YTD"
-              ? `${Number(end.slice(0, 4)) - 1}-12-31`
-              : INCEPTION;
+    range === "1W"
+      ? days(7)
+      : range === "MTD"
+        ? days(Number(end.slice(8, 10)))
+        : range === "1M"
+          ? shift(1)
+          : range === "3M"
+            ? shift(3)
+            : range === "6M"
+              ? shift(6)
+              : range === "1Y"
+                ? shift(12)
+                : range === "YTD"
+                  ? `${Number(end.slice(0, 4)) - 1}-12-31`
+                  : INCEPTION;
   return start < INCEPTION ? INCEPTION : start;
 }
 

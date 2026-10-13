@@ -175,3 +175,24 @@
 .figure-table {
   max-height: 320px;
 }
+
+/* The big total-return figure over an equity curve, as a broker's app shows it. */
+.equity-headline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-3);
+}
+
+.equity-headline-value {
+  font-family: var(--font-serif);
+  font-size: var(--fs-hero);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.equity-headline-caption {
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+}

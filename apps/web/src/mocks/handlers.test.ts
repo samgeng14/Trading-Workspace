@@ -87,10 +87,12 @@ describe.each(MOMENTS)("demo API at %s", (_label, at, session) => {
     expect(perf.series[0]!.portfolio).toBe(100);
     expect(perf.series.length).toBeGreaterThan(200);
     expect(perf.monthly.length).toBeGreaterThanOrEqual(12);
-    for (const r of ["1M", "3M", "6M", "YTD", "1Y"]) {
+    for (const r of ["1W", "MTD", "1M", "3M", "6M", "YTD", "1Y"]) {
       for (const b of ["QQQ", "6040", "BIL"]) {
         const p = await get<S["Performance"]>(`/performance?range=${r}&benchmark=${b}`);
-        expect(p.series.length).toBeGreaterThan(5);
+        // on Oct 1 the month is one session old: MTD is the Sep 30 close and today's
+        expect(p.series.length).toBeGreaterThan(r === "MTD" ? 1 : 5);
+        expect(p.series[0]!.portfolio).toBe(100);
       }
     }
     expect((await fetch(BASE + "/performance?benchmark=NOPE")).status).toBe(400);

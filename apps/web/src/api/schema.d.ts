@@ -527,7 +527,7 @@ export interface components {
          * @default ITD
          * @enum {string}
          */
-        PerformanceRange: "1M" | "3M" | "6M" | "YTD" | "1Y" | "ITD";
+        PerformanceRange: "1W" | "MTD" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "ITD";
         Benchmark: {
             id: string;
             label: string;

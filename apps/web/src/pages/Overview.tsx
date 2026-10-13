@@ -523,7 +523,7 @@ function LimitsPanel({ className }: { className: string }) {
 function PerformancePanel({ className }: { className: string }) {
   const { data, error } = usePerformance("ITD", "SPY");
   const history = useSummary().data?.history;
-  const [mode, setMode] = useState<EquityMode>("growth");
+  const [mode, setMode] = useState<EquityMode>("return");
   const monthEnds = useMemo(() => {
     const series = data?.series ?? [];
     const lines = equityLines(series, "nav");
@@ -547,7 +547,7 @@ function PerformancePanel({ className }: { className: string }) {
       title="Since inception vs S&P 500"
       meta={
         data
-          ? `${mode === "nav" ? "NAV in dollars" : "growth of $100, total return"}, through ${dateShort(data.end)} close`
+          ? `${mode === "nav" ? "NAV in dollars" : mode === "return" ? "cumulative return" : "growth of $100, total return"}, through ${dateShort(data.end)} close`
           : undefined
       }
       control="overview.performance"
@@ -578,6 +578,7 @@ function PerformancePanel({ className }: { className: string }) {
                 ? `NAV in dollars since inception, versus ${bench} from the same starting NAV`
                 : `Portfolio versus ${bench} since inception`
             }
+            headline="Total return since inception"
             control="overview.performance.plot"
           />
         )

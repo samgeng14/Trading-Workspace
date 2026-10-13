@@ -516,7 +516,7 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
     async def get_performance(
         range_: str = Query("ITD", alias="range"), benchmark: str = Query("SPY")
     ) -> dict[str, Any]:
-        if range_ not in ("1M", "3M", "6M", "YTD", "1Y", "ITD"):
+        if range_ not in ("1W", "MTD", "1M", "3M", "6M", "YTD", "1Y", "ITD"):
             raise Problem(400, "Unknown range", range_)
         bench = next((b for b in BENCHMARKS if b["id"] == benchmark), None)
         if bench is None:

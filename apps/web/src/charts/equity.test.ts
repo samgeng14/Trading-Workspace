@@ -9,6 +9,15 @@ const series = [
 ];
 
 describe("equity lines", () => {
+  it("return mode is the cumulative return from the first point, starting at 0", () => {
+    const r = equityLines(series, "return");
+    expect(r.base).toBe(0);
+    expect(r.portfolio[0]).toBe(0);
+    expect(r.portfolio[1]).toBeCloseTo(0.01, 12);
+    expect(r.portfolio[2]).toBeCloseTo(0.025, 12);
+    expect(r.benchmark[1]).toBeCloseTo(-0.005, 12);
+  });
+
   it("growth mode is the API's growth of $100", () => {
     const g = equityLines(series, "growth");
     expect(g.portfolio).toEqual([100, 101, 102.5]);

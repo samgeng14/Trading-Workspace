@@ -7,7 +7,7 @@ from typing import Any
 
 from . import stats
 
-RANGES = {"1M": 30, "3M": 91, "6M": 182, "1Y": 365}
+RANGES = {"1W": 7, "1M": 30, "3M": 91, "6M": 182, "1Y": 365}
 
 
 def range_start(rng: str, first: date, last: date) -> date:
@@ -16,6 +16,9 @@ def range_start(rng: str, first: date, last: date) -> date:
     if rng == "YTD":
         prev_year_end = date(last.year - 1, 12, 31)
         return max(first, prev_year_end)
+    if rng == "MTD":
+        prev_month_end = date(last.year, last.month, 1) - timedelta(days=1)
+        return max(first, prev_month_end)
     return max(first, last - timedelta(days=RANGES[rng]))
 
 

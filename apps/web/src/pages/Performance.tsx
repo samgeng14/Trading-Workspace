@@ -13,13 +13,33 @@ import { MIN_RATIO_OBS } from "../lib/labels";
 
 type Range = Schemas["PerformanceRange"];
 const RANGES: { value: Range; label: string }[] = [
+  { value: "1W", label: "1W" },
+  { value: "MTD", label: "MTD" },
   { value: "1M", label: "1M" },
   { value: "3M", label: "3M" },
   { value: "6M", label: "6M" },
   { value: "YTD", label: "YTD" },
   { value: "1Y", label: "1Y" },
-  { value: "ITD", label: "Since inception" },
+  { value: "ITD", label: "All" },
 ];
+
+/** The headline's caption: what the big total-return figure covers. */
+const RANGE_CAPTION: Record<Range, string> = {
+  "1W": "Return over the last week",
+  MTD: "Return this month",
+  "1M": "Return over the last month",
+  "3M": "Return over the last 3 months",
+  "6M": "Return over the last 6 months",
+  YTD: "Return this year",
+  "1Y": "Return over the last year",
+  ITD: "Total return since inception",
+};
+
+const MODE_TITLE: Record<EquityMode, string> = {
+  return: "Return",
+  growth: "Growth of $100",
+  nav: "NAV",
+};
 
 type MonthlyView = "portfolio" | "benchmark" | "excess";
 const MONTHLY_VIEWS = [
@@ -31,7 +51,7 @@ const MONTHLY_VIEWS = [
 export function Performance() {
   const [range, setRange] = useState<Range>("ITD");
   const [benchmark, setBenchmark] = useState("SPY");
-  const [mode, setMode] = useState<EquityMode>("growth");
+  const [mode, setMode] = useState<EquityMode>("return");
   const { data, error, isPlaceholderData } = usePerformance(range, benchmark);
   const benchmarks = useBenchmarks().data ?? [];
   const history = useSummary().data?.history;
@@ -44,7 +64,12 @@ export function Performance() {
   const equityRows = useMemo(() => {
     const series = data?.series ?? [];
     const lines = equityLines(series, mode);
-    const fmt = mode === "nav" ? (v: number) => money(v) : (v: number) => num(v, 2);
+    const fmt =
+      mode === "nav"
+        ? (v: number) => money(v)
+        : mode === "return"
+          ? (v: number) => pct(v, 2, true)
+          : (v: number) => num(v, 2);
     return series
       .map((p, i) => [p.date, fmt(lines.portfolio[i]!), fmt(lines.benchmark[i]!)])
       .filter((_, i, a) => i % 5 === 0 || i === a.length - 1);
@@ -155,11 +180,13 @@ export function Performance() {
       )}
 
       <Figure
-        title={mode === "nav" ? `NAV vs ${benchLabel}` : `Growth of $100 vs ${benchLabel}`}
+        title={`${MODE_TITLE[mode]} vs ${benchLabel}`}
         meta={
           mode === "nav"
             ? "account value in dollars, after costs, including any deposits and withdrawals"
-            : "total return, after costs"
+            : mode === "return"
+              ? "cumulative return from the start of the period, after costs"
+              : "total return, after costs"
         }
         control="performance.growth"
         stale={isPlaceholderData}
@@ -182,8 +209,11 @@ export function Performance() {
               ariaLabel={
                 mode === "nav"
                   ? `NAV in dollars, portfolio versus ${benchLabel} from the same starting NAV`
-                  : `Growth of $100, portfolio versus ${benchLabel}`
+                  : mode === "return"
+                    ? `Cumulative return, portfolio versus ${benchLabel}`
+                    : `Growth of $100, portfolio versus ${benchLabel}`
               }
+              headline={RANGE_CAPTION[range]}
               control="performance.growth.plot"
             />
           )

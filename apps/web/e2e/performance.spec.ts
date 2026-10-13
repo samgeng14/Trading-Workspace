@@ -7,6 +7,8 @@ test("period presets change the window", async ({ page }) => {
   const sub = page.locator(".page-sub");
   await expect(sub).toContainText("Oct 15, 2025");
   const expected: Record<string, RegExp> = {
+    "1W": /Oct \d+, 2026/,
+    MTD: /Sep 30, 2026/,
     "1M": /Sep \d+, 2026/,
     "3M": /Jul \d+, 2026/,
     "6M": /Apr \d+, 2026/,
@@ -24,10 +26,10 @@ test("period presets change the window", async ({ page }) => {
 test("benchmark switch relabels everything", async ({ page }) => {
   await open(page, "/performance");
   await ctl(page, "performance.benchmark").selectOption("QQQ");
-  await expect(page.locator("section[aria-label='Growth of $100 vs Nasdaq-100']")).toBeVisible();
+  await expect(page.locator("section[aria-label='Return vs Nasdaq-100']")).toBeVisible();
   await expect(page.locator(".summary-strip")).toContainText("Beta to Nasdaq-100");
   await ctl(page, "performance.benchmark").selectOption("6040");
-  await expect(page.locator("section[aria-label='Growth of $100 vs 60/40']")).toBeVisible();
+  await expect(page.locator("section[aria-label='Return vs 60/40']")).toBeVisible();
 });
 
 test("monthly grid switches between portfolio, benchmark and excess", async ({ page }) => {
@@ -51,9 +53,10 @@ test("growth and drawdown charts answer the pointer and the keyboard", async ({ 
   const growth = ctl(page, "performance.growth.plot");
   const box = (await growth.boundingBox())!;
   await growth.hover({ position: { x: box.width * 0.5, y: box.height * 0.5 } });
-  const tip = page.locator("section[aria-label^='Growth of $100'] .tooltip");
+  const tip = page.locator("section[aria-label^='Return vs'] .tooltip");
   await expect(tip).toContainText("Portfolio");
   await expect(tip).toContainText("S&P 500");
+  await expect(tip).toContainText(/[+−]\d+\.\d{2}%/);
 
   const dd = ctl(page, "performance.drawdown.plot");
   await dd.focus();
@@ -84,10 +87,21 @@ async function firstPointClearance(page: Page, control: string): Promise<number>
   });
 }
 
-test("equity curve switches between growth of $100 and NAV in dollars", async ({ page }) => {
+test("equity curve: cumulative return by default, then growth of $100 and NAV in dollars", async ({ page }) => {
   covers("performance.growth.mode.*");
   await open(page, "/performance");
-  await expect(ctl(page, "performance.growth.mode.growth")).toHaveAttribute("aria-pressed", "true");
+  // the broker-app view: return since the start, a 0% line, a big total-return figure
+  await expect(ctl(page, "performance.growth.mode.return")).toHaveAttribute("aria-pressed", "true");
+  const ret = page.locator("section[aria-label='Return vs S&P 500']");
+  await expect(ret.locator("text.tick").filter({ hasText: /^0%$/ })).toHaveCount(1);
+  await expect(ret.locator(".equity-headline-caption")).toHaveText("Total return since inception");
+  await expect(ret.locator(".equity-headline-value")).toHaveText(/^[+−]\d+\.\d{2}%$/);
+  await expect(ret.locator("path.fill-up")).toHaveCount(1); // the portfolio's wash only, not the benchmark's
+  await ctl(page, "performance.range.1W").click();
+  await expect(ret.locator(".equity-headline-caption")).toHaveText("Return over the last week");
+  await ctl(page, "performance.range.ITD").click();
+
+  await ctl(page, "performance.growth.mode.growth").click();
   const growth = page.locator("section[aria-label='Growth of $100 vs S&P 500']");
   await expect(growth.locator("text.tick").filter({ hasText: /^100$/ })).toHaveCount(1);
 
@@ -112,21 +126,24 @@ test("equity curve switches between growth of $100 and NAV in dollars", async ({
   await expect(nav.locator("tbody tr").first().locator("td").nth(1)).toHaveText(/^\$(\d{1,3},)?\d{3},\d{3}$/);
   await ctl(page, "performance.growth.view-chart").click();
 
-  await ctl(page, "performance.growth.mode.growth").click();
-  await expect(growth).toBeVisible();
+  await ctl(page, "performance.growth.mode.return").click();
+  await expect(ret).toBeVisible();
 });
 
 test("the overview equity panel has the same switch", async ({ page }) => {
   covers("overview.performance.mode.*");
   await open(page);
   const panel = page.locator("section[aria-label='Since inception vs S&P 500']");
+  await expect(panel.locator(".panel-meta")).toContainText("cumulative return");
+  await expect(panel.locator(".equity-headline-caption")).toHaveText("Total return since inception");
+  await ctl(page, "overview.performance.mode.growth").click();
   await expect(panel.locator(".panel-meta")).toContainText("growth of $100");
   await ctl(page, "overview.performance.mode.nav").click();
   await expect(panel.locator(".panel-meta")).toContainText("NAV in dollars");
   await expect(panel.locator(".legend")).toContainText("from the same starting NAV");
   await expect(panel.locator(".end-value").first()).toHaveText(/^\$(\d{1,3},)?\d{3},\d{3}$/);
-  await ctl(page, "overview.performance.mode.growth").click();
-  await expect(panel.locator(".panel-meta")).toContainText("growth of $100");
+  await ctl(page, "overview.performance.mode.return").click();
+  await expect(panel.locator(".panel-meta")).toContainText("cumulative return");
 });
 
 for (const width of [375, 1440]) {

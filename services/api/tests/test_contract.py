@@ -85,7 +85,7 @@ def test_get_matches_contract(client: TestClient, path: str, url: str) -> None:
     assert_schema(res.json(), response_schema(path, "get"))
 
 
-@pytest.mark.parametrize("rng", ["1M", "3M", "6M", "YTD", "1Y", "ITD"])
+@pytest.mark.parametrize("rng", ["1W", "MTD", "1M", "3M", "6M", "YTD", "1Y", "ITD"])
 @pytest.mark.parametrize("bench", ["SPY", "6040"])
 def test_performance_every_range(client: TestClient, rng: str, bench: str) -> None:
     res = client.get("/api/v1/performance", params={"range": rng, "benchmark": bench})

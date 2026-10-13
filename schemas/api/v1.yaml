@@ -569,7 +569,7 @@ components:
 
     PerformanceRange:
       type: string
-      enum: [1M, 3M, 6M, YTD, 1Y, ITD]
+      enum: [1W, MTD, 1M, 3M, 6M, YTD, 1Y, ITD]
       default: ITD
 
     Benchmark:
