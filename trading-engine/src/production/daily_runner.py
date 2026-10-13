@@ -17,6 +17,9 @@ cycle automatically:
      after that or when the market is closed (src/broker/ibkr/auction.py)
   6. Write structured log to data/logs/runtime/
 
+On a weekend or a market holiday (src/common/clock.py) a real run stops at
+once and logs why; a dry run still refreshes bars and targets.
+
 Usage:
     cd /Users/tradingworkspace/TradingWorkspace/trading-engine
     python -m src.production.daily_runner
@@ -62,6 +65,7 @@ log = logging.getLogger("daily_runner")
 # ── Config ────────────────────────────────────────────────────────────────────
 
 from src.broker.ibkr.settings import client_id_for, resolve_endpoint
+from src.common import clock
 
 # Host / ports come from env (IBKR_HOST, IBKR_PORT_PAPER, IBKR_PORT_LIVE)
 # or config/broker.yaml — see src/broker/ibkr/settings.py. Works for IB
@@ -93,6 +97,16 @@ DEFAULT_REBALANCE_CONFIG: dict[str, Any] = {
 
 def _today() -> date:
     return datetime.now().date()
+
+
+def _market_closed_reason(today: date) -> str | None:
+    """Why NYSE has no session on ``today`` (a weekend or a market holiday), or
+    None when it trades. A real run skips closed days: there is no close to
+    trade at, and orders sent then would go market-on-open for the next session
+    without anyone asking for them."""
+    if clock.is_us_business_day(today):
+        return None
+    return "a weekend" if today.weekday() >= 5 else "a market holiday"
 
 
 def _is_month_end_week() -> bool:
@@ -836,6 +850,19 @@ def run(
         "steps": {},
     }
 
+    # ── Closed days ───────────────────────────────────────────────────────────
+    closed = _market_closed_reason(_today())
+    if closed and not dry_run:
+        log.info("NYSE is closed today (%s): no close to trade at, so the run is skipped.", closed)
+        run_result.update(ok=True, skipped=True, reason=f"NYSE closed: {closed}")
+        _write_run_log(run_id, run_result)
+        return run_result
+    if clock.is_early_close(_today()):
+        log.info(
+            "Early close today (13:00 ET). A run after it sends its orders market-on-open "
+            "for the next session; that is by design, not a fault."
+        )
+
     # ── Step 1: Append daily bars ─────────────────────────────────────────────
     if not skip_append:
         append_result = step_append_daily(
@@ -990,9 +1017,9 @@ def main() -> None:
         "--skip-if-ran-today", action="store_true", dest="skip_if_ran_today",
         help=(
             "Idempotency guard for the LaunchAgent's RunAtLoad fire: exit "
-            "immediately if today is a weekend, or if today's run log already "
-            "exists with ok=True. Designed for catch-up on login when the "
-            "scheduled fire was missed (Mac off / asleep)."
+            "immediately if NYSE is closed today (a weekend or a holiday), or "
+            "if today's run log already exists with ok=True. Designed for "
+            "catch-up on login when the scheduled fire was missed (Mac off / asleep)."
         ),
     )
     parser.add_argument("--json-out", action="store_true", help="Print result JSON to stdout")
@@ -1002,11 +1029,12 @@ def main() -> None:
     # Run when EITHER:
     #   • the scheduler fires us on a weekday (15:35 ET), OR
     #   • the user logs in and the scheduled fire was missed.
-    # Skip when the user logs in on a weekend, or already after today's
-    # run succeeded (so RunAtLoad is harmless on every subsequent login).
+    # Skip when the user logs in on a day NYSE is closed, or already after
+    # today's run succeeded (so RunAtLoad is harmless on every subsequent login).
     if args.skip_if_ran_today:
-        if _today().weekday() >= 5:
-            log.info("Catch-up: today is a weekend → skip.")
+        closed = _market_closed_reason(_today())
+        if closed:
+            log.info("Catch-up: NYSE is closed today (%s) → skip.", closed)
             sys.exit(0)
         prior = _already_ran_today_successfully()
         if prior is not None:

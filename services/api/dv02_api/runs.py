@@ -92,6 +92,8 @@ def _step_detail(name: str, step: dict[str, Any]) -> tuple[bool, str]:
 def _summary(doc: dict[str, Any]) -> str:
     if doc.get("error"):
         return f"Stopped: {doc['error']}"
+    if doc.get("skipped"):
+        return f"Skipped: {doc.get('reason') or 'nothing to do'}"
     submit = (doc.get("steps") or {}).get("submit_orders") or {}
     decision = doc.get("rebalance_decision") or {}
     if submit.get("submitted"):

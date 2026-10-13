@@ -328,3 +328,11 @@ def test_leverage_agrees_with_the_no_leverage_checks_exposure_table() -> None:
     for symbol in set(universe.BY_SYMBOL) | set(EXPOSURE):
         assert universe.lookup(symbol).leverage == exposure_of(symbol), symbol
     assert universe.lookup("TQQQ").leverage == 3.0
+
+
+def test_a_skipped_run_says_why() -> None:
+    from dv02_api import runs
+
+    doc = {"ok": True, "skipped": True, "reason": "NYSE closed: a market holiday"}
+    assert runs._summary(doc) == "Skipped: NYSE closed: a market holiday"
+    assert runs._summary({"ok": True}) == "OK"
