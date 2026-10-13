@@ -26,7 +26,9 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
   git-ignored cache, `trading-engine/artifacts/api/flex_nav_<profile>.csv`.
 - No solver licenses in the repo (`*.lic` is ignored). The free solvers
   (CLARABEL, ECOS, SCS) are the default; see `trading-engine/src/trading_engine/solvers.py`.
-- No model names or IDs in commits, PR text or code.
+- Safety switches (`trading-engine/config/execution.yaml`'s `allow_submit` and
+  `dry_run`, the kill switch, `risk_limits.yaml`) change only when the owner
+  says so.
 
 ## Owner decisions already made (don't re-ask)
 
@@ -47,7 +49,7 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
 
 | Path | What |
 |---|---|
-| `engine/` | C++20 library `dv02` (risk check, backtester, cost model) and its Python module `dv02_engine` (nanobind) |
+| `engine/` | C++20 library `dv02` (risk check, backtester; the cost model is in progress, see `docs/HANDOFF.md`) and its Python module `dv02_engine` (nanobind) |
 | `trading-engine/` | Python: the daily runner (`src/production/daily_runner.py`), IBKR plumbing (`src/broker/ibkr/`), data, research |
 | `services/api/` | FastAPI app `dv02_api`: the dashboard's API over IBKR and the engine's files |
 | `apps/web/` | React + TypeScript + Vite dashboard |
@@ -55,27 +57,35 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
 | `ibgw/` | IB Gateway in Docker with IBC auto-login |
 | `bin/tradeit` | The one command for everything on the Mac (`bin/tradeit help`) |
 
-## Checks to run before every push (CI runs the same)
+## Checks to run before every push (what CI runs)
+
+From the repo root:
 
 ```bash
-# C++ engine: GCC with sanitizers and warnings as errors
+# C++ engine: GCC with sanitizers and warnings as errors, then the Python module
 cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Debug -DDV02_WERROR=ON -DDV02_SANITIZE=ON
 cmake --build engine/build --parallel && ctest --test-dir engine/build --output-on-failure
 .venv/bin/pip install ./engine && .venv/bin/python -m pytest engine/tests/python -q
 
-# trading-engine (lint list: .github/workflows/trading-engine.yml)
-cd trading-engine && ../.venv/bin/python -m pytest -q
+# trading-engine (CI also runs ruff on the list in .github/workflows/trading-engine.yml)
+(cd trading-engine && ../.venv/bin/python -m pytest -q)
 
 # API
-cd services/api && ../../.venv/bin/python -m pytest -q && ../../.venv/bin/ruff check . && ../../.venv/bin/ruff format --check .
+(cd services/api && ../../.venv/bin/python -m pytest -q && ../../.venv/bin/ruff check . && ../../.venv/bin/ruff format --check .)
 
-# dashboard
-cd apps/web && npx tsc -b && npm run lint && npm run format:check && npm test
-CI=1 npx playwright test                                # demo e2e (MSW)
-CI=1 npx playwright test -c playwright.staging.config.ts # real API on the staging account
+# dashboard: types in sync with the contract, typecheck, lint, format, unit, build, e2e
+(cd apps/web && npm run gen:api && git diff --exit-code -- src/api/schema.d.ts \
+  && npx tsc -b && npm run lint && npm run format:check && npm test && npm run build \
+  && CI=1 npx playwright test \
+  && CI=1 npx playwright test -c playwright.staging.config.ts)
 ```
 
-`bin/tradeit setup` builds `.venv` (Python 3.12) and installs everything.
+`npx playwright test` is the demo e2e (MSW); the staging config runs the
+real API over the made-up staging account.
+
+`bin/tradeit setup` builds `.venv` (Python 3.12, else 3.11 or 3.13) with the
+runtime packages, the C++ engine and the dashboard's npm packages. The checks
+also need `.venv/bin/pip install pytest jsonschema httpx ruff==0.8.6`.
 
 ## Style
 
