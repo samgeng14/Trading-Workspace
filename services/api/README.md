@@ -128,30 +128,32 @@ holding, including ones the model doesn't trade.
 
 The TWS API has no account history, so the full record comes from a Flex
 query. `bin/tradeit flex` walks through it: it asks for the Query ID and the
-token (hidden), fetches the statement with them, and saves them to `.env`
-only if that worked. The Client Portal part, logged in with the **paper**
-username:
+token (hidden), loads your whole history with them, and saves them to `.env`
+only if that worked. The query's period doesn't matter: IBKR serves at most
+365 days per request, so the API asks for each year itself, back to the
+account's first NAV (ten years at most). The Client Portal part, logged in
+with the **paper** username:
 
 1. **Performance & Reports → Flex Queries → Activity Flex Query → +**.
-   - Name: `DV02 NAV`
-   - Sections: **Net Asset Value (NAV) in Base**, all fields
-   - Format: XML
-   - Period: Last 365 Calendar Days
-2. Save, and note the **Query ID**.
-3. **Flex Web Service Configuration**: enable it and generate a **token**.
-4. Run `bin/tradeit flex` and paste both. The Query ID must be digits only
+   Name it `DV02 NAV`, add the section **Net Asset Value (NAV) in Base**
+   (all fields), format XML, any period. Save, and note the **Query ID**.
+2. **Flex Web Service Configuration**: enable it and generate a **token**.
+3. Run `bin/tradeit flex` and paste both. The Query ID must be digits only
    and the token 15 to 40 digits; anything else (a command pasted by
    mistake, say) is asked for again. If IBKR refuses them or can't be
    reached, the one-line reason is shown and `.env` keeps its previous
    values. Otherwise they go to `.env` at the repo root, which is
    gitignored; never commit the token.
-5. It says how many days of NAV it loaded and their dates. Under 30 days
-   means the query's period is probably not Last 365 Calendar Days: edit it
-   in Client Portal, then run `bin/tradeit flex --refetch`, which fetches
-   again with the saved values without asking.
-6. The API re-fetches at startup and every 6 hours, and caches the
-   statement in `artifacts/api/flex_nav_paper.csv`. Restart it after
-   saving new values; it reads `.env` once, at startup.
+4. It says how many days of NAV it loaded and their dates, with a note
+   when something is off: under 30 days in all (the account is that new,
+   or the token was made by a user who doesn't own it), or IBKR refusing
+   date ranges (then only the query's own period loads; set it to Last 365
+   Calendar Days). `bin/tradeit flex --refetch` loads the whole history
+   again with the saved values, without asking.
+5. The API caches it in `artifacts/api/flex_nav_paper.csv` and records the
+   full load in `flex_backfill_paper.json` beside it; at startup and every
+   6 hours after that it asks only for the last five weeks, one request.
+   Restart it after saving new values; it reads `.env` once, at startup.
 
 ## Stale data
 
@@ -225,6 +227,49 @@ What the tests cover:
   contract's terms; the offline snapshot prices futures at their multiplier
   and IBKR's mark. **Engine status** (`tests/test_engine_status.py`):
   installed, missing, and failing its self-check.
+- **Flex** (`tests/test_flex.py`, against a fake Flex service and clock):
+  the year-by-year walk stops where the account opened, at an empty year,
+  or after ten; requests stay under 1 a second and 10 a minute; a refused
+  date range falls back to the query's own period; once loaded, a refresh
+  is one request; errors print one line.
+- **Staging** (`tests/test_staging.py`): both scenarios have the paper
+  account's shape, and every endpoint answers in the contract's terms over
+  them.
+
+## Staging
+
+The demo has short, tidy labels and a perfect history, so layout bugs that
+only real data brings out slip through it. The staging API serves the real
+app (every route and the stream) over a made-up copy of the paper account as
+it was on 2026-10-12, with no IB Gateway: a DU account, NAV about $1.05M, a
+margin loan of about $26k, 37 holdings at 102.5% of NAV (the 21-ETF model,
+TQQQ, and 15 ETFs outside the model), delayed quotes, no orders today. During
+the session quotes and P&L move every few seconds and the intraday samples
+pile up.
+
+```bash
+bin/tradeit staging                    # fresh, dashboard on http://localhost:5174
+bin/tradeit staging history --now 2026-10-12T14:30:00
+cd services/api && ../../.venv/bin/python -m dv02_api.staging --scenario history --port 8099
+```
+
+- **fresh:** a new setup. One day of NAV (today's), so the equity panels
+  show "No NAV history yet"; the price master and targets end 2026-05-06,
+  so the preview blocks on stale targets; no LaunchAgent and no run today,
+  so after 16:32 the schedule reports the run as missed; the doctor not run.
+- **history:** an account that has been running. 131 trading days of Flex
+  NAV through the latest close, daily bars, fresh targets, a daily run every
+  session (a rebalance, a failure, holdings outside the model in cooldown),
+  a doctor report.
+
+`--now` starts the clock at that moment (ISO 8601; exchange time without an
+offset) and lets it run. The staging API runs on UTC, so the daily run's
+16:32 is 12:32 ET there and the same `--now` gives the same page everywhere.
+Nothing real is read or written: the engine files are a temp folder deleted
+on exit, `.env` and `IBKR_*` settings are ignored, Run doctor reports on the
+made-up account, and Submit is refused instead of starting the daily
+runner. `npm run e2e:staging` in `apps/web` runs the layout tests on it
+(both themes, 1440 and 390 px wide).
 
 ## Troubleshooting
 

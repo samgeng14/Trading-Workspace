@@ -2,15 +2,19 @@
 """
 daily_runner.py — Daily auto-trade pipeline.
 
-Run this at 4:30 PM ET (after market close) every trading day.
-It handles the full cycle automatically:
+Run this at 15:35 ET every trading day (bin/tradeit schedule install sets
+that up), before the closing auctions stop taking orders. It handles the full
+cycle automatically:
 
-  1. Append today's IBKR daily bars to the master price file
-  2. Regenerate targets (momentum model — picks top-5 ETFs monthly)
+  1. Append IBKR daily bars to the master price file, up to the last
+     completed session (before the close, yesterday's: today's bar is partial)
+  2. Regenerate targets from those closes
   3. Detect if today is a rebalance date (end-of-month or new signal, drift,
      or shares held outside the model, which the basket sells)
   4. If rebalance needed: build basket (diff vs current positions)
-  5. Submit paper orders to IBKR
+  5. Submit paper orders to IBKR, sells first: market-on-close, filled at
+     today's close, when sent by 15:45 ET; market-on-open for the next session
+     after that or when the market is closed (src/broker/ibkr/auction.py)
   6. Write structured log to data/logs/runtime/
 
 Usage:
@@ -121,6 +125,35 @@ def _load_rebalance_config() -> dict[str, Any]:
     except Exception as exc:
         log.warning("Could not parse execution.yaml rebalance block: %s", exc)
     return cfg
+
+
+def _load_execution_config() -> dict[str, Any]:
+    """The submit switches in config/execution.yaml: ``mode``, ``allow_submit``
+    and ``dry_run``, or ``error`` when the file can't be read."""
+    path = PROJECT_ROOT / "config" / "execution.yaml"
+    try:
+        import yaml  # type: ignore[import-not-found]
+        with open(path) as f:
+            doc = yaml.safe_load(f) or {}
+        ex = doc.get("execution") or {}
+        return {key: ex.get(key) for key in ("mode", "allow_submit", "dry_run")}
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def _submit_disabled(exec_cfg: dict[str, Any], profile: str) -> str | None:
+    """Why config/execution.yaml stops this run sending orders, or None when it
+    allows them: ``allow_submit: true``, ``dry_run: false`` and ``mode`` this
+    run's profile, all three set. Anything else sends nothing."""
+    if exec_cfg.get("error"):
+        return f"config/execution.yaml could not be read ({exec_cfg['error']})"
+    if exec_cfg.get("allow_submit") is not True:
+        return f"config/execution.yaml has allow_submit: {json.dumps(exec_cfg.get('allow_submit'))}"
+    if exec_cfg.get("dry_run") is not False:
+        return f"config/execution.yaml has dry_run: {json.dumps(exec_cfg.get('dry_run'))}"
+    if exec_cfg.get("mode") != profile:
+        return f"config/execution.yaml has mode: {exec_cfg.get('mode')}, and this run's profile is {profile}"
+    return None
 
 
 def _load_latest_targets() -> "pd.DataFrame | None":
@@ -471,9 +504,10 @@ def _already_ran_today_successfully() -> Optional[Path]:
 
     Used by the catch-up flag (``--skip-if-ran-today``) to make the
     LaunchAgent's RunAtLoad fire idempotent: log in any time after a
-    successful 16:32 run and the runner exits without doing anything,
-    but log in after a *missed* 16:32 (Mac was off, asleep, or you'd
-    user-switched away too long) and it executes the catch-up.
+    successful scheduled run and the runner exits without doing anything,
+    but log in after a *missed* one (Mac was off, asleep, or you'd
+    user-switched away too long) and it executes the catch-up. A catch-up
+    after 15:45 ET sends its orders market-on-open, for the next session.
 
     Dry runs don't count: the dashboard's "Run audit" button runs the
     pipeline with ``dry_run=True``, and that must not cancel the real
@@ -516,10 +550,11 @@ def step_append_daily(
 
     if result.get("ok"):
         log.info(
-            "✓ Appended %s new rows for %s symbols. Latest date: %s",
+            "✓ Appended %s new rows for %s symbols. Latest date: %s (bars through %s, the last completed session)",
             result.get("new_rows_added_to_master", 0),
             result.get("symbols_with_data", 0),
             result.get("latest_date"),
+            result.get("completed_through"),
         )
     else:
         log.error("✗ Append failed: %s", result.get("error"))
@@ -609,9 +644,10 @@ def step_generate_targets(profile: str) -> dict[str, Any]:
 
     if result.get("ok"):
         log.info(
-            "✓ Targets written. Rebalance dates: %s. Latest: %s.",
+            "✓ Targets written. Rebalance dates: %s. Latest: %s (prices through %s).",
             result.get("rebalance_dates", 0),
             result.get("latest_rebalance_date"),
+            result.get("prices_through"),
         )
     else:
         log.error("✗ Target generation failed: %s", result.get("error"))
@@ -736,7 +772,12 @@ def step_submit_orders(
         }
 
     if dry_run:
-        log.info("DRY RUN — skipping order submission.")
+        from src.broker.ibkr.auction import execution_for
+
+        log.info(
+            "DRY RUN — skipping order submission. Sent now, they would go %s.",
+            execution_for(basket_df["symbol"]).summary(),
+        )
         return {"ok": True, "action": "submit_orders", "skipped": True, "reason": "dry_run"}
 
     try:
@@ -751,7 +792,8 @@ def step_submit_orders(
         )
         if result.get("ok"):
             log.info(
-                "✓ Orders submitted. submitted=%s · path=%s",
+                "✓ Orders submitted, %s. submitted=%s · path=%s",
+                ((result.get("result") or {}).get("execution") or {}).get("summary"),
                 result.get("submitted"),
                 result.get("submission_path"),
             )
@@ -958,7 +1000,7 @@ def main() -> None:
 
     # ── Catch-up guard ─────────────────────────────────────────────────
     # Run when EITHER:
-    #   • the scheduler fires us at 16:32 on a weekday, OR
+    #   • the scheduler fires us on a weekday (15:35 ET), OR
     #   • the user logs in and the scheduled fire was missed.
     # Skip when the user logs in on a weekend, or already after today's
     # run succeeded (so RunAtLoad is harmless on every subsequent login).

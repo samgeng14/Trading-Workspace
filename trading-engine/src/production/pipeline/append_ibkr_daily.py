@@ -5,7 +5,7 @@ import math
 import os
 import shutil
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -16,6 +16,7 @@ try:
 except ImportError:
     from ib_insync import IB, Stock  # type: ignore
 
+from src.common.clock import last_completed_session
 from src.data.cleaning.price_basis import (
     COLUMNS,
     MergeReport,
@@ -49,6 +50,9 @@ class AppendResult:
     lookbacks: dict[str, str] = field(default_factory=dict)
     backup_path: str | None = None
     error: str | None = None
+    # the last session merged; bars of a session not yet over are dropped
+    completed_through: str | None = None
+    partial_bars_dropped: int = 0
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -176,6 +180,25 @@ def lookback_for(last_date: pd.Timestamp | None, lookback: str, today: pd.Timest
     return f"{need} D" if need <= 365 else f"{math.ceil(need / 365)} Y"
 
 
+def completed_sessions_only(fetch: Fetcher, through: date, dropped: list[str]) -> Fetcher:
+    """``fetch`` without bars dated after ``through``, each dropped one's symbol added to ``dropped``.
+
+    IBKR's daily bar for a session that is still trading is partial: its close
+    is the last trade so far. Kept, it would become the targets' close.
+    """
+    cut = pd.Timestamp(through)
+
+    def fetch_completed(symbol: str, duration: str) -> pd.DataFrame:
+        bars = fetch(symbol, duration)
+        if bars is None or bars.empty:
+            return bars
+        later = pd.to_datetime(bars["date"]).dt.normalize() > cut
+        dropped.extend([symbol] * int(later.sum()))
+        return bars[~later]
+
+    return fetch_completed
+
+
 def fetch_full_history(fetch: Fetcher, symbol: str) -> pd.DataFrame:
     """The symbol's longest available history, trying FULL_HISTORY_DURATIONS in order."""
     failures: list[str] = []
@@ -224,6 +247,7 @@ def append_bars(
     lookback: str = "15 D",
     master: pd.DataFrame | None = None,
     today: datetime | pd.Timestamp | None = None,
+    through: date | None = None,
 ) -> dict[str, Any]:
     """Fetch every master symbol with ``fetch`` and merge with a price-basis check.
 
@@ -231,7 +255,13 @@ def append_bars(
     duration)`` returns daily bars; it also serves full-history refetches
     when a symbol's basis changed. ``ok`` is False when any symbol's merge
     was refused (the master is still written for every other symbol).
+    Only bars up to ``through`` are merged, by default the last session whose
+    bar is final (src/common/clock.py): a run before the close keeps
+    yesterday's close as the latest.
     """
+    through = through or last_completed_session()
+    partial: list[str] = []
+    fetch = completed_sessions_only(fetch, through, partial)
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     master = _load_master() if master is None else normalize_bars(master)
     symbols = sorted(master["symbol"].unique().tolist())
@@ -260,6 +290,11 @@ def append_bars(
     before_len = len(master)
     report = merge_into_master(master, fetched, refetch=lambda s: fetch_full_history(fetch, s))
     _log_report(report)
+    if partial:
+        log.info(
+            "Dropped %d bars dated after %s, the last completed session (%s): their session isn't over.",
+            len(partial), through, ", ".join(sorted(set(partial))),
+        )
     backup = _backup_master("refetch") if report.refetched else None
     combined = report.master
     after_len = len(combined)
@@ -294,6 +329,8 @@ def append_bars(
         lookbacks=lookbacks,
         backup_path=str(backup) if backup else None,
         error=error,
+        completed_through=through.isoformat(),
+        partial_bars_dropped=len(partial),
     )
     return asdict(result)
 
@@ -310,8 +347,10 @@ def repair_bars(
     IBKR-agnostic core of :func:`repair_ibkr_basis`. Flags a symbol when its
     rows contain a split-ratio jump or a one-day spike that reverts, or when
     IBKR's bars over ``window`` disagree with the stored rows. The master is
-    rewritten only when a history was replaced (after a backup copy).
+    rewritten only when a history was replaced (after a backup copy). Bars
+    of a session not yet over are left out, as in :func:`append_bars`.
     """
+    fetch = completed_sessions_only(fetch, last_completed_session(), [])
     master = _load_master() if master is None else normalize_bars(master)
     report = repair_master_basis(
         master,

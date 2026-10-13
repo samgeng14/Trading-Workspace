@@ -6,13 +6,15 @@
 #   tradeit login     save the IB Gateway login on this Mac (for automatic login)
 #   tradeit gateway   start | stop | status | logs  the auto-login IB Gateway (Docker)
 #   tradeit flex      connect IBKR Flex: daily NAV since the account opened
-#                     (flex --refetch: fetch again with the saved Query ID and token)
-#   tradeit schedule  install | remove | status  the weekday 16:32 daily run (macOS LaunchAgent)
+#                     (flex --refetch: load the whole history again with the saved values)
+#   tradeit schedule  install | remove | status  the weekday 15:35 ET daily run (macOS LaunchAgent)
 #   tradeit refresh   fill price-history holes, update bars and targets (dry run: no orders)
 #   tradeit doctor    check the IBKR connection end to end
 #   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
 #   tradeit api       just the API
 #   tradeit demo      dashboard on simulated data, no IBKR needed
+#   tradeit staging   dashboard on a staging API: the paper account's real data shapes, no IBKR
+#                     (staging [fresh|history] [--now ISO]; API :8099, dashboard :5174)
 #
 # Without `tradeit login`, start IB Gateway yourself (paper, port 4002, API enabled).
 set -euo pipefail
@@ -261,50 +263,30 @@ print(os.environ.get("IBKR_FLEX_TOKEN", ""))
 ')
 }
 
-# Fetch the NAV statement with this Query ID and token through the API's own
-# Flex code: python -m dv02_api.flex paper, which caches it and prints IBKR's
-# one-line reason on stderr when it fails. Prints "DAYS FIRST LAST" when it
-# loaded. Nothing is written to .env here.
+# Load the whole NAV history with this Query ID and token through the API's own
+# Flex code: python -m dv02_api.flex paper --full asks IBKR for a year at a time,
+# back to the account's first NAV, so the query's own period doesn't matter. It
+# caches the history and prints one line, "Flex NAV: N days, FIRST to LAST",
+# with "; "-separated notes after it when something needs saying; or IBKR's
+# one-line reason on stderr when it fails. Nothing is written to .env here.
 flex_fetch() { # flex_fetch QUERY_ID TOKEN
-  (cd "$ROOT/services/api" && IBKR_FLEX_QUERY_ID="$1" IBKR_FLEX_TOKEN="$2" "$PY" - paper <<'PY'
-import contextlib
-import http.client
-import io
-import sys
-
-from dv02_api import flex
-
-rows = []
-parse_nav = flex.parse_nav
-
-
-def keep_rows(xml):  # refresh() parses the statement once; keep its rows for the summary
-    rows[:] = parse_nav(xml)
-    return rows
-
-
-flex.parse_nav = keep_rows
-with contextlib.redirect_stdout(io.StringIO()) as said:
-    try:
-        code = flex.main()
-    except (TimeoutError, ConnectionError, http.client.HTTPException) as exc:  # main() only catches URLError
-        sys.exit(f"Could not reach IBKR's Flex service: {exc or type(exc).__name__}")
-if code or not rows:
-    sys.exit(code or said.getvalue().strip())
-print(len(rows), rows[0][0], rows[-1][0])
-PY
-  )
+  (cd "$ROOT/services/api" && IBKR_FLEX_QUERY_ID="$1" IBKR_FLEX_TOKEN="$2" "$PY" -m dv02_api.flex paper --full)
 }
 
-flex_loaded() { # flex_loaded "DAYS FIRST LAST" (what flex_fetch printed)
-  local days first last
-  read -r days first last <<<"$1"
-  say "Loaded $days days of NAV from IBKR, $first to $last"
-  if [ "$days" -lt 30 ]; then
-    echo "That is under 30 days, so your query's period is probably not \"Last 365 Calendar Days\""
-    echo "(unless the account is that new). Edit it in Client Portal: Performance & Reports >"
-    echo "Flex Queries, the DV02 NAV query, Period. Then run: bin/tradeit flex --refetch"
-  fi
+# Flex's notes: the whole history is under 30 days (the account is that new, or
+# the token's user doesn't own it); IBKR refused date ranges (only the query's
+# own period loaded); older years didn't load this time.
+flex_loaded() { # flex_loaded LINE (what flex_fetch printed)
+  local head="${1%%; *}" rest note
+  say "Loaded your NAV history from IBKR: ${head#Flex NAV: }"
+  [ "$head" != "$1" ] || return 0
+  rest="${1#*; }"
+  while :; do
+    note="${rest%%; *}"
+    echo "  Note: $note"
+    [ "$note" != "$rest" ] || break
+    rest="${rest#*; }"
+  done
 }
 
 cmd_flex() {
@@ -316,7 +298,7 @@ cmd_flex() {
       [ -n "$qid$token" ] || die "no Flex Query ID and token saved yet; run: bin/tradeit flex"
       is_flex_query_id "$qid" || die "the saved Flex Query ID is missing or not digits only; enter it again with: bin/tradeit flex"
       is_flex_token "$token" || die "the saved Flex token isn't 15 to 40 digits; enter it again with: bin/tradeit flex"
-      say "Fetching your statement from IBKR with the saved Query ID and token (can take a minute)"
+      say "Fetching your whole history from IBKR, a year per request, with the saved Query ID and token (can take a minute or two)"
       got="$(flex_fetch "$qid" "$token")" \
         || die "not loaded (reason above); the saved values are unchanged. To enter new ones, run: bin/tradeit flex"
       unset token
@@ -332,7 +314,7 @@ cmd_flex() {
 One time, in Client Portal, logged in with your PAPER username:
   1. Performance & Reports > Flex Queries > Activity Flex Query > "+".
      Name it DV02 NAV. Section: "Net Asset Value (NAV) in Base", select all fields.
-     Format XML, period "Last 365 Calendar Days". Save and note its Query ID.
+     Format XML; any period (DV02 asks for each year itself). Save and note its Query ID.
   2. On the same Flex Queries page: Flex Web Service Configuration (gear icon).
      Turn it on and generate a token.
 Paste both below. They are checked with IBKR first, then saved only in .env on this Mac
@@ -341,7 +323,7 @@ Paste both below. They are checked with IBKR first, then saved only in .env on t
 TXT
   ask qid "Query ID" visible is_flex_query_id "a Query ID (digits only)"
   ask token "Token" hidden is_flex_token "a Flex token (15 to 40 digits, no spaces or other text)"
-  say "Fetching your statement from IBKR to check them (can take a minute)"
+  say "Fetching your whole history from IBKR, a year per request, to check them (can take a minute or two)"
   if ! got="$(flex_fetch "$qid" "$token")"; then
     unset token
     die "not loaded (reason above), so nothing was saved: .env keeps its previous Flex values.
@@ -372,9 +354,12 @@ PY
 }
 
 # ── tradeit schedule: the daily run as a macOS LaunchAgent ──────────────
-# launchd starts the engine's daily runner Mon-Fri at 16:32 this Mac's time
-# (DV02_RUNNER_TIME in .env moves it; the API reads the same), from this
-# checkout's trading-engine with this checkout's .venv. The API reads the plist
+# launchd starts the engine's daily runner Mon-Fri at 15:35 ET, before its
+# market-on-close deadline (15:45 ET). launchd takes this Mac's wall time, so
+# install converts it with this Mac's time zone (runner_time in
+# services/api/dv02_api/runs.py: 14:35 in Central time; DV02_RUNNER_TIME in .env,
+# local HH:MM, overrides it). It runs from this checkout's trading-engine with
+# this checkout's .venv. The API reads the plist
 # back: its Python and environment for runs started from the dashboard, and
 # whether launchd has it loaded for the Scheduler light.
 
@@ -501,7 +486,7 @@ import sys
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
-from dv02_api import nyse
+from dv02_api import nyse, runs
 
 path, here, mode = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 try:
@@ -540,8 +525,14 @@ mine = Path(folder).resolve() == here.resolve()
 print(f"  runs from   {folder}" + ("" if mine else f"  (NOT this checkout, which is {here.parent})"))
 print(f"  python      {args[0]}")
 print(f"  arguments   {' '.join(args[1:])}")
-print(f"  when        {names} at {hours}, this Mac's time")
+on = (upcoming or now).date()
+in_et = ", ".join(
+    sorted({f"{datetime.combine(on, time(t.get('Hour', 0), t.get('Minute', 0))).astimezone(nyse.ET):%H:%M}" for t in times})
+)
+print(f"  when        {names} at {hours}, this Mac's time ({in_et} ET)")
 print(f"  next run    {next_run}")
+if upcoming is not None:
+    print(f"  its orders  {runs.orders_at(upcoming.astimezone()).summary()}")
 print(f"  optimizer   {env.get('CAPITALFUND_OPTIMIZER', 'not set (the engine default)')}")
 print(f"  logs        {agent.get('StandardOutPath', 'none')}")
 PY
@@ -563,10 +554,14 @@ schedule_install() {
   agent_describe "$AGENT_TMP"
   cat <<'TXT'
 
-At that time every weekday it updates prices and targets and, when the model calls
-for a rebalance, sends paper orders to IBKR without asking you. IB Gateway has to be
+At that time every weekday it updates prices and targets from the last close and,
+when the model calls for a rebalance, sends paper orders to IBKR without asking you:
+market-on-close, filled at that day's close. Orders sent after the market-on-close
+deadline (15:45 ET; 12:45 ET on the three early-close days a year, which the 15:35 run
+misses) go market-on-open, filled at the next session's open. IB Gateway has to be
 running and logged in then. If the Mac is asleep, it runs when the Mac wakes; if the
-Mac is off, that day's run is skipped (start one from the dashboard).
+Mac is off, that day's run is skipped (start one from the dashboard). The ET time was
+converted with this Mac's time zone today: install again if the Mac changes zone.
 TXT
   if ! confirm "Install it?"; then
     echo "Not installed; nothing changed."
@@ -688,6 +683,37 @@ cmd_demo() {
   cd "$ROOT/apps/web" && exec npx vite --mode demo --port "$WEB_PORT"
 }
 
+# The dashboard in paper mode on the staging API (services/api/dv02_api/staging.py): the real
+# app over a made-up copy of the paper account, so pages meet real labels and histories without
+# IB Gateway. fresh: one day of NAV, stale targets, a missed daily run; history: months of Flex
+# NAV and runs. Its own ports, so it runs beside `tradeit up`; its files are deleted on exit.
+cmd_staging() { # cmd_staging [fresh|history] [--now ISO]
+  need_venv
+  [ -d "$ROOT/apps/web/node_modules" ] || die "dashboard packages missing; run: bin/tradeit setup"
+  local scenario=fresh api_pid web_pid
+  local api_port="${DV02_STAGING_API_PORT:-8099}" web_port="${DV02_STAGING_WEB_PORT:-5174}"
+  case "${1:-}" in
+    fresh | history) scenario="$1"; shift ;;
+    "" | --*) ;;
+    *) die "usage: tradeit staging [fresh|history] [--now ISO]" ;;
+  esac
+  ! port_open "$api_port" || die "something is already on port $api_port; stop it or set DV02_STAGING_API_PORT"
+  (cd "$ROOT/services/api" && exec "$PY" -m dv02_api.staging --scenario "$scenario" --port "$api_port" "$@") &
+  api_pid=$!
+  trap 'kill $api_pid ${web_pid:-} 2>/dev/null; wait 2>/dev/null; exit 0' INT TERM
+  for _ in $(seq 1 60); do
+    curl -fsS "http://127.0.0.1:$api_port/api/v1/status" >/dev/null 2>&1 && break
+    kill -0 "$api_pid" 2>/dev/null || die "the staging API exited during startup (see above)"
+    sleep 0.5
+  done
+  (cd "$ROOT/apps/web" && API_URL="http://127.0.0.1:$api_port" exec npx vite --port "$web_port" --strictPort) &
+  web_pid=$!
+  sleep 2
+  say "DV02 staging, $scenario: http://localhost:$web_port  (API http://127.0.0.1:$api_port/docs)  Ctrl-C stops both"
+  command -v open >/dev/null 2>&1 && open "http://localhost:$web_port" || true
+  wait
+}
+
 case "${1:-help}" in
   setup) shift; cmd_setup "$@" ;;
   engine) shift; cmd_engine "$@" ;;
@@ -700,5 +726,6 @@ case "${1:-help}" in
   up) shift; cmd_up "$@" ;;
   api) shift; cmd_api "$@" ;;
   demo) shift; cmd_demo "$@" ;;
-  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  staging) shift; cmd_staging "$@" ;;
+  *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac

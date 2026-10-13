@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any
 
@@ -49,6 +50,23 @@ def leverage_check(snap: AccountSnap, orders: list[dict[str, Any]]) -> dict[str,
         f"gross {before['gross']:.1%} → {after['gross']:.1%} of NAV, cash {_money(after['cash'])} after; "
         "every holding counted",
     )
+
+
+def execution_text(symbols: Iterable[str], now: datetime) -> str:
+    """How the orders execute if the daily runner sends them at ``now``: the engine's
+    own choice (src/broker/ibkr/auction.py), market-on-close until its deadline
+    (15:45 ET, 12:45 on an early close), else market-on-open at the next session."""
+    from src.broker.ibkr.auction import execution_for
+
+    ex = execution_for(symbols, at=now)
+    day = f"{ex.session:%a %b} {ex.session.day}"
+    if ex.auction == "close" and ex.moc_deadline is not None:
+        by = ex.moc_deadline.astimezone(nyse.ET)
+        return (
+            f"Market-on-close through the daily runner: filled at today's close ({day}) "
+            f"if the run sends them by {by:%H:%M} ET, else at the next open"
+        )
+    return f"Market-on-open through the daily runner: filled at the next open, {day}"
 
 
 def sleeve_name() -> str:
@@ -247,16 +265,11 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
     else:
         checks.append(_check("duplicate", "Duplicate guard", "pass", "No submission for this session yet"))
 
-    if state.session == "open":
-        when = "now"
-    else:
-        nxt = state.next_change_at.astimezone(nyse.ET)
-        when = f"at the open, {nxt:%a %b} {nxt.day}"
     return {
         "as_of": now.astimezone(timezone.utc).isoformat(timespec="seconds"),
         "sleeve": sleeve_name(),
         "targets_date": targets_date.isoformat(),
-        "execution": f"Market orders through the daily runner, filled {when}",
+        "execution": execution_text(order_syms or model, now),
         "rows": sorted(rows, key=lambda r: -abs(r["est_notional"])),
         "totals": {
             "buy_notional": buy,

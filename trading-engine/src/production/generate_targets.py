@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -69,6 +70,8 @@ class TargetResult:
     universe: list[str] = field(default_factory=list)
     # in the model universe but with no rows in the master: never eligible
     universe_missing: list[str] = field(default_factory=list)
+    # the last session read; master rows after it (a session not yet over) are not
+    prices_through: str | None = None
 
 
 def _project_root() -> Path:
@@ -421,11 +424,16 @@ def generate_targets(
     optimizer: str | None = None,
     momentum_tilt: float = 0.5,
     universe: Iterable[str] | None = None,
+    through: date | None = None,
 ) -> dict[str, Any]:
     """Build the monthly target file from the model universe's prices.
 
     ``optimizer`` resolution order:  function arg → CAPITALFUND_OPTIMIZER env
     → DEFAULT_OPTIMIZER. ``universe`` defaults to :func:`model_universe`.
+    Prices are read up to ``through``, by default the last session whose
+    daily bar is final (src/common/clock.py): a run before the close builds
+    targets from yesterday's close even if the master holds a partial bar
+    for today.
     """
     if optimizer is None:
         optimizer = os.environ.get("CAPITALFUND_OPTIMIZER", DEFAULT_OPTIMIZER)
@@ -438,7 +446,12 @@ def generate_targets(
     p["targets_csv"].parent.mkdir(parents=True, exist_ok=True)
 
     universe = tuple(s.strip().upper() for s in (universe or model_universe()))
+    if through is None:
+        from src.common.clock import last_completed_session
+
+        through = last_completed_session()
     prices = _load_prices(universe)
+    prices = prices[prices["date"] <= pd.Timestamp(through)]
     if prices.empty:
         raise ValueError(f"The master price file has no rows for the model universe: {', '.join(universe)}")
     in_master = set(prices["symbol"])
@@ -477,6 +490,7 @@ def generate_targets(
         preview=preview,
         universe=list(universe),
         universe_missing=[s for s in universe if s not in in_master],
+        prices_through=str(prices["date"].max().date()),
     )
     return asdict(result)
 

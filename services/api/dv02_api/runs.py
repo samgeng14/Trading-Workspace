@@ -1,8 +1,11 @@
 """Daily runs (artifacts/runs/daily_run_*.json), today's schedule, and starting a run.
 
-The LaunchAgent fires the daily runner Mon–Fri at 16:32 in the Mac's local
-time (src/production/scheduler.py). DV02_RUNNER_TIME overrides that if the
-agent was installed for another time.
+The LaunchAgent fires the daily runner Mon–Fri at 15:35 ET, ten minutes before
+the engine's last market-on-close send (15:45 ET), so a rebalance fills at that
+day's close. launchd takes local wall time: bin/tradeit schedule install writes
+runner_time(), 15:35 ET in the Mac's zone (14:35 in Central time), or
+DV02_RUNNER_TIME (local HH:MM) if set. The schedule shows the installed plist's
+time when there is one.
 """
 
 from __future__ import annotations
@@ -15,7 +18,7 @@ import plistlib
 import subprocess
 import sys
 import threading
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -77,8 +80,11 @@ def _step_detail(name: str, step: dict[str, Any]) -> tuple[bool, str]:
         if step.get("blocked"):
             return False, "blocked by pre-trade risk: " + "; ".join(step.get("reasons") or [])
         if step.get("submitted"):
-            rows = (step.get("result") or {}).get("submitted")
-            return ok, f"submitted {rows if rows is not None else ''} orders".replace("  ", " ")
+            res = step.get("result") or {}
+            rows = res.get("rows", res.get("submitted"))  # the runtime submit counts them in "rows"
+            how = (res.get("execution") or {}).get("summary")
+            detail = f"submitted {rows if rows is not None else ''} orders".replace("  ", " ")
+            return ok, detail + (f", {how}" if how else "")
         return ok, str(step.get("reason") or ("ok" if ok else "failed"))
     return ok, "ok" if ok else "failed"
 
@@ -148,19 +154,52 @@ def submitted_today(today: date) -> dict[str, Any] | None:
 # ── schedule ───────────────────────────────────────────────────────────
 
 
-def runner_time() -> time:
-    raw = os.environ.get("DV02_RUNNER_TIME", "16:32")
-    hh, mm = raw.split(":")
-    return time(int(hh), int(mm))
+RUN_AT_ET = time(15, 35)
+
+
+def runner_time(on: date | None = None) -> time:
+    """When to schedule the daily run, in this machine's local wall time:
+    DV02_RUNNER_TIME (HH:MM, local) if set, else RUN_AT_ET on ``on`` (default
+    today) in the local zone. Zones that change clocks on the US dates keep the
+    same ET time all year."""
+    raw = os.environ.get("DV02_RUNNER_TIME")
+    if raw:
+        hh, mm = raw.split(":")
+        return time(int(hh), int(mm))
+    return nyse.et_time(on or datetime.now(nyse.ET).date(), RUN_AT_ET).astimezone().time()
+
+
+def installed_time(weekday: int) -> time | None:
+    """The installed LaunchAgent's local fire time on ``weekday`` (0 is Monday), if it has one."""
+    times = (launch_agent() or {}).get("StartCalendarInterval") or []
+    for t in [times] if isinstance(times, dict) else times:
+        # launchd's Weekday: 0 and 7 are Sunday, 1 is Monday; no Weekday is every day
+        if t.get("Weekday") is None or (t["Weekday"] - 1) % 7 == weekday:
+            return time(t.get("Hour", 0), t.get("Minute", 0))
+    return None
+
+
+def orders_at(fire: datetime) -> Any:
+    """How a run starting at ``fire`` sends its orders (the engine's choice: MOC
+    until 15:45 ET, else market-on-open); on a day without a session, as the next
+    trading day's run at the same time would."""
+    from src.broker.ibkr.auction import execution_for
+
+    day = nyse.et_date(fire)
+    if not nyse.is_trading_day(day):
+        fire += timedelta(days=(nyse.next_trading_day(day) - day).days)
+    return execution_for(at=fire)
 
 
 def schedule(now: datetime) -> list[dict[str, Any]]:
     local_now = now.astimezone()
-    fire = datetime.combine(local_now.date(), runner_time(), tzinfo=local_now.tzinfo)
+    at = installed_time(local_now.weekday()) or runner_time(nyse.et_date(now))
+    fire = datetime.combine(local_now.date(), at, tzinfo=local_now.tzinfo)
+    orders = orders_at(fire)
     today_runs = [r for r in load_runs(10) if r["_date"] == local_now.date().isoformat() and not r["dry_run"]]
     job: dict[str, Any] = {
         "id": "daily_run",
-        "label": "Daily run: data, targets, rebalance if drift > 5%",
+        "label": f"Daily run: data, targets, rebalance if drift > 5%; orders go {orders.name}",
         "at": fire.isoformat(timespec="seconds"),
     }
     if RUN_STATE["running"]:
@@ -173,7 +212,7 @@ def schedule(now: datetime) -> list[dict[str, Any]]:
     elif not nyse.is_trading_day(nyse.et_date(now)):
         job.update(status="skipped", detail="market holiday")
     elif local_now < fire:
-        job.update(status="scheduled")
+        job.update(status="scheduled", detail=f"{fire.astimezone(nyse.ET):%H:%M} ET; {orders.summary()}")
     else:
         job.update(status="failed", detail="no run recorded yet today; is the Mac awake and the LaunchAgent installed?")
     return [job]
@@ -237,8 +276,8 @@ def start_daily_run(profile: str) -> bool:
 
     The engine does the rest: fresh bars and targets, a basket from live
     positions, its pre-trade risk gate (kill switch included), then orders on
-    the engine's own client ID. A successful run also makes the 16:32
-    LaunchAgent skip today, so nothing trades twice. It runs as a separate
+    the engine's own client ID. A successful run also makes the scheduled
+    LaunchAgent run skip today, so nothing trades twice. It runs as a separate
     process, so a crash there can't take the API down.
     """
     if not _run_lock.acquire(blocking=False):

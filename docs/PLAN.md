@@ -97,8 +97,18 @@ list is in Appendix A. The items that matter most:
 
 **Still open, and fixed in Phase 0:**
 
-- **Orders fill at the wrong time.** They are sent as market orders at 4:32pm,
-  after the close, so they fill at the *next day's open*. Targets and backtests assume the close.
+- **Orders filled at the wrong time (fixed).** They were market orders sent at 4:32pm,
+  after the close, so they filled at the *next day's open*. Now the daily run starts at
+  15:35 ET (`tradeit schedule install` writes that in the Mac's time: 14:35 in Central
+  time) and builds targets from the last completed close: a bar for a session still
+  trading is dropped when bars are appended and again when targets are built. Its
+  orders go market-on-close, filled at that day's close, when sent by 15:45 ET, five
+  minutes before the earliest cutoff the engine uses (NYSE and NYSE Arca 15:50 ET,
+  Nasdaq and Cboe BZX 15:55); an early close moves the deadline to 12:45. Sent later,
+  or when the market is closed, they go market-on-open for the next session, never as
+  plain market orders (`src/broker/ibkr/auction.py`). So a signal from the close of day
+  *t−1* fills at the close of day *t* (Section 7). Not yet checked on the paper account:
+  its MOC fills, and that IBKR holds an OPG order sent during the session for the next open.
 - **Prices are unadjusted.** There is no dividend or split adjustment, so
   momentum on bond ETFs (TLT, IEI, SHY, BIL) is wrong and total return is understated.
 - **The drift-rebalance gate reads the previous run's reconciliation file.**
@@ -107,8 +117,10 @@ list is in Appendix A. The items that matter most:
   order deltas, not positions.
 - **Most config is ignored.** That includes `risk_limits.yaml`, `execution.yaml`
   `dry_run` / `allow_submit`, and the `app.yaml` schedule.
-- **The MOSEK license is committed to git and expires October 21.** It's a personal
-  academic license, so it shouldn't be in a repo at all. It is used only by the research optimizers.
+- **The old MOSEK license is still in git history** until it expires October 21.
+  `mosek.lic` is out of the tree and `*.lic` is git-ignored. The research optimizers
+  use MOSEK only with a license from `MOSEKLM_LICENSE_FILE` or `~/mosek/mosek.lic`,
+  and otherwise CLARABEL; target generation for the live book uses no solver.
 - **The price master in git still ends on 2026-05-06.** `tradeit refresh`
   refills it locally (above).
 - **No trade history beyond today.** The IBKR API only returns the current day's
@@ -1072,8 +1084,11 @@ check now counts every holding, on both the dashboard and the daily-runner
 order paths).
 
 **Execution and risk (Phase 0):**
-- Orders are market orders sent after the close, so they fill at the next open.
-  The MOC setting in `broker.yaml` / `execution.yaml` is never read.
+- Fixed: orders were market orders sent after the close, so they filled at the next
+  open. The daily run now starts at 15:35 ET on targets from the last completed close
+  and sends market-on-close orders until 15:45 ET (12:45 on an early close), and
+  market-on-open orders for the next session after that (`src/broker/ibkr/auction.py`).
+  The MOC setting in `broker.yaml` / `execution.yaml` is still not read: the clock decides.
 - The kill switch is checked only in the daily-runner path. Dashboard and CLI
   submits bypass it.
 - Three sets of limits disagree: `exposure_limits` defaults, `risk_limits.yaml`
@@ -1098,8 +1113,9 @@ order paths).
 
 **Code health (Phase 0):**
 - `pandas` and `apscheduler` are used but not declared in `pyproject.toml`.
-- `mosek.lic` (personal academic licence) is committed and expires 2026-10-21.
-  cvxpy calls force MOSEK with no fallback; only the research optimizers use it.
+- `mosek.lic` (personal academic licence) is out of the tree; old commits keep it
+  until it expires 2026-10-21. Every cvxpy solve takes its solver from
+  `trading_engine/solvers.py`: MOSEK only with a usable license, else CLARABEL.
 - Dead or broken paths:
   - `production/pipeline/*` and `production/simulations/*` import missing `common.*` modules and write to GCS
   - `cli/backfill.py` raises a TypeError
