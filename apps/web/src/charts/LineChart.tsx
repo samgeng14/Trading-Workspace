@@ -1,6 +1,6 @@
 import { scaleLinear } from "d3-scale";
 import { area as d3area, line as d3line } from "d3-shape";
-import { useMemo, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { fitXTicks, nearestIndex, xAnchor, type XTick, Y_LABEL_GAP, yGutter, yScale } from "./axis";
 import { useWidth } from "./useSize";
 
@@ -64,13 +64,29 @@ export function LineChart({
   const innerH = height - M.top - M.bottom;
 
   // The y labels get a gutter of their own, sized to the widest one, so they never sit on the plot.
-  const { y, yTicks, yLabels, left } = useMemo(() => {
+  const { y, yTicks, yLabels, estimated } = useMemo(() => {
     const all = series.flatMap((s) => s.values.filter((v): v is number => v !== null));
     const yScl = yScale(all, innerH, { baseline, yMax });
     const ticks = yScl.ticks(5);
     const labels = ticks.map((t) => yFormat(t, ticks));
-    return { y: yScl, yTicks: ticks, yLabels: labels, left: yGutter(labels) };
+    return { y: yScl, yTicks: ticks, yLabels: labels, estimated: yGutter(labels) };
   }, [series, baseline, yMax, innerH, yFormat]);
+  // The estimate assumes the mono's 0.6em glyphs. Where text renders wider (hinting that rounds
+  // advances up, a fallback font while the mono loads), the drawn labels are measured and the
+  // gutter grows to fit them.
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [drawn, setDrawn] = useState(0);
+  const measure = useCallback(() => {
+    const texts = svgRef.current?.querySelectorAll<SVGTextElement>("text.y-tick");
+    if (!texts?.length || typeof texts[0]!.getBBox !== "function") return;
+    const w = Math.ceil(Math.max(...Array.from(texts, (t) => t.getBBox().width)));
+    setDrawn((prev) => (prev === w ? prev : w));
+  }, []);
+  useLayoutEffect(measure, [measure, yLabels, width]);
+  useLayoutEffect(() => {
+    document.fonts?.ready.then(measure).catch(() => undefined);
+  }, [measure]);
+  const left = Math.max(estimated, drawn + Y_LABEL_GAP);
   const innerW = Math.max(10, width - left - right);
 
   const { x, xs, ticks } = useMemo(() => {
@@ -166,6 +182,7 @@ export function LineChart({
       <div ref={ref} className="chart" style={{ height }}>
         {width > 0 && (
           <svg
+            ref={svgRef}
             width={width}
             height={height}
             role="img"
@@ -192,7 +209,7 @@ export function LineChart({
               {yTicks.map((t, k) => (
                 <g key={t} transform={`translate(0,${y(t)})`}>
                   <line x1={0} x2={innerW} className={t === baseline ? "axis-base" : "grid"} />
-                  <text x={-Y_LABEL_GAP} dy="0.32em" textAnchor="end" className="tick num">
+                  <text x={-Y_LABEL_GAP} dy="0.32em" textAnchor="end" className="tick num y-tick">
                     {yLabels[k]}
                   </text>
                 </g>

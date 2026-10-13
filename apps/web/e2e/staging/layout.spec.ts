@@ -87,6 +87,24 @@ function overflow(page: Page): Promise<string[]> {
 }
 
 if (STAGING) {
+  test("chart labels fit when figures render wider than the mono's 0.6em", async ({ page }) => {
+    // CI's Chromium drew the y labels about 8% wider than locally (hinting rounds glyph advances
+    // up), past the Journal theme's unpadded panels. The chart measures what it drew; widen the
+    // figures on purpose and nothing may run past its panel.
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.addInitScript(() => {
+      localStorage.setItem("dv02.theme", "light");
+      document.addEventListener("DOMContentLoaded", () => {
+        const style = document.createElement("style");
+        style.textContent = ".chart .tick { letter-spacing: 0.15em; }";
+        document.head.append(style);
+      });
+    });
+    await openPage(page, "/", '[aria-label="Schedule"] .schedule-row');
+    await expect(page.locator(".chart text.y-tick").first()).toBeVisible();
+    expect(await overflow(page)).toEqual([]);
+  });
+
   for (const theme of THEMES) {
     for (const width of WIDTHS) {
       test.describe(`${theme} theme at ${width}px`, () => {
