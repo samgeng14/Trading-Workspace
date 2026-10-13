@@ -1,0 +1,84 @@
+# DV02 — working notes for Claude
+
+DV02 is the owner's IBKR **paper** fund: one ETF model rebalanced daily, a
+C++ risk engine, a FastAPI middle layer and a broadsheet-style dashboard. The
+full plan is `docs/PLAN.md`. Where the work stands and what is next is
+`docs/HANDOFF.md`: **read it first in a new session.**
+
+## Rules from the owner (never break these)
+
+- **Strictly no leverage.** Gross exposure ≤ 100% of NAV, cash ≥ 0, futures
+  counted at notional, geared ETFs at their exposure (TQQQ 3x). Long/short is
+  allowed inside that. Every order path goes through the C++ check
+  (`dv02_engine.risk.check`); never weaken or bypass it, or any pre-trade check.
+- **Languages: C++ and Python.** TypeScript only for the dashboard UI. No Rust.
+- **Paper only.** The dashboard can't send live orders; the API binds to
+  127.0.0.1 and refuses foreign Hosts and Origins. Keep it that way.
+- **Credentials never pass through chat.** Don't ask for or accept IBKR
+  usernames, passwords or Flex tokens. The owner types them into
+  `bin/tradeit login` (saved to `ibgw/.env`, mode 600) and `bin/tradeit flex`
+  (repo-root `.env`), both git-ignored. An old Flex token leaked into an
+  earlier chat: never repeat it, look for it, or use it. Same for cloud
+  consoles (Oracle, Cloudflare): the owner signs in; Claude never handles the
+  password or MFA.
+- **Never commit the owner's IBKR exports** (PortfolioAnalyst CSV/PDF: they
+  carry the owner's name and account number). Only dates and NAV go into the
+  git-ignored cache, `trading-engine/artifacts/api/flex_nav_<profile>.csv`.
+- No solver licenses in the repo (`*.lic` is ignored). The free solvers
+  (CLARABEL, ECOS, SCS) are the default; see `trading-engine/src/trading_engine/solvers.py`.
+- No model names or IDs in commits, PR text or code.
+
+## Owner decisions already made (don't re-ask)
+
+- Holdings outside the model are sold at the next rebalance.
+- TQQQ is out of the model (QQQ is already in it). The model universe is
+  `trading-engine/config/universes/etfs.yaml`.
+- Trade timing: the daily run starts 15:35 ET (14:35 Central, the owner's
+  zone). Orders go market-on-close when sent by 15:45 ET; later, or when the
+  market is closed, market-on-open for the next session
+  (`trading-engine/src/broker/ibkr/auction.py`).
+- WRDS is limited and needs a Duo prompt: don't automate it. Data comes from
+  IBKR plus free sources.
+- The dashboard's default theme is the Journal (WSJ-like) theme; dark is the
+  alternative (`dv02.theme` in localStorage). The wordmark reads "DV02".
+- The equity curve's default view is return since inception, like the IBKR app.
+
+## Layout
+
+| Path | What |
+|---|---|
+| `engine/` | C++20 library `dv02` (risk check, backtester, cost model) and its Python module `dv02_engine` (nanobind) |
+| `trading-engine/` | Python: the daily runner (`src/production/daily_runner.py`), IBKR plumbing (`src/broker/ibkr/`), data, research |
+| `services/api/` | FastAPI app `dv02_api`: the dashboard's API over IBKR and the engine's files |
+| `apps/web/` | React + TypeScript + Vite dashboard |
+| `schemas/api/v1.yaml` | The API contract. Edit it first, then `npm run gen:api` in `apps/web` |
+| `ibgw/` | IB Gateway in Docker with IBC auto-login |
+| `bin/tradeit` | The one command for everything on the Mac (`bin/tradeit help`) |
+
+## Checks to run before every push (CI runs the same)
+
+```bash
+# C++ engine: GCC with sanitizers and warnings as errors
+cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Debug -DDV02_WERROR=ON -DDV02_SANITIZE=ON
+cmake --build engine/build --parallel && ctest --test-dir engine/build --output-on-failure
+.venv/bin/pip install ./engine && .venv/bin/python -m pytest engine/tests/python -q
+
+# trading-engine (lint list: .github/workflows/trading-engine.yml)
+cd trading-engine && ../.venv/bin/python -m pytest -q
+
+# API
+cd services/api && ../../.venv/bin/python -m pytest -q && ../../.venv/bin/ruff check . && ../../.venv/bin/ruff format --check .
+
+# dashboard
+cd apps/web && npx tsc -b && npm run lint && npm run format:check && npm test
+CI=1 npx playwright test                                # demo e2e (MSW)
+CI=1 npx playwright test -c playwright.staging.config.ts # real API on the staging account
+```
+
+`bin/tradeit setup` builds `.venv` (Python 3.12) and installs everything.
+
+## Style
+
+Code comments and docs say what and why in plain sentences, no filler. Match
+the surrounding file. Tests for every behaviour change. Commit messages: a
+short title, then what changed and why.
