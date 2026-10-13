@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import math
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -160,6 +161,15 @@ def nav_history(profile: str, live: tuple[date, float] | None = None) -> NavHist
 # ── closes ─────────────────────────────────────────────────────────────
 
 
+def _positive(value: str | None) -> float | None:
+    """``value`` as a float when it is finite and > 0, else None: a NaN or zero close is no close."""
+    try:
+        x = float(value or "")
+    except ValueError:
+        return None
+    return x if math.isfinite(x) and x > 0 else None
+
+
 def _bars_path(symbol: str) -> Path:
     folder = engine.api_state_dir() / "bars"
     folder.mkdir(parents=True, exist_ok=True)
@@ -174,9 +184,11 @@ def read_bars(symbol: str) -> list[tuple[date, float]]:
         out = []
         for r in csv.DictReader(f):
             try:
-                out.append((date.fromisoformat(r["date"]), float(r["close"])))
+                d, close = date.fromisoformat(r["date"]), _positive(r["close"])
             except (KeyError, ValueError):
                 continue
+            if close is not None:
+                out.append((d, close))
         return out
 
 
@@ -210,9 +222,11 @@ def _master(mtime: float) -> dict[str, list[tuple[date, float]]]:
     with _master_path().open() as f:
         for r in csv.DictReader(f):
             try:
-                out.setdefault(r["symbol"].upper(), []).append((date.fromisoformat(r["date"][:10]), float(r["close"])))
-            except (KeyError, ValueError):
+                d, close = date.fromisoformat(r["date"][:10]), _positive(r["close"])
+            except (KeyError, ValueError, TypeError):
                 continue
+            if close is not None:
+                out.setdefault(r["symbol"].upper(), []).append((d, close))
     for rows in out.values():
         rows.sort()
     return out
@@ -253,6 +267,10 @@ def benchmark_levels(bench_id: str) -> dict[date, float]:
 
 
 def positions_snapshot(profile: str) -> tuple[list[dict], datetime] | None:
+    """The engine's last saved positions (build_paper_basket.fetch_positions_df): symbol (local
+    symbol for futures and options), quantity, IBKR's average cost, and, from files written since
+    they were added, sec_type, multiplier and market_price (IBKR's mark then). None where a file
+    doesn't say, or IBKR had no value."""
     path = engine.data_dir() / "broker" / "positions" / f"{profile}_positions_snapshot.csv"
     if not path.exists():
         return None
@@ -261,10 +279,19 @@ def positions_snapshot(profile: str) -> tuple[list[dict], datetime] | None:
         for r in csv.DictReader(f):
             try:
                 qty = float(r["current_shares"])
-            except (KeyError, ValueError):
+            except (KeyError, ValueError, TypeError):  # TypeError: a line cut short while the engine wrote it
                 continue
-            if qty:
-                rows.append({"symbol": r["symbol"].upper(), "quantity": qty, "avg_cost": float(r.get("avg_cost") or 0)})
+            if qty and math.isfinite(qty):
+                rows.append(
+                    {
+                        "symbol": r["symbol"].upper(),
+                        "quantity": qty,
+                        "avg_cost": _positive(r.get("avg_cost")) or 0.0,
+                        "sec_type": (r.get("sec_type") or "").strip().upper() or None,
+                        "multiplier": _positive(r.get("multiplier")),
+                        "market_price": _positive(r.get("market_price")),
+                    }
+                )
     return rows, datetime.fromtimestamp(path.stat().st_mtime).astimezone()
 
 

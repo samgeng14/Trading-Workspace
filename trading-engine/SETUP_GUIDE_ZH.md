@@ -242,12 +242,11 @@ streamlit run src/dashboard/streamlit_entrypoint.py --server.port 8501
 如果你想让系统每个工作日下午 4:32(美东时间)自动跑(收盘后 2 分钟):
 
 ```bash
-# 装 LaunchAgent(Mac)
-IBKR_PORT_PAPER=7497 \
-  python -m src.production.scheduler --install-launchagent
+# 装 LaunchAgent(Mac),在仓库根目录运行
+bin/tradeit schedule install
 
 # 验证装好了
-launchctl print gui/$(id -u)/com.capitalfund.daily-runner | head -10
+bin/tradeit schedule status
 ```
 
 或者用一键脚本:

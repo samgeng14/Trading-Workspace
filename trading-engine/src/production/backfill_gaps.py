@@ -13,11 +13,15 @@ Usage:
     python -m src.production.backfill_gaps --lookback "45 D" --port 4002
     # repair a master that already mixes price bases (e.g. after a split):
     python -m src.production.backfill_gaps --repair-basis [--symbols ETHA]
+    # a real move the size of a split that the checks block: show it, then confirm it
+    python -m src.production.backfill_gaps --confirm-move ETHA 2026-03-12 --note "ETH sold off"
 
 Every merge checks the price basis: new IBKR bars are compared with the
 master's rows on overlapping dates, and a symbol whose basis changed (a
 split, a reverse split) gets its whole history refetched instead of being
-spliced (see src/data/cleaning/price_basis.py).
+spliced (see src/data/cleaning/price_basis.py). A genuine move that large is
+confirmed once with --confirm-move (config/confirmed_moves.yaml), after which
+the merge, the repair and the validator accept it.
 """
 from __future__ import annotations
 
@@ -27,6 +31,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -192,6 +197,98 @@ def repair_basis(
     return result
 
 
+def _load_master():
+    import pandas as pd
+
+    if MASTER_PARQUET.exists():
+        return pd.read_parquet(MASTER_PARQUET)
+    csv = MASTER_PARQUET.with_suffix(".csv")
+    return pd.read_csv(csv) if csv.exists() else pd.DataFrame(columns=["date", "symbol", "close"])
+
+
+def bars_around(master, symbol: str, day, rows: int = 5):
+    """``symbol``'s closes from ``rows`` sessions before ``day`` to ``rows`` after, with the daily change."""
+    import pandas as pd
+
+    df = master.copy()
+    df.columns = [str(c).lower().strip() for c in df.columns]
+    df["date"] = pd.to_datetime(df["date"]).dt.normalize()
+    df = df[df["symbol"].astype(str).str.upper().str.strip() == symbol].sort_values("date").reset_index(drop=True)
+    df["change"] = df["close"].pct_change()
+    hit = df.index[df["date"] == day]
+    if len(hit) == 0:
+        return df.iloc[0:0]
+    i = int(hit[0])
+    return df.iloc[max(0, i - rows): i + rows + 1]
+
+
+def confirm_move(
+    symbol: str,
+    day: str,
+    note: str | None = None,
+    *,
+    yes: bool = False,
+    master=None,
+    path: Path | None = None,
+    ask: Callable[[str], str] = input,
+    say: Callable[[str], None] = print,
+) -> int:
+    """Show ``symbol``'s bars around ``day``, then record the move as genuine in
+    config/confirmed_moves.yaml once the owner says so. Returns the exit code."""
+    import pandas as pd
+
+    from src.data.cleaning.price_basis import add_confirmed_move, find_bad_jumps, load_confirmed_moves
+
+    symbol = symbol.upper().strip()
+    try:
+        when = pd.Timestamp(day).normalize()
+    except ValueError:
+        say(f"Not a date: {day!r}. Use YYYY-MM-DD.")
+        return 2
+    master = _load_master() if master is None else master
+    bars = bars_around(master, symbol, when)
+    if bars.empty:
+        say(f"{symbol} has no bar on {when.date()} in the price master; nothing to confirm.")
+        return 1
+
+    say(f"{symbol} around {when.date()} (price master):")
+    for row in bars.itertuples(index=False):
+        change = "" if pd.isna(row.change) else f"{row.change * 100:+7.1f}%"
+        mark = "  <- this move" if row.date == when else ""
+        say(f"  {row.date.date()}  {row.close:12.4f}  {change}{mark}")
+    jumps = [j for j in find_bad_jumps(bars, confirmed=()) if j.date == when]
+    if jumps:
+        say(f"The checks treat it as bad data: {jumps[0].describe()}.")
+    else:
+        say("The checks don't flag this move today; confirming it only matters if they do later.")
+
+    if (symbol, when) in load_confirmed_moves(path):
+        say(f"{symbol} {when.date()} is already confirmed.")
+        return 0
+    if not yes:
+        if not sys.stdin.isatty() and ask is input:
+            say("Not confirmed: rerun in a terminal, or add --yes --note \"why it is genuine\".")
+            return 1
+        answer = ask(f"Is {symbol}'s move on {when.date()} a genuine market move? Type yes to confirm: ")
+        if answer.strip().lower() != "yes":
+            say("Not confirmed; nothing changed.")
+            return 1
+    if not (note or "").strip():
+        if yes:
+            say("Give a --note saying why the move is genuine; nothing changed.")
+            return 2
+        note = ask("Note (what happened, for the record): ")
+        if not note.strip():
+            say("A note is needed; nothing changed.")
+            return 1
+    add_confirmed_move(symbol, when, note, path)
+    say(
+        f"Confirmed {symbol} {when.date()} in {path or 'config/confirmed_moves.yaml'}. The merge, the repair "
+        "and the price validator now accept this move; rerun what was blocked (bin/tradeit refresh)."
+    )
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Backfill IBKR data gaps")
     parser.add_argument("--host", default="127.0.0.1")
@@ -228,8 +325,24 @@ def main() -> None:
         default="1 Y",
         help="with --repair-basis: how much recent IBKR history to compare against (default '1 Y')",
     )
+    parser.add_argument(
+        "--confirm-move",
+        nargs=2,
+        metavar=("SYMBOL", "DATE"),
+        dest="confirm_move",
+        help=(
+            "a real market move the checks block as bad data (a split-sized day or a spike that "
+            "reverts): show the bars around DATE, then record it in config/confirmed_moves.yaml"
+        ),
+    )
+    parser.add_argument("--note", default=None, help="with --confirm-move: why the move is genuine")
+    parser.add_argument("--yes", action="store_true", help="with --confirm-move: don't ask (needs --note)")
     parser.add_argument("--json", action="store_true", help="Print result as JSON")
     args = parser.parse_args()
+
+    if args.confirm_move:
+        symbol, day = args.confirm_move
+        sys.exit(confirm_move(symbol, day, args.note, yes=args.yes))
 
     if args.repair_basis:
         result = repair_basis(

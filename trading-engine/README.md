@@ -17,7 +17,7 @@ to without touching the runtime.
 
 1. **Every weekday at 4:32 PM ET**, your Mac wakes (if asleep), connects
    to a running TWS or IB Gateway window, and pulls today's close prices
-   for ~22 ETFs.
+   for the model's 21 ETFs.
 2. It runs the **multi-model strategy** — 14 different signal generators
    (momentum, mean reversion, volatility-targeting, MACD, RSI, …) score
    every ETF, an aggregator combines those scores into target weights,
@@ -130,15 +130,10 @@ Every IBKR connection in the repo reads its host, port and clientId from
 
 ### Step 5 · Bootstrap the autonomous schedule
 
-```bash
-# This installs a macOS LaunchAgent that fires Mon-Fri 16:32 ET.
-# Replace 7497 with 4002 if you're running IB Gateway instead of TWS.
-IBKR_PORT_PAPER=7497 \
-  python -m src.production.scheduler --install-launchagent
-
-# Confirm it's loaded.
-launchctl print gui/$(id -u)/com.capitalfund.daily-runner | head -10
-```
+From the repo root, `bin/tradeit schedule install` installs a macOS
+LaunchAgent that runs the daily runner for this checkout Mon-Fri at 16:32
+local time; `bin/tradeit schedule status` shows whether it is loaded and
+where it runs from, and `bin/tradeit schedule remove` takes it out.
 
 Or run **all of the above + sleep settings + auto-login checklist** with
 the bundled bootstrap script:
@@ -265,15 +260,16 @@ That's it — the rest of the pipeline picks it up.
 ## Universe (today)
 
 ```
-Equities         SPY  QQQ  TQQQ  VEA  VWO  INDA  VFH  VHT  VIS  VNQ  VPU
+Equities         SPY  QQQ  VEA  VWO  INDA  VFH  VHT  VIS  VNQ  VPU
 Commodities      GLD  SLV  USO  UNG
 Fixed Income     TLT  IEI  SHY  BIL
 Crypto           IBIT  ETHA
 Volatility       VIXY
 ```
 
-22 ETFs. Configurable in the production YAML configs under
-`src/production/pipeline/configs/`.
+21 ETFs, listed in `config/universes/etfs.yaml` (`core`); target generation
+trades only that list. TQQQ left the model on October 12, 2026: it is a 3x ETF,
+and the fund doesn't use leverage. The price master still keeps its bars.
 
 ---
 

@@ -162,7 +162,7 @@ def _check_launchagent() -> dict[str, Any]:
             "LaunchAgent plist",
             "warn",
             "Not installed - automation will not fire. Run: "
-            "python -m src.production.scheduler --install-launchagent",
+            "bin/tradeit schedule install",
             severity="minor",
         )
     try:

@@ -14,13 +14,15 @@ class Instrument:
     name: str
     asset_class: str  # contract AssetClass
     duration: float = 0.0  # years, for the rates scenario
+    # exposure per dollar held; must match EXPOSURE in trading-engine/src/runtime/leverage.py,
+    # which the no-leverage check uses (tests/test_units.py checks they agree)
     leverage: float = 1.0
 
 
-_ETFS = [
+# The model's ETFs: config/universes/etfs.yaml (etfs.core), which target generation reads.
+MODEL = [
     Instrument("SPY", "SPDR S&P 500", "equity"),
     Instrument("QQQ", "Invesco QQQ (Nasdaq-100)", "equity"),
-    Instrument("TQQQ", "ProShares UltraPro QQQ", "equity", leverage=3.0),
     Instrument("VEA", "Vanguard Developed Markets", "equity"),
     Instrument("VWO", "Vanguard Emerging Markets", "equity"),
     Instrument("INDA", "iShares MSCI India", "equity"),
@@ -40,13 +42,18 @@ _ETFS = [
     Instrument("IBIT", "iShares Bitcoin Trust", "crypto"),
     Instrument("ETHA", "iShares Ethereum Trust", "crypto"),
     Instrument("VIXY", "ProShares VIX Short-Term Futures", "volatility"),
+]
+
+_OTHER = [
+    # out of the model since 2026-10-12; the account holds it until the next rebalance sells it
+    Instrument("TQQQ", "ProShares UltraPro QQQ", "equity", leverage=3.0),
     # benchmarks and references
     Instrument("IWM", "iShares Russell 2000", "equity"),
     Instrument("ACWI", "iShares MSCI ACWI", "equity"),
     Instrument("AGG", "iShares Core US Aggregate Bond", "fixed_income", duration=6.0),
 ]
 
-BY_SYMBOL = {i.symbol: i for i in _ETFS}
+BY_SYMBOL = {i.symbol: i for i in [*MODEL, *_OTHER]}
 
 # Futures roots the book may hold, by root symbol.
 FUTURES = {

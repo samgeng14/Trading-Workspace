@@ -21,6 +21,9 @@ you don't log in to the IBKR app by hand.
   the dashboard.
 - `bin/tradeit gateway start | stop | status | logs` manages the gateway on
   its own.
+- The scheduled daily run (`bin/tradeit schedule install`; see
+  `services/api/README.md`) trades through this gateway at 16:32 but doesn't
+  start it, so leave the gateway (and Docker) running.
 
 The API port is published on 127.0.0.1:4002 only.
 

@@ -4,12 +4,15 @@ The preview runs ``build_reconciliation`` (the function the daily runner uses)
 on live positions and NAV, then ``run_pre_trade_risk_checks`` (the runner's
 gate: kill switch, NAV, price-file validation, exposure limits), then the C++
 no-leverage check over every holding plus the basket's orders (``mandate``).
+The basket sells every share holding outside the model whole; futures and
+options outside it are left alone and named in a warning.
 Submitting starts the daily runner itself, so there is one order path.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -67,7 +70,14 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
     """``snap`` may be the engine's saved snapshot when IBKR is down (``live`` False): the
     preview still shows, but nothing can be submitted."""
     import pandas as pd
-    from src.production.runtime.build_paper_basket import build_reconciliation, default_config, load_latest_targets
+    from src.production.generate_targets import model_universe
+    from src.production.runtime.build_paper_basket import (
+        build_reconciliation,
+        default_config,
+        holdings_outside_model,
+        load_last_closes,
+        load_latest_targets,
+    )
     from src.runtime.risk_checks import run_pre_trade_risk_checks
 
     cfg = default_config()
@@ -96,70 +106,75 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
     if not live:
         note = f"; showing the snapshot saved {snap.as_of.astimezone():%b %d %H:%M}" if snap else ""
         checks.append(_check("broker", "IBKR connection", "fail", (broker_error or "not connected") + note))
+    columns = ["symbol", "current_shares", "sec_type", "market_price"]
     if snap is None:
-        positions = pd.DataFrame(columns=["symbol", "current_shares"])
+        positions = pd.DataFrame(columns=columns)
         nav = 0.0
     else:
-        stocks = [p for p in snap.positions if p.sec_type in ("STK", "ETF")]
+        # every holding: the basket sells shares outside the model and leaves futures and options alone
         positions = pd.DataFrame(
-            [{"symbol": p.symbol, "current_shares": p.quantity} for p in stocks], columns=["symbol", "current_shares"]
+            [
+                {
+                    "symbol": p.symbol,
+                    "current_shares": p.quantity,
+                    "sec_type": p.sec_type,
+                    "market_price": mandate.price_of(p),
+                }
+                for p in snap.positions
+            ],
+            columns=columns,
         )
         nav = snap.nav
 
+    model = model_universe()
     recon, orders = build_reconciliation(
-        targets, positions, nav or 1.0, cash_buffer=cfg.cash_buffer, min_trade_dollars=cfg.min_trade_dollars
+        targets,
+        positions,
+        nav or 1.0,
+        cash_buffer=cfg.cash_buffer,
+        min_trade_dollars=cfg.min_trade_dollars,
+        model=model,
+        last_closes=load_last_closes(cfg.prices_path),
     )
     order_syms = set(orders["symbol"]) if len(orders) else set()
 
     price_now = {p.symbol: (p.last or 0.0) for p in snap.positions} if snap else {}
+    value_now = {p.symbol: p.market_value for p in snap.positions} if snap else {}
     rows = []
     basket = []  # what the leverage check sees: the orders at the prices est_notional uses
     for r in recon.itertuples(index=False):
-        px = price_now.get(r.symbol) or float(r.close)
+        close = float(r.close)  # NaN for a holding outside the model with no price anywhere
+        px = price_now.get(r.symbol) or close
+        value = int(r.current_shares) * px if math.isfinite(px) else value_now.get(r.symbol, 0.0)
         trade = int(r.delta_shares) if r.symbol in order_syms else 0
         cost = float(r.estimated_commission) if trade else 0.0
         if trade:
-            basket.append({"symbol": r.symbol, "quantity": trade, "price": float(r.close), "commission": cost})
+            # an unpriced order goes in as it is: the engine blocks it rather than guess a price
+            basket.append({"symbol": r.symbol, "quantity": trade, "price": close, "commission": cost})
         rows.append(
             {
                 "symbol": r.symbol,
-                "current_weight": (int(r.current_shares) * px / nav) if nav else 0.0,
+                "current_weight": value / nav if nav else 0.0,
                 "target_weight": float(r.target_weight),
                 "current_qty": int(r.current_shares),
                 "target_qty": int(r.target_shares),
                 "trade_qty": trade,
-                "est_notional": trade * float(r.close),
+                "est_notional": trade * close if math.isfinite(close) else 0.0,
                 "est_cost": cost,
             }
         )
-    targeted = set(recon["symbol"])
-    untargeted = [
-        p for p in (snap.positions if snap else []) if p.sec_type in ("STK", "ETF") and p.symbol not in targeted
-    ]
-    for p in untargeted:
-        rows.append(
-            {
-                "symbol": p.symbol,
-                "current_weight": p.market_value / nav if nav else 0.0,
-                "target_weight": 0.0,
-                "current_qty": int(p.quantity),
-                "target_qty": int(p.quantity),
-                "trade_qty": 0,
-                "est_notional": 0.0,
-                "est_cost": 0.0,
-            }
-        )
-    if untargeted:
+    outside = holdings_outside_model(targets.loc[targets["symbol"].astype(str).str.upper().isin(model)], positions)
+    if outside.sell:
         checks.append(
             _check(
                 "untargeted",
                 "Holdings outside the targets",
                 "warn",
-                ", ".join(p.symbol for p in untargeted)
-                + ": not in the model. They count toward the no-leverage check, but the engine doesn't trade "
-                "them until you decide whether to sell them or keep them",
+                f"{', '.join(outside.sell)}: not in the model, so this rebalance sells them",
             )
         )
+    for warning in outside.warnings():
+        checks.append(_check("untargeted_kept", "Holdings the basket can't sell", "warn", warning))
 
     buy = sum(r["est_notional"] for r in rows if r["est_notional"] > 0)
     sell = -sum(r["est_notional"] for r in rows if r["est_notional"] < 0)

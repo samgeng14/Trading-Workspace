@@ -41,21 +41,21 @@ Then open http://localhost:8501
 
 ### Option A: macOS LaunchAgent (recommended — persists after reboots)
 
-Install once:
+Install once, from the repo root:
 ```bash
-python -m src.production.scheduler --install-launchagent
+bin/tradeit schedule install
 ```
 
-This creates a LaunchAgent that runs the full pipeline **every weekday at 4:32 PM** local time.
+This creates a LaunchAgent that runs the full pipeline for this checkout **every weekday at 4:32 PM** local time.
 
 To check it's running:
 ```bash
-launchctl list | grep capitalfund
+bin/tradeit schedule status
 ```
 
 To uninstall:
 ```bash
-python -m src.production.scheduler --uninstall-launchagent
+bin/tradeit schedule remove
 ```
 
 ### Option B: Keep terminal open (simpler)
@@ -112,7 +112,7 @@ Run logs are saved to: `artifacts/runs/daily_run_YYYYMMDD_HHMMSS.json`
 
 The current model is a **momentum-based ETF rotation**:
 
-- Universe: 22 ETFs (SPY, QQQ, TQQQ, GLD, SLV, TLT, IEI, SHY, BIL, IBIT, ETHA, USO, UNG, VEA, VWO, INDA, VFH, VHT, VIS, VNQ, VPU, VIXY)
+- Universe: 21 ETFs (SPY, QQQ, GLD, SLV, TLT, IEI, SHY, BIL, IBIT, ETHA, USO, UNG, VEA, VWO, INDA, VFH, VHT, VIS, VNQ, VPU, VIXY), from `config/universes/etfs.yaml`. TQQQ (3x) left the model: the fund doesn't use leverage.
 - Signal: 126-day (6-month) price momentum
 - Selection: top-5 ETFs by momentum score
 - Weight: equal weight (20% each)

@@ -1,9 +1,12 @@
 """The fund's no-leverage mandate, checked by the C++ engine over the whole account.
 
-gross = (long + |short|) / NAV <= 100%, futures at notional, and cash >= 0
-after the orders: no margin loan. Every holding counts, the model's or not.
-The rules live in engine/src/risk.cpp (``dv02_engine.risk``); this module
-only turns an AccountSnap into the engine's book.
+gross = (long + |short|) / NAV <= 100%, futures at notional, leveraged and
+inverse ETFs at their economic exposure (TQQQ at 3x), and cash >= 0 after the
+orders: no margin loan. Every holding counts, the model's or not. The rules
+live in engine/src/risk.cpp (``dv02_engine.risk``); this module only turns an
+AccountSnap into the engine's book. The exposure table is the daily runner's
+own (``EXPOSURE`` in trading-engine/src/runtime/leverage.py), so both order
+paths count a geared ETF the same way.
 """
 
 from __future__ import annotations
@@ -42,11 +45,26 @@ def price_of(p: PositionSnap) -> float:
     return implied if math.isfinite(implied) and implied > 0 else 0.0
 
 
+def exposure_of(symbol: str, sec_type: str = "STK") -> float:
+    """Exposure per dollar held (TQQQ 3.0): the engine's table, for shares only."""
+    # imported here: it brings pandas, which the API otherwise loads only when it needs it
+    from src.runtime.leverage import exposure_of as table
+
+    return table(symbol, sec_type)
+
+
 def book_from_snapshot(snap: AccountSnap) -> Any:
     """Every position in the account, priced, with NAV and cash."""
     risk = engine()
     positions = [
-        risk.Position(p.symbol, p.quantity, price_of(p), p.multiplier, risk.asset_class_from_ibkr(p.sec_type))
+        risk.Position(
+            p.symbol,
+            p.quantity,
+            price_of(p),
+            p.multiplier,
+            risk.asset_class_from_ibkr(p.sec_type),
+            exposure_of(p.symbol, p.sec_type),
+        )
         for p in snap.positions
     ]
     return risk.Book(snap.nav, snap.cash, positions)
@@ -66,7 +84,8 @@ def check(snap: AccountSnap, orders: Iterable[dict[str, Any]]) -> dict[str, Any]
     """The book after ``orders`` against POLICY, as ``risk.result_dict``.
 
     Each order has symbol, quantity (signed), price and commission, and optionally
-    sec_type (default ETF, which is all the model trades).
+    sec_type (default ETF, which is all the model trades). Its exposure comes from
+    the engine's table, as the book's do: a TQQQ order counts at 3x.
     """
     risk = engine()
     planned = [
@@ -77,6 +96,7 @@ def check(snap: AccountSnap, orders: Iterable[dict[str, Any]]) -> dict[str, Any]
             1.0,
             risk.asset_class_from_ibkr(o.get("sec_type", "ETF")),
             o.get("commission", 0.0),
+            exposure_of(o["symbol"], o.get("sec_type", "ETF")),
         )
         for o in orders
     ]

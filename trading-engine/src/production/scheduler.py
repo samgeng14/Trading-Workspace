@@ -15,7 +15,9 @@ Usage:
     # Print the macOS LaunchAgent plist (preferred for production)
     python -m src.production.scheduler --print-plist
 
-    # Install the LaunchAgent automatically
+    # Install the LaunchAgent automatically. Prefer `bin/tradeit schedule install`
+    # from the repo root: it schedules this checkout's .venv with the profile,
+    # port and client ID the dashboard expects.
     python -m src.production.scheduler --install-launchagent
 """
 from __future__ import annotations

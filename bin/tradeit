@@ -6,6 +6,8 @@
 #   tradeit login     save the IB Gateway login on this Mac (for automatic login)
 #   tradeit gateway   start | stop | status | logs  the auto-login IB Gateway (Docker)
 #   tradeit flex      connect IBKR Flex: daily NAV since the account opened
+#                     (flex --refetch: fetch again with the saved Query ID and token)
+#   tradeit schedule  install | remove | status  the weekday 16:32 daily run (macOS LaunchAgent)
 #   tradeit refresh   fill price-history holes, update bars and targets (dry run: no orders)
 #   tradeit doctor    check the IBKR connection end to end
 #   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
@@ -26,22 +28,35 @@ die() { printf 'tradeit: %s\n' "$*" >&2; exit 1; }
 
 # Ask until something is entered. Hidden prompts show nothing while you paste,
 # so an Enter pressed too early asks again instead of exiting (an early exit
-# leaves the next paste going to the shell, and into its history).
-ask() { # ask VAR "Prompt" [hidden]
-  local __v="" __i
+# leaves the next paste going to the shell, and into its history). With CHECK,
+# an answer CHECK rejects is asked again too; WHAT says what was expected.
+ask() { # ask VAR "Prompt" [hidden|visible] [CHECK "WHAT"]
+  local __v="" __i __ok=""
   for __i in 1 2 3; do
     if [ "${3:-}" = hidden ]; then
-      read -r -s -p "$2 (hidden: nothing shows while you paste, then press Enter): " __v
+      read -r -s -p "$2 (hidden: nothing shows while you paste, then press Enter): " __v || true
       echo
     else
-      read -r -p "$2: " __v
+      read -r -p "$2: " __v || true
     fi
-    [ -n "$__v" ] && break
-    echo "  Nothing was entered; try again."
+    if [ -z "$__v" ]; then
+      echo "  Nothing was entered; try again."
+    elif [ -n "${4:-}" ] && ! "$4" "$__v"; then
+      echo "  That isn't $5; try again."
+    else
+      __ok=1
+      break
+    fi
   done
-  [ -n "$__v" ] || die "nothing entered"
+  [ -n "$__ok" ] || die "no usable answer after three tries; nothing was saved"
   printf -v "$1" '%s' "$__v"
 }
+
+# Flex Query IDs and Flex Web Service tokens are digits only, a token 15 to 40
+# of them. Checked before anything is fetched or saved, so text pasted into the
+# hidden prompt by mistake (a command, a URL) is asked again, not kept.
+is_flex_query_id() { [[ "$1" =~ ^[0-9]+$ ]]; }
+is_flex_token() { [[ "$1" =~ ^[0-9]{15,40}$ ]]; }
 
 # Yes or no; anything but y/yes (or no answer at all) is no.
 confirm() { # confirm "Question"
@@ -234,9 +249,84 @@ cmd_gateway() {
   esac
 }
 
+# The Flex Query ID and token the API would use (.env, unless the environment
+# sets them), one per line; empty lines where none is saved.
+flex_saved() {
+  (cd "$ROOT/trading-engine" && "$PY" -c '
+import os
+from src.broker.ibkr import settings
+settings.load_dotenv()
+print(os.environ.get("IBKR_FLEX_QUERY_ID") or os.environ.get("IBKR_FLEX_NAV_QUERY_ID") or "")
+print(os.environ.get("IBKR_FLEX_TOKEN", ""))
+')
+}
+
+# Fetch the NAV statement with this Query ID and token through the API's own
+# Flex code: python -m dv02_api.flex paper, which caches it and prints IBKR's
+# one-line reason on stderr when it fails. Prints "DAYS FIRST LAST" when it
+# loaded. Nothing is written to .env here.
+flex_fetch() { # flex_fetch QUERY_ID TOKEN
+  (cd "$ROOT/services/api" && IBKR_FLEX_QUERY_ID="$1" IBKR_FLEX_TOKEN="$2" "$PY" - paper <<'PY'
+import contextlib
+import http.client
+import io
+import sys
+
+from dv02_api import flex
+
+rows = []
+parse_nav = flex.parse_nav
+
+
+def keep_rows(xml):  # refresh() parses the statement once; keep its rows for the summary
+    rows[:] = parse_nav(xml)
+    return rows
+
+
+flex.parse_nav = keep_rows
+with contextlib.redirect_stdout(io.StringIO()) as said:
+    try:
+        code = flex.main()
+    except (TimeoutError, ConnectionError, http.client.HTTPException) as exc:  # main() only catches URLError
+        sys.exit(f"Could not reach IBKR's Flex service: {exc or type(exc).__name__}")
+if code or not rows:
+    sys.exit(code or said.getvalue().strip())
+print(len(rows), rows[0][0], rows[-1][0])
+PY
+  )
+}
+
+flex_loaded() { # flex_loaded "DAYS FIRST LAST" (what flex_fetch printed)
+  local days first last
+  read -r days first last <<<"$1"
+  say "Loaded $days days of NAV from IBKR, $first to $last"
+  if [ "$days" -lt 30 ]; then
+    echo "That is under 30 days, so your query's period is probably not \"Last 365 Calendar Days\""
+    echo "(unless the account is that new). Edit it in Client Portal: Performance & Reports >"
+    echo "Flex Queries, the DV02 NAV query, Period. Then run: bin/tradeit flex --refetch"
+  fi
+}
+
 cmd_flex() {
   need_venv
-  local qid token
+  local qid="" token="" got
+  case "${1:-}" in
+    --refetch)
+      { IFS= read -r qid || true; IFS= read -r token || true; } < <(flex_saved)
+      [ -n "$qid$token" ] || die "no Flex Query ID and token saved yet; run: bin/tradeit flex"
+      is_flex_query_id "$qid" || die "the saved Flex Query ID is missing or not digits only; enter it again with: bin/tradeit flex"
+      is_flex_token "$token" || die "the saved Flex token isn't 15 to 40 digits; enter it again with: bin/tradeit flex"
+      say "Fetching your statement from IBKR with the saved Query ID and token (can take a minute)"
+      got="$(flex_fetch "$qid" "$token")" \
+        || die "not loaded (reason above); the saved values are unchanged. To enter new ones, run: bin/tradeit flex"
+      unset token
+      flex_loaded "$got"
+      echo "A running dashboard shows it on its next refresh."
+      return 0
+      ;;
+    "") ;;
+    *) die "usage: tradeit flex [--refetch]" ;;
+  esac
   say "IBKR Flex: your daily NAV since the account opened"
   cat <<'TXT'
 One time, in Client Portal, logged in with your PAPER username:
@@ -245,11 +335,18 @@ One time, in Client Portal, logged in with your PAPER username:
      Format XML, period "Last 365 Calendar Days". Save and note its Query ID.
   2. On the same Flex Queries page: Flex Web Service Configuration (gear icon).
      Turn it on and generate a token.
-Paste both below. They are saved only in .env on this Mac (gitignored, readable only by you).
+Paste both below. They are checked with IBKR first, then saved only in .env on this Mac
+(gitignored, readable only by you).
 
 TXT
-  ask qid "Query ID"
-  ask token "Token" hidden
+  ask qid "Query ID" visible is_flex_query_id "a Query ID (digits only)"
+  ask token "Token" hidden is_flex_token "a Flex token (15 to 40 digits, no spaces or other text)"
+  say "Fetching your statement from IBKR to check them (can take a minute)"
+  if ! got="$(flex_fetch "$qid" "$token")"; then
+    unset token
+    die "not loaded (reason above), so nothing was saved: .env keeps its previous Flex values.
+  Check the Query ID and token, then run bin/tradeit flex again"
+  fi
   touch "$ROOT/.env"
   chmod 600 "$ROOT/.env"
   DV02_QID="$qid" DV02_TOKEN="$token" "$PY" - "$ROOT/.env" <<'PY'
@@ -268,10 +365,271 @@ out += [f"{k}={v}" for k, v in pairs.items() if k not in seen]
 path.write_text("\n".join(out) + "\n")
 PY
   unset token
-  say "Saved. Fetching your statement from IBKR (can take a minute)"
-  (cd "$ROOT/services/api" && "$PY" -m dv02_api.flex paper) \
-    || die "not loaded (reason above). Check the Query ID and token, then run bin/tradeit flex again"
-  say "Done. A running dashboard picks it up on its next refresh; the API also re-fetches every 6 hours."
+  flex_loaded "$got"
+  say "Saved the Query ID and token to .env"
+  echo "A running dashboard shows it on its next refresh. Restart the API (bin/tradeit up) so its"
+  echo "own re-fetch, every 6 hours, uses the new values too."
+}
+
+# ── tradeit schedule: the daily run as a macOS LaunchAgent ──────────────
+# launchd starts the engine's daily runner Mon-Fri at 16:32 this Mac's time
+# (DV02_RUNNER_TIME in .env moves it; the API reads the same), from this
+# checkout's trading-engine with this checkout's .venv. The API reads the plist
+# back: its Python and environment for runs started from the dashboard, and
+# whether launchd has it loaded for the Scheduler light.
+
+AGENT_LABEL=com.capitalfund.daily-runner # LAUNCH_AGENT in services/api/dv02_api/runs.py
+AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+AGENT_TMP=""
+
+need_macos() {
+  [ "$(uname)" = Darwin ] ||
+    die "tradeit schedule needs macOS: it installs a launchd LaunchAgent, and this machine runs $(uname)"
+}
+
+agent_print() { launchctl print "gui/$UID/$AGENT_LABEL" 2>/dev/null || launchctl list "$AGENT_LABEL" 2>/dev/null; }
+agent_loaded() { agent_print >/dev/null; }
+agent_running() {
+  local out
+  out="$(agent_print)" || return 1
+  case "$out" in *"state = running"* | *'"PID" = '*) return 0 ;; esac
+  return 1
+}
+
+agent_unload() {
+  local _
+  launchctl bootout "gui/$UID/$AGENT_LABEL" 2>/dev/null || launchctl unload "$AGENT_PLIST" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    agent_loaded || return 0
+    sleep 0.5
+  done
+  die "launchd still has $AGENT_LABEL loaded; try: launchctl bootout gui/$UID/$AGENT_LABEL"
+}
+
+# bootstrap on current macOS; load on releases older than 10.10, which lack it
+agent_load() {
+  local err=""
+  launchctl enable "gui/$UID/$AGENT_LABEL" 2>/dev/null || true
+  if ! err="$(launchctl bootstrap "gui/$UID" "$AGENT_PLIST" 2>&1)"; then
+    launchctl load -w "$AGENT_PLIST" 2>/dev/null || true
+  fi
+  agent_loaded || die "launchd didn't load $AGENT_PLIST${err:+ ($err)}"
+}
+
+# The daily runner blocks every order without the C++ engine. The same check as
+# the API's Engine light (engine_health in services/api/dv02_api/app.py): it
+# imports, and its gross and cash limits still block a levered book. The book
+# also breaks the 25% single-name limit, so "blocked" alone would pass an engine
+# whose leverage limits don't work.
+engine_check() { # engine_check PYTHON
+  (cd "$ROOT/trading-engine" && "$1" - <<'PY'
+import sys
+
+try:
+    from dv02_engine import risk
+except ImportError as exc:
+    sys.exit(f"dv02_engine isn't installed for {sys.executable}: {exc}")
+etf = risk.AssetClass.ETF
+# fully invested in five names at 20% each, then one more share bought on margin: 110% gross, cash -$100
+book = risk.Book(1000.0, 0.0, [risk.Position(s, 2.0, 100.0, asset_class=etf) for s in "ABCDE"])
+fits = risk.check(book, [], risk.Policy())
+levered = risk.check(book, [risk.Order("A", 1.0, 100.0, asset_class=etf)], risk.Policy())
+if not fits.ok or levered.ok or not {"gross", "cash"} <= {b.rule for b in levered.breaches if b.blocking}:
+    sys.exit("dv02_engine is installed but its no-leverage check let a levered test book through")
+PY
+  )
+}
+
+# Write the LaunchAgent for this checkout to FILE. The arguments are the ones
+# services/api/dv02_api/runs.py expects of the scheduled run: this .venv's
+# Python first, --profile paper on the resolved host and port, client ID 101
+# (the runner's own default; dashboard-started runs use 310 to stay clear of
+# it) and --skip-if-ran-today, so a day that already has a successful run,
+# started from the dashboard say, isn't traded twice. No RunAtLoad: installing
+# or logging in never starts a run by itself.
+agent_plist() { # agent_plist FILE
+  (cd "$ROOT/services/api" && "$PY" - "$1" "$AGENT_LABEL" "$PY" "$ROOT/trading-engine" <<'PY'
+import os
+import plistlib
+import sys
+from pathlib import Path
+
+from dv02_api import runs
+from src.broker.ibkr import settings
+from src.production.generate_targets import OPTIMIZERS_AVAILABLE
+
+out, label, python, engine_dir = sys.argv[1:5]
+settings.load_dotenv()  # .env: ports, IBKR_CLIENT_ID, CAPITALFUND_OPTIMIZER, DV02_RUNNER_TIME
+paper, live = settings.resolve_endpoint("paper"), settings.resolve_endpoint("live")
+client_id = os.environ.get("IBKR_CLIENT_ID", "101")  # as daily_runner reads it
+optimizer = os.environ.get("CAPITALFUND_OPTIMIZER", "momentum_tilted")  # the old plist's default
+if optimizer not in OPTIMIZERS_AVAILABLE:
+    sys.exit(f"CAPITALFUND_OPTIMIZER={optimizer} isn't one the engine has: {', '.join(OPTIMIZERS_AVAILABLE)}")
+if not client_id.isdigit():
+    sys.exit(f"IBKR_CLIENT_ID={client_id} isn't a number")
+at = runs.runner_time()
+logs = Path(engine_dir) / "data" / "logs" / "runtime"
+agent = {
+    "Label": label,
+    "ProgramArguments": [
+        python, "-m", "src.production.daily_runner",
+        "--profile", "paper", "--host", paper.host, "--port", str(paper.port),
+        "--client-id", client_id, "--skip-if-ran-today",
+    ],
+    "WorkingDirectory": engine_dir,
+    "StartCalendarInterval": [{"Weekday": day, "Hour": at.hour, "Minute": at.minute} for day in range(1, 6)],
+    "StandardOutPath": str(logs / "launchagent_stdout.log"),
+    "StandardErrorPath": str(logs / "launchagent_stderr.log"),
+    "EnvironmentVariables": {
+        "IBKR_PORT_PAPER": str(paper.port),
+        "IBKR_PORT_LIVE": str(live.port),
+        "CAPITALFUND_OPTIMIZER": optimizer,
+        "APP_ENV": "local",
+    },
+}
+Path(out).write_bytes(plistlib.dumps(agent))
+PY
+  )
+}
+
+# Describe the LaunchAgent in FILE; with "next", print only its next run, and
+# with "unloaded", say it has none because launchd doesn't have it loaded.
+agent_describe() { # agent_describe FILE [next|unloaded]
+  (cd "$ROOT/services/api" && "$PY" - "$1" "$ROOT/trading-engine" "${2:-}" <<'PY'
+import plistlib
+import sys
+from datetime import datetime, time, timedelta
+from pathlib import Path
+
+from dv02_api import nyse
+
+path, here, mode = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+try:
+    agent = plistlib.loads(path.read_bytes())
+except (OSError, plistlib.InvalidFileException, ValueError) as exc:
+    sys.exit(f"  can't read {path}: {exc}")
+args = agent.get("ProgramArguments") or ["?"]
+folder = agent.get("WorkingDirectory") or "?"
+env = agent.get("EnvironmentVariables") or {}
+times = agent.get("StartCalendarInterval") or []
+times = [times] if isinstance(times, dict) else times
+
+# launchd's Weekday: 0 and 7 are Sunday, 1 is Monday; no Weekday is every day
+now = datetime.now().replace(second=0, microsecond=0)
+fires = [
+    datetime.combine(now.date() + timedelta(days=n), time(t.get("Hour", 0), t.get("Minute", 0)))
+    for n in range(8)
+    for t in times
+    if t.get("Weekday") is None or (t["Weekday"] - 1) % 7 == (now + timedelta(days=n)).weekday()
+]
+upcoming = min((f for f in fires if f > now), default=None)
+if upcoming is None:
+    next_run = "none (no StartCalendarInterval)"
+else:
+    next_run = f"{upcoming:%a %Y-%m-%d %H:%M}" + ("" if nyse.is_trading_day(upcoming.date()) else " (an NYSE holiday)")
+if mode == "unloaded":
+    next_run = f"none while it isn't loaded (it would be {next_run})"
+if mode == "next":
+    print(next_run)
+    raise SystemExit
+days = sorted({(t["Weekday"] - 1) % 7 for t in times if "Weekday" in t})  # 0 is Monday, as in Python
+names = ", ".join(f"{datetime(2024, 1, 1 + d):%a}" for d in days) or "Every day"  # 2024-01-01 was a Monday
+names = "Mon-Fri" if days == [0, 1, 2, 3, 4] else names
+hours = ", ".join(sorted({f"{t.get('Hour', 0):02d}:{t.get('Minute', 0):02d}" for t in times}))
+mine = Path(folder).resolve() == here.resolve()
+print(f"  runs from   {folder}" + ("" if mine else f"  (NOT this checkout, which is {here.parent})"))
+print(f"  python      {args[0]}")
+print(f"  arguments   {' '.join(args[1:])}")
+print(f"  when        {names} at {hours}, this Mac's time")
+print(f"  next run    {next_run}")
+print(f"  optimizer   {env.get('CAPITALFUND_OPTIMIZER', 'not set (the engine default)')}")
+print(f"  logs        {agent.get('StandardOutPath', 'none')}")
+PY
+  )
+}
+
+schedule_install() {
+  need_venv
+  say "Checking the C++ engine in $PY (the daily runner blocks every order without it)"
+  engine_check "$PY" || die "the engine isn't usable there (reason above). Run bin/tradeit engine, then try again"
+  AGENT_TMP="$(mktemp "${TMPDIR:-/tmp}/dv02-agent.XXXXXX")"
+  trap 'rm -f "$AGENT_TMP"' EXIT
+  agent_plist "$AGENT_TMP" || die "couldn't write the LaunchAgent (reason above)"
+  if [ -f "$AGENT_PLIST" ]; then
+    say "Installed now (this replaces it):"
+    agent_describe "$AGENT_PLIST" || echo "  (unreadable: $AGENT_PLIST)"
+  fi
+  say "The daily run to install:"
+  agent_describe "$AGENT_TMP"
+  cat <<'TXT'
+
+At that time every weekday it updates prices and targets and, when the model calls
+for a rebalance, sends paper orders to IBKR without asking you. IB Gateway has to be
+running and logged in then. If the Mac is asleep, it runs when the Mac wakes; if the
+Mac is off, that day's run is skipped (start one from the dashboard).
+TXT
+  if ! confirm "Install it?"; then
+    echo "Not installed; nothing changed."
+    return 0
+  fi
+  if agent_running; then
+    die "the daily run is running right now; install again once it finishes (bin/tradeit schedule status)"
+  fi
+  mkdir -p "$(dirname "$AGENT_PLIST")" "$ROOT/trading-engine/data/logs/runtime"
+  if agent_loaded; then agent_unload; fi
+  mv "$AGENT_TMP" "$AGENT_PLIST"
+  chmod 644 "$AGENT_PLIST"
+  agent_load
+  say "Scheduled. Next run: $(agent_describe "$AGENT_PLIST" next)"
+  echo "Installed $AGENT_PLIST and loaded it in launchd. Check it with: bin/tradeit schedule status"
+}
+
+schedule_remove() {
+  if agent_running; then
+    die "the daily run is running right now; remove it once it finishes (bin/tradeit schedule status)"
+  fi
+  if ! agent_loaded && [ ! -f "$AGENT_PLIST" ]; then
+    echo "No daily run is installed; nothing to remove."
+    return 0
+  fi
+  if agent_loaded; then agent_unload; fi
+  rm -f "$AGENT_PLIST"
+  say "Removed the daily run: nothing starts on its own now."
+  echo "Runs started from the dashboard still work. To schedule it again: bin/tradeit schedule install"
+}
+
+schedule_status() {
+  need_venv
+  local out last="" mode=""
+  if agent_running; then
+    say "Daily run: loaded in launchd, and running now"
+  elif agent_loaded; then
+    say "Daily run: loaded in launchd"
+  else
+    mode=unloaded
+    say "Daily run: not loaded in launchd, so nothing starts on its own"
+  fi
+  if [ ! -f "$AGENT_PLIST" ]; then
+    echo "No LaunchAgent at $AGENT_PLIST."
+    echo "Install it with: bin/tradeit schedule install"
+    return 0
+  fi
+  agent_describe "$AGENT_PLIST" "$mode" || true
+  if out="$(launchctl print "gui/$UID/$AGENT_LABEL" 2>/dev/null)"; then
+    last="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*last exit code = //p')"
+    [ -z "$last" ] || echo "  last exit   ${last%%$'\n'*}"
+  fi
+  [ -z "$mode" ] || echo "It is installed but not loaded. Load it with: bin/tradeit schedule install"
+}
+
+cmd_schedule() {
+  need_macos
+  case "${1:-status}" in
+    install) schedule_install ;;
+    remove) schedule_remove ;;
+    status) schedule_status ;;
+    *) die "usage: tradeit schedule install|remove|status" ;;
+  esac
 }
 
 cmd_refresh() {
@@ -335,11 +693,12 @@ case "${1:-help}" in
   engine) shift; cmd_engine "$@" ;;
   login) shift; cmd_login "$@" ;;
   flex) shift; cmd_flex "$@" ;;
+  schedule) shift; cmd_schedule "$@" ;;
   refresh) shift; cmd_refresh "$@" ;;
   gateway) shift; cmd_gateway "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
   up) shift; cmd_up "$@" ;;
   api) shift; cmd_api "$@" ;;
   demo) shift; cmd_demo "$@" ;;
-  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac

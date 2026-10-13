@@ -9,7 +9,11 @@ is skipped until it can; its REST route says why. The broadcaster runs only
 while someone is listening.
 
 A slow client never makes the server buffer: each socket holds at most one
-unsent frame per topic, and a newer value replaces the one waiting.
+unsent frame per topic, and a newer value replaces the one waiting. A topic that
+hangs (IBKR not answering) is cut off after TOPIC_TIMEOUT_S so the others still go.
+
+Which pages may open the stream (Host and Origin) is decided before the handshake
+reaches here, by the app's Guard (app.py): browsers don't apply CORS to WebSockets.
 """
 
 from __future__ import annotations
@@ -18,7 +22,6 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
-from urllib.parse import urlsplit
 
 from pydantic import TypeAdapter
 from starlette.websockets import WebSocket
@@ -26,6 +29,7 @@ from starlette.websockets import WebSocket
 log = logging.getLogger(__name__)
 
 TICK_S = 2.0
+TOPIC_TIMEOUT_S = 5.0
 _JSON = TypeAdapter(Any)
 
 
@@ -33,14 +37,6 @@ def dumps(body: Any) -> str:
     """JSON exactly as the REST routes send it: FastAPI renders a route's return value
     with pydantic, which prints 0.000015 (not 1.5e-05) and NaN as null."""
     return _JSON.dump_json(body).decode()
-
-
-def same_site(ws: WebSocket) -> bool:
-    """Browsers don't apply CORS to WebSockets, so any open web page could read the account
-    here. A browser names the page's origin: only the dashboard's own (this host) may listen.
-    Scripts send no origin."""
-    origin = ws.headers.get("origin")
-    return origin is None or urlsplit(origin).netloc.lower() == ws.headers.get("host", "").lower()
 
 
 @dataclass(eq=False)
@@ -65,9 +61,6 @@ class Hub:
         return self._task is not None and not self._task.done()
 
     async def serve(self, ws: WebSocket) -> None:
-        if not same_site(ws):
-            await ws.close(1008)  # before the handshake completes, the server answers 403
-            return
         await ws.accept()
         client = _Client(unsent={topic: frame for topic, (_, frame) in self._last.items()})
         if client.unsent:
@@ -112,12 +105,17 @@ class Hub:
     async def tick(self) -> None:
         self.ticks += 1
         for topic, compute in self.topics.items():
+            deadline = asyncio.timeout(TOPIC_TIMEOUT_S)
             try:
-                data = dumps(await compute())
+                async with deadline:
+                    data = dumps(await compute())
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 — Problem or anything else; the REST route reports it
-                log.debug("stream: %s skipped: %s", topic, exc)
+                if deadline.expired():
+                    log.warning("stream: %s took over %gs; skipped this tick", topic, TOPIC_TIMEOUT_S)
+                else:
+                    log.debug("stream: %s skipped: %s", topic, exc)
                 self._last.pop(topic, None)
                 continue
             if topic in self._last and self._last[topic][0] == data:

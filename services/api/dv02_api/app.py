@@ -6,17 +6,21 @@ import asyncio
 import getpass
 import logging
 import os
+import re
+import sys
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query, Request, WebSocket
 from fastapi.responses import JSONResponse
+from starlette.datastructures import Headers
 
 from . import engine, flex, history, mandate, nyse, ops, orders, performance, rebalance, risk, runs, stats, stream
-from .broker import AccountSnap, Broker, PositionSnap, lookup_position
+from .broker import PER_CONTRACT, AccountSnap, Broker, PositionSnap, lookup_position
 from .universe import BENCHMARKS, BY_SYMBOL
 
 log = logging.getLogger(__name__)
@@ -36,6 +40,13 @@ class Problem(Exception):
     def __init__(self, status: int, title: str, detail: str | None = None) -> None:
         super().__init__(title)
         self.status, self.title, self.detail = status, title, detail
+
+
+def problem_response(exc: Problem) -> JSONResponse:
+    body = {"title": exc.title}
+    if exc.detail:
+        body["detail"] = exc.detail
+    return JSONResponse(body, status_code=exc.status, media_type="application/problem+json")
 
 
 @dataclass
@@ -76,17 +87,33 @@ def offline_snapshot(profile: str) -> AccountSnap | None:
         nav = float(tags["NetLiquidation"])
     except (KeyError, ValueError):
         return None
+    priced_on = nyse.session_state(pos_time).trading_date
     positions = []
     for r in rows:
-        px = history.closes(r["symbol"])
-        last = px[-1][1] if px else r["avg_cost"]
-        prev = px[-2][1] if len(px) > 1 else last
+        # files written before the snapshot had sec_type, multiplier and market_price: shares, as before
+        sec_type = r["sec_type"] or "STK"
+        if sec_type == "STK" and r["symbol"] in BY_SYMBOL:
+            sec_type = "ETF"
+        mult = r["multiplier"] or 1.0
+        # IBKR's mark when the snapshot was taken, the same moment as its NAV; else the last close
+        closes = history.closes(r["symbol"])
+        last, day = r["market_price"], priced_on
+        if last is None and closes:
+            day, last = closes[-1]
+        if r["multiplier"] is None and sec_type in PER_CONTRACT:
+            # the engine saves an unknown contract size empty: valued at 1x, MES would count a fifth of
+            # its notional, so it gets no price and the no-leverage check blocks it, as the runner's does
+            last = None
+        prev = next((c for d, c in reversed(closes) if d < day), last)
+        unit = r["quantity"] * mult
+        avg_cost = r["avg_cost"] / (mult if sec_type in PER_CONTRACT else 1.0)  # IBKR's is per contract
         positions.append(
             PositionSnap(
-                con_id=0, symbol=r["symbol"], root=r["symbol"],
-                sec_type="ETF" if r["symbol"] in BY_SYMBOL else "STK",
-                quantity=r["quantity"], multiplier=1.0, avg_cost=r["avg_cost"], last=last, prev_close=prev,
-                market_value=r["quantity"] * last, unrealized_pnl=r["quantity"] * (last - r["avg_cost"]), day_pnl=None,
+                con_id=0, symbol=r["symbol"], root=_root(r["symbol"], sec_type), sec_type=sec_type,
+                quantity=r["quantity"], multiplier=mult, avg_cost=avg_cost, last=last, prev_close=prev,
+                # no price at all: no value either, so the no-leverage check blocks it as unpriced
+                market_value=unit * last if last is not None else 0.0,
+                unrealized_pnl=unit * (last - avg_cost) if last is not None else 0.0, day_pnl=None,
             )
         )  # fmt: skip
     try:
@@ -97,6 +124,18 @@ def offline_snapshot(profile: str) -> AccountSnap | None:
         account="offline", currency="USD", nav=nav, cash=cash, day_pnl=None,
         as_of=min(tags_time, pos_time).astimezone(timezone.utc), positions=positions, source="snapshot file",
     )  # fmt: skip
+
+
+_EXPIRY = re.compile(r"(?P<root>[A-Z0-9]+?)[FGHJKMNQUVXZ]\d{1,2}")  # MESZ6: root, month code, year
+
+
+def _root(symbol: str, sec_type: str) -> str:
+    """The snapshot keys a future or option by its local symbol (MESZ6, "SPY   261218C00600000");
+    the instrument table knows the root (MES, SPY)."""
+    root = symbol.split()[0] if symbol.split() else symbol
+    if sec_type in ("FUT", "FOP") and (m := _EXPIRY.fullmatch(root)):
+        return m["root"]
+    return root
 
 
 def require_snapshot(ctx: Ctx) -> AccountSnap:
@@ -152,6 +191,14 @@ def sleeve(ctx: Ctx) -> str:
     return ctx.sleeve_cache[1]
 
 
+def contract_sec_type(sec_type: str) -> str:
+    """The contract's Position.sec_type is STK, ETF, FUT or OPT. A futures option or a warrant
+    shows as OPT; FX, a bond or crypto as STK, with an asset_class that says what it is."""
+    if sec_type in ("STK", "ETF", "FUT", "OPT"):
+        return sec_type
+    return {"FOP": "OPT", "WAR": "OPT", "CONTFUT": "FUT"}.get(sec_type, "STK")
+
+
 def position_rows(ctx: Ctx, snap: AccountSnap) -> list[dict[str, Any]]:
     tw, _ = targets(ctx)
     etf_sleeve = sleeve(ctx)
@@ -169,7 +216,7 @@ def position_rows(ctx: Ctx, snap: AccountSnap) -> list[dict[str, Any]]:
                 "name": inst.name if inst.name != inst.symbol else p.symbol,
                 "asset_class": inst.asset_class,
                 "sleeve": "Hedge" if p.sec_type == "FUT" else etf_sleeve,
-                "sec_type": p.sec_type,
+                "sec_type": contract_sec_type(p.sec_type),
                 "quantity": p.quantity,
                 "multiplier": p.multiplier,
                 "avg_cost": p.avg_cost,
@@ -195,6 +242,130 @@ def nav_series(ctx: Ctx, snap: AccountSnap | None, now: datetime) -> history.Nav
         when = now if snap.source == "ibkr" else snap.as_of
         live = (nyse.session_state(when).trading_date, snap.nav)
     return history.nav_history(ctx.profile, live)
+
+
+# ── who may call ───────────────────────────────────────────────────────
+# There is no login: the API listens on 127.0.0.1 only. Any web page open in the same
+# browser can still send it requests, so every request is checked before it reaches a route:
+#  - Host: a hostile domain that resolves to 127.0.0.1 (DNS rebinding) arrives under its own
+#    name. Only loopback names, DV02_ALLOWED_HOSTS and the address the connection itself
+#    arrived on (an IP, which rebinding can't produce) are served.
+#  - Origin, on the WebSocket and on every request that changes something: browsers don't
+#    apply CORS to WebSockets, and a form or a no-cors fetch can POST to another site without
+#    asking. Pages may call only from the dashboard, a page served from the host and port
+#    the request went to (the API's own, or a proxy in front of it), or DV02_ALLOWED_ORIGINS.
+#    No Origin at all is a script (curl, Python, bin/tradeit).
+#  - Content-Type: a body must be JSON, which another site's page can't send without asking
+#    first. A POST with no body (cancel, run the doctor) needs none.
+
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+# the dashboard's dev server and the API itself. The dev server proxies /api with the
+# browser's own Host and Origin (changeOrigin: false), so through it both say localhost:5173.
+DASHBOARD_ORIGINS = tuple(
+    f"{scheme}://{host}:{port}"
+    for scheme in ("http", "https")
+    for host in ("localhost", "127.0.0.1")
+    for port in (5173, 8000)
+)
+STATE_CHANGING = ("POST", "PUT", "PATCH", "DELETE")
+_HOST = re.compile(r"(?:\[(?P<ip6>[0-9a-f:.]+)\]|(?P<name>[^\s:/@\[\]]+))(?::\d{1,5})?")
+
+
+def host_name(value: str) -> str:
+    """A Host header's name: localhost:5173 is localhost, [::1]:8000 is ::1. '' when it isn't one."""
+    m = _HOST.fullmatch(value.strip().lower())
+    return (m["ip6"] or m["name"]) if m else ""
+
+
+def _listed(var: str) -> list[str]:
+    return [x.strip() for x in os.environ.get(var, "").split(",") if x.strip()]
+
+
+def _has_body(headers: Headers) -> bool:
+    if "transfer-encoding" in headers:
+        return True
+    try:
+        return int(headers.get("content-length") or 0) > 0
+    except ValueError:
+        return True
+
+
+@dataclass
+class Guard:
+    """ASGI middleware: the Host, Origin and Content-Type checks above. A refused HTTP request
+    gets a Problem; a refused WebSocket is closed with 1008 (policy violation) before the
+    handshake completes, which the server answers with 403."""
+
+    app: Any
+    hosts: frozenset[str]
+    origins: frozenset[str]
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] in ("http", "websocket"):
+            refused = self.refusal(scope)
+            if refused is not None:
+                log.warning("refused %s %s: %s", scope.get("method", "WebSocket"), scope["path"], refused.detail)
+                if scope["type"] == "websocket":
+                    await send({"type": "websocket.close", "code": 1008, "reason": refused.title})
+                else:
+                    await problem_response(refused)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+    def refusal(self, scope: dict[str, Any]) -> Problem | None:
+        headers = Headers(scope=scope)
+        host = headers.get("host", "")
+        name = host_name(host)
+        arrived_on = str((scope.get("server") or ("",))[0]).lower()  # the socket's own address
+        if not name or (name not in self.hosts and name != arrived_on):
+            return Problem(
+                400,
+                "Host not allowed",
+                f"This API doesn't answer to {host or 'a request without a Host header'}. If you reach it "
+                "by that name on purpose, add the name to DV02_ALLOWED_HOSTS.",
+            )
+        websocket = scope["type"] == "websocket"
+        if not websocket and scope["method"] not in STATE_CHANGING:
+            return None
+        origin = headers.get("origin")
+        if origin is not None and not self.origin_allowed(origin, host):
+            return Problem(
+                403,
+                "Origin not allowed",
+                f"Pages on {origin} can't use this API. If that page is yours, add it to DV02_ALLOWED_ORIGINS.",
+            )
+        ctype = headers.get("content-type")
+        if not websocket and (ctype is not None or _has_body(headers)):
+            if (ctype or "").split(";")[0].strip().lower() != "application/json":
+                return Problem(415, "Send JSON", f"Content-Type must be application/json, not {ctype or 'none'}.")
+        return None
+
+    def origin_allowed(self, origin: str, host: str) -> bool:
+        origin = origin.strip().lower().rstrip("/")
+        if origin in self.origins:
+            return True
+        # a page this API (or the dev server in front of it) served: same host and port as the
+        # request, and the Host already passed the check above
+        parts = urlsplit(origin)
+        return parts.scheme in ("http", "https") and parts.netloc == host.strip().lower()
+
+
+def guard_settings() -> dict[str, frozenset[str]]:
+    from src.broker.ibkr import settings  # trading-engine: loads .env
+
+    settings.load_dotenv()
+    hosts = [*LOOPBACK_HOSTS, *(host_name(h) or h.strip("[]").lower() for h in _listed("DV02_ALLOWED_HOSTS"))]
+    origins = [*DASHBOARD_ORIGINS, *(o.lower().rstrip("/") for o in _listed("DV02_ALLOWED_ORIGINS"))]
+    return {"hosts": frozenset(h for h in hosts if h), "origins": frozenset(origins)}
+
+
+async def json_body(request: Request) -> Any:
+    """The request's JSON, or None when it has no body or the body isn't JSON (Guard has
+    already refused a body of any other Content-Type)."""
+    try:
+        return await request.json()
+    except ValueError:
+        return None
 
 
 # ── app ────────────────────────────────────────────────────────────────
@@ -225,20 +396,16 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
     app = FastAPI(title="DV02 Fund API", version="1.0.0", lifespan=lifespan)
     app.state.ctx = ctx
     app.state.stream = hub
+    app.add_middleware(Guard, **guard_settings())
 
     @app.exception_handler(Problem)
     async def _problem(_: Request, exc: Problem) -> JSONResponse:
-        body = {"title": exc.title}
-        if exc.detail:
-            body["detail"] = exc.detail
-        return JSONResponse(body, status_code=exc.status, media_type="application/problem+json")
+        return problem_response(exc)
 
     @app.exception_handler(FileNotFoundError)
     async def _missing(_: Request, exc: FileNotFoundError) -> JSONResponse:
-        return JSONResponse(
-            {"title": "Engine data not found", "detail": f"{exc}. Run the daily runner once to create it."},
-            status_code=503,
-            media_type="application/problem+json",
+        return problem_response(
+            Problem(503, "Engine data not found", f"{exc}. Run the daily runner once to create it.")
         )
 
     v1 = "/api/v1"
@@ -469,7 +636,7 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
 
     @app.post(f"{v1}/trading/rebalance")
     async def submit_rebalance(request: Request) -> dict[str, Any]:
-        body = await request.json()
+        body = await json_body(request)
         if not isinstance(body, dict) or body.get("confirm") != "SUBMIT":
             raise Problem(409, "Confirmation required", 'Send {"confirm": "SUBMIT"}')
         if ctx.profile != "paper":
@@ -503,9 +670,18 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
 
     @app.post(f"{v1}/ops/kill-switch")
     async def post_kill_switch(request: Request) -> dict[str, Any]:
-        body = await request.json()
-        armed = bool(body.get("armed")) if isinstance(body, dict) else False
-        reason = (body.get("reason") or "").strip() if isinstance(body, dict) else ""
+        body = await json_body(request)
+        if not isinstance(body, dict):  # never disarm on a request that doesn't say so
+            raise Problem(400, "Send a JSON object", 'For example {"armed": true, "reason": "..."}')
+        armed, reason = body.get("armed"), body.get("reason")
+        # {} or {"armed": "false"} says nothing: only a JSON true or false arms or disarms
+        if not isinstance(armed, bool) or not isinstance(reason, (str, type(None))):
+            raise Problem(
+                400,
+                "Say true or false for armed",
+                'Send {"armed": true, "reason": "..."} to arm, or {"armed": false} to disarm; reason is text',
+            )
+        reason = (reason or "").strip()
         if armed and not reason:
             raise Problem(400, "A reason is required to arm the kill switch")
         return ops.set_kill_switch(armed, reason, by=f"dashboard ({getpass.getuser()})")
@@ -576,7 +752,7 @@ def components(ctx: Ctx, offline: AccountSnap | None) -> list[dict[str, str]]:
     if installed is False:
         sched = {
             "status": "warning",
-            "detail": "LaunchAgent not installed: python -m src.production.scheduler --install-launchagent",
+            "detail": "Not scheduled: bin/tradeit schedule install sets up the 16:32 run for this folder",
         }
     elif last is not None and not last["ok"]:
         sched = {"status": "warning", "detail": last_text}
@@ -589,12 +765,39 @@ def components(ctx: Ctx, offline: AccountSnap | None) -> list[dict[str, str]]:
     return [
         {"id": "gateway", "label": "IB Gateway", **gateway},
         {"id": "market_data", "label": "Market data", **market},
-        {"id": "engine", "label": "Engine", "status": "unknown",
-         "detail": "C++ engine not deployed yet (Phase 3); the Python daily runner trades"},
+        {"id": "engine", "label": "Engine", **engine_health()},
         {"id": "scheduler", "label": "Scheduler", **sched},
         {"id": "database", "label": "Database", "status": "unknown",
          "detail": f"Postgres not configured yet (Phase 2); file store under trading-engine/data; {flex_note}"},
     ]  # fmt: skip
+
+
+def engine_health() -> dict[str, str]:
+    """The C++ engine every order's no-leverage check runs on: it imports, and it still tells
+    a levered book from an unlevered one."""
+    try:
+        import dv02_engine
+        from dv02_engine import risk
+    except ImportError:
+        return {"status": "error", "detail": f"C++ engine not installed in {sys.executable}: run bin/tradeit setup"}
+    version = getattr(dv02_engine, "__version__", "unknown version")
+    try:
+        etf = risk.AssetClass.ETF
+        # fully invested in five names at 20% each, then one more share bought on margin: 110% gross, cash -$100
+        book = risk.Book(1000.0, 0.0, [risk.Position(s, 2.0, 100.0, asset_class=etf) for s in "ABCDE"])
+        fits = risk.check(book, [], risk.Policy())
+        levered = risk.check(book, [risk.Order("A", 1.0, 100.0, asset_class=etf)], risk.Policy())
+        rules = {b.rule for b in levered.breaches if b.blocking}
+        problem = None if fits.ok and not levered.ok and {"gross", "cash"} <= rules else "it let a levered book through"
+    except Exception as exc:  # noqa: BLE001
+        problem = f"{type(exc).__name__}: {exc}"
+    if problem:
+        return {
+            "status": "error",
+            "detail": f"C++ engine dv02_engine {version} failed its self-check ({problem}): rebuild it with "
+            "bin/tradeit engine",
+        }
+    return {"status": "ok", "detail": f"C++ engine dv02_engine {version}; the no-leverage check passed its self-check"}
 
 
 # ── background upkeep ──────────────────────────────────────────────────

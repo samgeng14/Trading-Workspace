@@ -1,4 +1,8 @@
 etfs:
+  # The model universe: target generation (src/production/generate_targets.py)
+  # builds weights from these symbols only, and the basket sells any share
+  # holding outside it at the next rebalance. TQQQ left on 2026-10-12 (QQQ
+  # holds the same index unlevered); its prices stay in the master for research.
   core:
     - BIL
     - ETHA
@@ -11,7 +15,6 @@ etfs:
     - SLV
     - SPY
     - TLT
-    - TQQQ
     - UNG
     - USO
     - VEA

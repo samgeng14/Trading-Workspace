@@ -13,7 +13,8 @@ Checks performed:
   * BLOCKING, in the window the targets are built from: a one-day move that
     matches a split ratio (the history mixes price bases) or a one-day spike
     that reverts the next day (a bad bar). Both are bad data, not market
-    moves; other large moves stay warnings
+    moves, unless the owner confirmed that symbol and date as a genuine move
+    in config/confirmed_moves.yaml; other large moves stay warnings
   * staleness — every symbol has at least one row in the last N business days
 
 The validator returns a structured result with `errors`, `warnings`, and a
@@ -25,12 +26,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date as _date, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import pandas as pd
 
 from src.common.clock import is_us_business_day, now_et
-from src.data.cleaning.price_basis import find_bad_jumps
+from src.data.cleaning.price_basis import find_bad_jumps, resolve_confirmed
 
 
 # Tolerance: anything bigger than ±50% in a single day for a regulated US
@@ -96,12 +97,15 @@ def validate_master_prices(
     max_daily_return_pct: float = MAX_DAILY_RETURN_PCT,
     stale_business_days: int = STALE_BUSINESS_DAYS,
     signal_window_days: int = SIGNAL_WINDOW_DAYS,
+    confirmed: Iterable[tuple[str, Any]] | None = None,
 ) -> PriceValidationResult:
     """Validate a master prices DataFrame in long format.
 
     Expected columns: ``date``, ``symbol``, ``close`` (case-insensitive).
     Optional ``expected_symbols`` tuple — if provided, every symbol in this
-    list must have at least one row.
+    list must have at least one row. ``confirmed`` (symbol, date) pairs are
+    owner-confirmed genuine moves, neither blocked nor warned about; None
+    reads config/confirmed_moves.yaml.
     """
     res = PriceValidationResult(ok=True)
     if df is None or df.empty:
@@ -154,28 +158,29 @@ def validate_master_prices(
     # Blocking: these are not market moves. A split-ratio jump means rows on
     # two price bases were spliced (e.g. old rows plus IBKR's history rescaled
     # for a reverse split); a spike that reverts the next day is a bad bar.
+    confirmed = resolve_confirmed(confirmed)
     window_start = df["date"].max() - pd.Timedelta(days=signal_window_days) if n else None
-    bad = find_bad_jumps(df, since=window_start) if n else []
+    bad = find_bad_jumps(df, since=window_start, confirmed=confirmed) if n else []
     res.summary["bad_jumps"] = len(bad)
     for j in bad[:10]:
         res.errors.append(
-            f"{j.describe()}. This is bad data, not a market move, and the targets are "
+            f"{j.describe()}. A move like this is almost always bad data, and the targets are "
             f"built from it. Run {REPAIR_COMMAND} (it refetches {j.symbol}'s history "
-            f"from IBKR), then rerun."
+            f"from IBKR), then rerun. Or, {j.if_genuine()}."
         )
     if len(bad) > 10:
         res.errors.append(f"... and {len(bad) - 10} more split-ratio jumps or spikes. Run {REPAIR_COMMAND}.")
     if bad:
         res.ok = False
-    flagged = {(j.symbol, j.date) for j in bad}
+    # reported once, as a blocking error, or confirmed by the owner as genuine
+    flagged = {(j.symbol, j.date) for j in bad} | set(confirmed)
 
     # ── Impossible daily moves ─────────────────────────────────────────────
     df_sorted = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     df_sorted["pct_change"] = df_sorted.groupby("symbol")["close"].pct_change()
     big_moves = df_sorted[df_sorted["pct_change"].abs() > max_daily_return_pct]
     if flagged and not big_moves.empty:
-        # Already reported as blocking errors above.
-        keys = list(zip(big_moves["symbol"], big_moves["date"]))
+        keys = list(zip(big_moves["symbol"], big_moves["date"].dt.normalize()))
         big_moves = big_moves[[k not in flagged for k in keys]]
     if not big_moves.empty:
         # Only the most recent few (older spikes are usually known splits,

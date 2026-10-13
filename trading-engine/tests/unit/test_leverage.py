@@ -255,3 +255,142 @@ def test_the_runner_step_blocks_on_leverage(tmp_path: Path, monkeypatch: pytest.
     write_run(tmp_path, MODEL_BOOK, [("TLT", 400)], cash=100_000)
     out = daily_runner.step_submit_orders("127.0.0.1", 4002, 300, "paper", dry_run=True)
     assert out == {"ok": True, "action": "submit_orders", "skipped": True, "reason": "dry_run"}
+
+
+# ── Leveraged and inverse ETFs at their economic exposure ────────────────────
+
+def write_book(
+    root: Path,
+    positions: list[tuple[str, float, float]],
+    orders: list[tuple[str, int, float]],
+    *,
+    cash: float,
+    nav: float = NAV,
+) -> Path:
+    """A run's files for any book: ``positions`` are (symbol, shares, IBKR mark) and
+    ``orders`` are (symbol, signed shares, expected price)."""
+    broker = root / "data" / "broker"
+    for sub in ("positions", "account", "orders", "reconciliations"):
+        (broker / sub).mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        [{"symbol": s, "current_shares": q, "avg_cost": px, "sec_type": "STK", "multiplier": 1.0, "market_price": px}
+         for s, q, px in positions],
+        columns=["symbol", "current_shares", "avg_cost", "sec_type", "multiplier", "market_price"],
+    ).to_csv(broker / "positions" / "paper_positions_snapshot.csv", index=False)
+    (broker / "account" / "paper_account_summary_20261013_163210.csv").write_text(
+        f"tag,value\nNetLiquidation,{nav}\nTotalCashValue,{cash}\n"
+    )
+    path = broker / "orders" / "paper_orders_only.parquet"
+    pd.DataFrame(
+        [{"symbol": s, "close": px, "delta_shares": q, "side": "BUY" if q > 0 else "SELL",
+          "estimated_commission": 0.0} for s, q, px in orders],
+        columns=["symbol", "close", "delta_shares", "side", "estimated_commission"],
+    ).to_parquet(path, index=False)
+    return path
+
+
+def buy_the_model(weights: dict[str, float], invested: float = 0.995) -> list[tuple[str, int, float]]:
+    """From all cash, the orders that put ``invested`` of NAV into ``weights`` at $100 a share."""
+    return [(s, int(invested * w * NAV // 100), 100.0) for s, w in weights.items()]
+
+
+# the model as it was: TQQQ at 4.7% next to its unlevered QQQ
+WITH_TQQQ = {"SPY": 0.20, "QQQ": 0.20, "TLT": 0.20, "GLD": 0.20, "BIL": 0.153, "TQQQ": 0.047}
+
+
+def test_tqqq_counts_at_three_times_its_value(tmp_path: Path) -> None:
+    orders = buy_the_model(WITH_TQQQ)
+    path = write_book(tmp_path, [], orders, cash=NAV)
+    res = run(tmp_path, path)
+    assert not res.ok
+    # 99.5% of NAV by market value, 108.8% by exposure: TQQQ's 4.7% counts three times
+    exposure = sum(q * px * (3 if s == "TQQQ" else 1) for s, q, px in orders)
+    assert res.details["after"]["long_value"] == pytest.approx(exposure)
+    (gross,) = [r for r in res.blocking_reasons if "gross" in r]
+    assert gross.startswith("no leverage: gross 108.8% of NAV after these orders, over the 100.0% limit")
+    assert "(counting TQQQ 3x at that exposure)" in gross
+    # cash still moves at market value: the buys leave 0.5% of NAV in cash
+    assert res.details["after"]["cash"] == pytest.approx(NAV - sum(q * px for _, q, px in orders))
+
+    # the same model without TQQQ (its weight on QQQ, the unlevered index) is inside the mandate
+    without = {**WITH_TQQQ, "QQQ": 0.247}
+    del without["TQQQ"]
+    path = write_book(tmp_path, [], buy_the_model(without), cash=NAV)
+    res = run(tmp_path, path)
+    assert res.ok, res.blocking_reasons
+    assert res.details["after"]["gross"] == pytest.approx(0.995, abs=1e-4)
+
+
+def test_an_inverse_etf_counts_as_short(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.runtime import leverage
+
+    monkeypatch.setitem(leverage.EXPOSURE, "SH", -1.0)
+    path = write_book(tmp_path, [("SPY", 5_000, 100.0), ("SH", 2_000, 100.0)], [], cash=300_000)
+    res = run(tmp_path, path)
+    before = res.details["before"]
+    # held long, but an inverse ETF is short exposure: gross 70%, net 30%
+    assert before["long_value"] == pytest.approx(500_000) and before["short_value"] == pytest.approx(200_000)
+    assert before["gross"] == pytest.approx(0.7) and before["net"] == pytest.approx(0.3)
+    assert res.ok
+
+
+def test_only_shares_look_up_the_exposure_table() -> None:
+    from src.runtime.leverage import EXPOSURE, exposure_of
+
+    assert EXPOSURE == {"TQQQ": 3.0}
+    assert exposure_of("TQQQ") == exposure_of("tqqq", "ETF") == exposure_of("TQQQ", "") == 3.0
+    assert exposure_of("QQQ") == 1.0
+    # futures and options are measured by their multiplier, never geared by this table
+    assert exposure_of("TQQQ", "FUT") == exposure_of("TQQQ", "OPT") == 1.0
+
+
+# ── The owner's book after the next rebalance ────────────────────────────────
+
+# about the paper account on 2026-10-12: the model at 90% of NAV, about 15 holdings
+# outside it worth 10%, TQQQ (out of the model) at 2.5%: 102.5% long by market value
+# on a margin loan of about $25k
+OWNER_OUTSIDE = {
+    "XLE": 90.0, "XLU": 80.0, "DBC": 20.0, "XLK": 230.0, "XLV": 150.0, "XLP": 80.0, "XLY": 200.0, "XLB": 90.0,
+    "XLRE": 42.0, "XBI": 95.0, "SMH": 260.0, "ARKK": 60.0, "EEM": 47.0, "HYG": 80.0, "LQD": 110.0,
+}  # fmt: skip
+
+
+def test_the_next_rebalance_leaves_a_book_like_the_owners_unlevered(tmp_path: Path) -> None:
+    from src.production.generate_targets import model_universe
+    from src.production.runtime.build_paper_basket import build_reconciliation
+
+    model = model_universe()
+    weights = {s: 1 / len(model) for s in model}
+    targets = pd.DataFrame(
+        [{"date": pd.Timestamp("2026-10-09"), "symbol": s, "target_weight": w, "close": 100.0} for s, w in weights.items()]
+    )
+    positions = [(s, round(0.90 * w * NAV / 100.0), 100.0) for s, w in weights.items()]
+    positions += [(s, round(0.10 / len(OWNER_OUTSIDE) * NAV / px), px) for s, px in OWNER_OUTSIDE.items()]
+    positions.append(("TQQQ", 250, 100.0))
+    long_value = sum(q * px for _, q, px in positions)
+    cash = NAV - long_value
+    assert long_value / NAV == pytest.approx(1.025, abs=1e-3) and cash == pytest.approx(-25_000, abs=1_000)
+
+    snapshot = pd.DataFrame(
+        [{"symbol": s, "current_shares": q, "sec_type": "STK", "market_price": px} for s, q, px in positions]
+    )
+    recon, orders = build_reconciliation(
+        targets, snapshot, NAV, cash_buffer=0.005, min_trade_dollars=1000.0, model=model
+    )
+    path = write_book(
+        tmp_path, positions,
+        [(r.symbol, int(r.delta_shares), float(r.close)) for r in orders.itertuples(index=False)],
+        cash=cash,
+    )  # fmt: skip
+    res = run(tmp_path, path)
+
+    sold = set(orders.loc[orders["side"] == "SELL", "symbol"])
+    assert sold == {*OWNER_OUTSIDE, "TQQQ"}  # every holding outside the model, sold whole
+    assert (orders.loc[orders["side"] == "SELL", "delta_shares"] == -orders.loc[orders["side"] == "SELL", "symbol"]
+            .map({s: q for s, q, _ in positions})).all()  # fmt: skip
+    # before: 102.5% by market value, 107.5% with TQQQ at 3x, on a margin loan
+    assert res.details["before"]["gross"] == pytest.approx(1.075, abs=1e-3)
+    assert res.ok, res.blocking_reasons
+    after = res.details["after"]
+    assert after["gross"] <= 1.0 and after["gross"] == pytest.approx(0.995, abs=2e-3)
+    assert after["cash"] >= 0

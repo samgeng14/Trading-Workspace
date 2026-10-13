@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import engine, nyse
-from .universe import STRIP, lookup
+from .universe import STRIP, Instrument, lookup
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +30,11 @@ log = logging.getLogger(__name__)
 MARKET_DATA_TYPE = 4
 RECONNECT_S = (2, 5, 10, 30)
 INTRADAY_EVERY_S = 15  # intraday P&L sample; the API adds the live value as the chart's last point
+# Sized by a multiplier and keyed by local symbol, one row per contract (MESZ6, not MES), as
+# the engine's positions snapshot keys them. IBKR's average cost for these is per contract.
+PER_CONTRACT = ("FUT", "CONTFUT", "OPT", "FOP", "WAR")
+# what the contract's AssetClass calls holdings that are neither shares nor futures
+ASSET_CLASS_OF = {"CASH": "cash", "BOND": "fixed_income", "BILL": "fixed_income", "CRYPTO": "crypto"}
 
 
 def _num(x: Any) -> float | None:
@@ -43,9 +48,11 @@ def _num(x: Any) -> float | None:
 @dataclass
 class PositionSnap:
     con_id: int
-    symbol: str  # display symbol: localSymbol for futures (MESZ6)
+    symbol: str  # display symbol: localSymbol for futures and options (MESZ6)
     root: str  # contract.symbol (MES)
-    sec_type: str  # STK / ETF / FUT / OPT
+    # IBKR's secType (STK, FUT, OPT, FOP, CASH, BOND, CRYPTO, ...), ETF for the universe's ETFs.
+    # The no-leverage check classes each holding by it.
+    sec_type: str
     quantity: float
     multiplier: float
     avg_cost: float  # per unit, not per contract
@@ -322,15 +329,17 @@ class Broker:
                 market_value = item.position * last * mult
             else:
                 market_value = single_value if single_value is not None else (_num(item.marketValue) or 0.0)
+            per_contract = c.secType in PER_CONTRACT
             positions.append(
                 PositionSnap(
                     con_id=c.conId,
-                    symbol=c.localSymbol if c.secType == "FUT" and c.localSymbol else c.symbol,
+                    # an option keyed by its underlying would collide with the shares (SPY)
+                    symbol=c.localSymbol if per_contract and c.localSymbol else c.symbol,
                     root=c.symbol,
-                    sec_type=sec_type if sec_type in ("STK", "ETF", "FUT", "OPT") else "STK",
+                    sec_type=sec_type,
                     quantity=float(item.position),
                     multiplier=mult,
-                    avg_cost=(_num(item.averageCost) or 0.0) / (mult if c.secType in ("FUT", "OPT") else 1.0),
+                    avg_cost=(_num(item.averageCost) or 0.0) / (mult if per_contract else 1.0),
                     last=last,
                     prev_close=prev_close,
                     market_value=market_value,
@@ -525,5 +534,8 @@ def _describe(exc: BaseException, endpoint: Any) -> str:
     return f"{type(exc).__name__}: {text}"
 
 
-def lookup_position(p: PositionSnap):
-    return lookup(p.root, "FUT" if p.sec_type == "FUT" else "STK")
+def lookup_position(p: PositionSnap) -> Instrument:
+    if p.sec_type in ASSET_CLASS_OF:
+        return Instrument(p.symbol, p.symbol, ASSET_CLASS_OF[p.sec_type])
+    # a futures option's root is its future's (ES); an option's, its stock's (SPY)
+    return lookup(p.root, "FUT" if p.sec_type in ("FUT", "CONTFUT", "FOP") else "STK")

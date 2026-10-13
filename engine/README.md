@@ -14,36 +14,52 @@ takes the whole account and the orders about to be sent, and says whether
 the book after those orders stays inside the policy.
 
 **Inputs.** The book is NAV, cash (negative is a margin loan) and every
-position: symbol, signed quantity, price, multiplier and asset class.
-Every holding counts, the model's or not. Each order has a symbol, signed
-quantity, expected fill price, multiplier, asset class and commission.
+position: symbol, signed quantity, price, multiplier, asset class and
+exposure. Every holding counts, the model's or not. Each order has a symbol,
+signed quantity, expected fill price, multiplier, asset class, commission
+and exposure.
+
+**Exposure** is economic exposure per dollar of market value: 1 for an
+ordinary holding, 3 for a 3x ETF such as TQQQ, −1 for an inverse ETF, so
+holding an inverse ETF long counts as a short. A position's notional is
+quantity × price × multiplier × exposure; cash still moves at market value
+(quantity × price × multiplier). Futures and options are measured by their
+multiplier and keep exposure 1. The callers take each symbol's exposure from
+one table, `EXPOSURE` in `trading-engine/src/runtime/leverage.py` (today
+`{"TQQQ": 3.0}`; an inverse ETF goes in as a negative factor), and look it up
+for shares only.
 
 **The policy** (`risk.Policy()` defaults):
 
 | Limit | Default | Measure |
 |---|---|---|
-| `max_gross` | 1.0 | (long + \|short\|) / NAV, every position at notional: quantity × price × multiplier, so futures count at full notional |
+| `max_gross` | 1.0 | (long + \|short\|) / NAV, every position at its notional (above), so futures count at full notional and TQQQ at three times its market value |
 | `min_cash` | 0.0 | cash / NAV. Below 0 is a margin loan |
 | `max_single_name` | 0.25 | \|net notional of one symbol\| / NAV |
 | `min_net`, `max_net` | −1.0, 1.0 | (long − \|short\|) / NAV. Checked only when tighter than the gross limit; at the defaults the gross limit already covers them |
 
-**The book after the orders.** Orders fill at their expected prices. A
+**The book after the orders.** Every order fills at its expected price; the
+check judges the book after all of them, whatever order they are sent in. A
 holding already in the book is re-marked at the order's price, and NAV moves
-with it. Cash pays or receives quantity × price × multiplier, except for
-futures, futures options and FX, which move no cash. Commissions come out of
-cash and NAV.
+with it; it keeps its own exposure. An order for a symbol not held opens a
+position with the order's exposure. Cash pays or receives quantity × price ×
+multiplier, except for futures, futures options and FX, which move no cash.
+Commissions come out of cash and NAV.
 
 **What blocks** (`ok` is false):
 
 - NAV not a positive number, or cash missing.
 - Anything that can't be priced: a position or order with a non-zero
-  quantity and no finite, positive price or multiplier, or an order with no
-  finite commission. Leverage that can't be measured is treated as leverage.
+  quantity and no finite, positive price or multiplier, or an exposure that
+  is 0 or not finite, or an order with no finite commission. Leverage that
+  can't be measured is treated as leverage.
 - Options and futures options, held or ordered: their premium understates
   what they are exposed to, and delta-adjusted notional isn't measured yet.
 - After the orders: gross over `max_gross`, cash under `min_cash`, the
   largest name over `max_single_name` (and net outside its range, when that
-  is tighter than gross). Limits are compared with a 1e-9 tolerance.
+  is tighter than gross). Limits are compared with a 1e-9 tolerance. A gross
+  breach names the holdings and orders counted at an exposure other than 1,
+  up to eight ("counting TQQQ 3x at that exposure").
 
 **Reduce-only orders.** When every traded symbol moves toward zero without
 flipping sides, a limit breached after the orders is reported but does not
@@ -55,8 +71,8 @@ levered book is always allowed; adding to one never is. The input checks
 `reduce_only`, the exposure `before` and `after` (NAV, cash, long and short
 dollars, gross, net and cash as fractions of NAV, the largest name), every
 breach with its rule, whether it blocks, the value, the limit and a message,
-and `buy_capacity`: how many more dollars of cash-settled buying would still
-pass gross and cash.
+and `buy_capacity`: how many more dollars of cash-settled buying at exposure
+1 would still pass gross and cash.
 
 IBKR secTypes map to asset classes with `risk.asset_class_from_ibkr`: STK
 stock, ETF, FUT and CONTFUT future, OPT and WAR option, FOP futures option,
@@ -79,6 +95,9 @@ r.ok                    # False
 r = risk.check(book, [risk.Order("SPY", -100, 100.0, asset_class=etf, commission=1.0)])
 r.ok, r.reduce_only     # (True, True): still over, reported, but selling down may go
 risk.result_dict(r)     # JSON-ready
+
+# $50,000 of TQQQ is $150,000 of exposure
+risk.Position("TQQQ", 500, 100.0, asset_class=etf, exposure=3.0).notional   # 150000.0
 ```
 
 ## Who calls it
@@ -100,8 +119,22 @@ risk.result_dict(r)     # JSON-ready
   target-weight gate (`run_pre_trade_risk_checks`), also on dry runs, and
   either one blocks.
 
-Both block every order when `dv02_engine` can't be imported, and say which
-Python is missing it.
+Both take exposure from the same `EXPOSURE` table, and both block every
+order when `dv02_engine` can't be imported, saying which Python is missing
+it.
+
+**The basket both paths check.** Holdings outside the model are sold at the
+next rebalance: the basket (`build_reconciliation` in
+`trading-engine/src/production/runtime/build_paper_basket.py`, which the
+API's preview also runs) gives every share holding the targets don't include
+a target of 0 and sells the whole position, however small. It is priced at
+IBKR's mark, else the price master's last close, else left unpriced, which
+this check blocks. Futures and options outside the model are not sold
+automatically; they stay, count here, and the preview and the run log name
+them in a warning. The daily runner rebalances while such shares are held
+(under the drift cadence, once its cooldown since the last submission has
+passed, so a sell still working isn't sent twice), and `submit_paper_orders`
+sends every sell before any buy; it does not wait for fills.
 
 ## Build and test
 

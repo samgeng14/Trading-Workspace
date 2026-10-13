@@ -90,7 +90,22 @@ def load_orders(orders_path: Path, symbols: tuple[str, ...] = ()) -> pd.DataFram
     if orders.empty:
         raise ValueError("No executable orders found after filtering")
 
-    return orders
+    return sells_first(orders)
+
+
+def sells_first(orders: pd.DataFrame) -> pd.DataFrame:
+    """Every SELL ahead of every BUY, each side in file order.
+
+    The no-leverage check judges the book after every order fills, and the
+    basket (build_reconciliation) lists BUYs first. Sending the sells first
+    puts them at IBKR ahead of the buys that spend their proceeds. This orders
+    the submissions only; nothing waits for fills. It is done here, where every
+    submit path (the CLI, the dashboard, the daily runner) reads the orders
+    file, rather than by re-sorting the reconciliation files, which the
+    dashboard and the run's checks read as written.
+    """
+    order = orders["side"].map({"SELL": 0, "BUY": 1})
+    return orders.iloc[order.argsort(kind="stable")].reset_index(drop=True)
 
 
 def build_trade_plan(orders_df: pd.DataFrame, account: str | None, order_type: str) -> list[OrderRequest]:

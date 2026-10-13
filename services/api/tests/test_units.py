@@ -1,4 +1,5 @@
-"""Calendar, stats, Flex parsing, NAV merging, order mapping and the IBKR snapshot mapping."""
+"""Calendar, stats, Flex parsing, NAV merging, order mapping, the IBKR snapshot mapping and the
+instrument table."""
 
 from __future__ import annotations
 
@@ -7,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dv02_api import flex, history, nyse, orders, performance, stats
+from dv02_api import flex, history, nyse, orders, performance, stats, universe
 from dv02_api.broker import Broker
 
 from .conftest import fake_trade
@@ -275,3 +276,22 @@ def test_a_failed_setup_releases_the_client_id() -> None:
     with pytest.raises(RuntimeError, match="boom"):
         asyncio.run(b._connect())
     assert made[0].closed and not b.connected
+
+
+def test_the_model_list_is_the_engines_model_universe() -> None:
+    from src.production.generate_targets import model_universe
+
+    symbols = [i.symbol for i in universe.MODEL]
+    assert len(symbols) == 21 and set(symbols) == set(model_universe())
+    # TQQQ left the model, but the account holds it until the next rebalance sells it
+    assert "TQQQ" not in {i.symbol for i in universe.MODEL}
+    assert universe.lookup("TQQQ").name == "ProShares UltraPro QQQ"
+
+
+def test_leverage_agrees_with_the_no_leverage_checks_exposure_table() -> None:
+    # beta and the risk scenarios use Instrument.leverage; the C++ check uses EXPOSURE
+    from src.runtime.leverage import EXPOSURE, exposure_of
+
+    for symbol in set(universe.BY_SYMBOL) | set(EXPOSURE):
+        assert universe.lookup(symbol).leverage == exposure_of(symbol), symbol
+    assert universe.lookup("TQQQ").leverage == 3.0

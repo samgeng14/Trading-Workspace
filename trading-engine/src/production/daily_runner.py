@@ -7,7 +7,8 @@ It handles the full cycle automatically:
 
   1. Append today's IBKR daily bars to the master price file
   2. Regenerate targets (momentum model — picks top-5 ETFs monthly)
-  3. Detect if today is a rebalance date (end-of-month or new signal)
+  3. Detect if today is a rebalance date (end-of-month or new signal, drift,
+     or shares held outside the model, which the basket sells)
   4. If rebalance needed: build basket (diff vs current positions)
   5. Submit paper orders to IBKR
   6. Write structured log to data/logs/runtime/
@@ -27,7 +28,10 @@ import os
 import sys
 from datetime import datetime, date
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Sequence
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -202,6 +206,65 @@ def _weights_from_reconciliation(
     return target_weights, current_weights
 
 
+def _current_positions(
+    profile: str, host: str, port: int, client_id: int,
+) -> tuple["pd.DataFrame | None", str]:
+    """Every position in the account and where it came from: IBKR now, else
+    the last positions snapshot. The snapshot is written when a basket is
+    built, before its orders fill, so it is only the fallback."""
+    import pandas as pd
+
+    try:
+        from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig
+        from src.production.runtime.build_paper_basket import fetch_positions_df
+
+        client = IBKRClient(
+            IBKRConnectionConfig(host=host, port=port, client_id=client_id, expected_profile=profile)
+        )
+        client.connect()
+        try:
+            return fetch_positions_df(client), "ibkr"
+        finally:
+            client.disconnect()
+    except Exception as exc:
+        log.warning("Could not read positions from IBKR (%s: %s); using the last snapshot.", type(exc).__name__, exc)
+    path = PROJECT_ROOT / "data" / "broker" / "positions" / f"{profile}_positions_snapshot.csv"
+    if path.exists():
+        return pd.read_csv(path), "snapshot"
+    return None, "none"
+
+
+def _holdings_outside_model(
+    targets_df: "pd.DataFrame | None",
+    profile: str,
+    host: str,
+    port: int,
+    client_id: int,
+) -> dict[str, Any]:
+    """Shares the account holds that the latest targets don't include (the
+    basket sells them whole) and holdings it leaves alone (futures, options).
+    JSON-safe, for the run log."""
+    from src.production.generate_targets import model_universe
+    from src.production.runtime.build_paper_basket import holdings_outside_model
+
+    out: dict[str, Any] = {"sell": [], "kept": [], "warnings": [], "positions_from": "none"}
+    if targets_df is None or targets_df.empty:
+        return out
+    latest = targets_df.loc[targets_df["rebalance_date"] == targets_df["rebalance_date"].max()]
+    latest = latest.loc[latest["symbol"].astype(str).str.upper().isin(model_universe())]
+    positions, source = _current_positions(profile, host, port, client_id)
+    out["positions_from"] = source
+    if positions is None:
+        return out
+    outside = holdings_outside_model(latest, positions)
+    out.update(sell=outside.sell, kept=outside.kept, warnings=outside.warnings())
+    if outside.sell:
+        log.info("Holdings outside the model (positions from %s): %s", source, ", ".join(outside.sell))
+    for warning in out["warnings"]:
+        log.warning("%s", warning)
+    return out
+
+
 def _load_last_rebalance_state(state_path: Path) -> dict[str, Any] | None:
     if not state_path.exists():
         return None
@@ -284,8 +347,10 @@ def _needs_rebalance_drift(
     profile: str,
     rb_cfg: dict[str, Any],
     force: bool = False,
+    outside_model: Sequence[str] = (),
 ) -> tuple[bool, dict[str, Any]]:
-    """Drift-band cadence: daily check, fire on composition or drift.
+    """Drift-band cadence: daily check, fire on holdings outside the model,
+    composition or drift.
 
     Returns ``(should_rebalance, diagnostics)`` where ``diagnostics`` is
     a JSON-safe dict suitable for the run log.
@@ -322,6 +387,7 @@ def _needs_rebalance_drift(
         composition_threshold=float(rb_cfg["composition_threshold"]),
         cooldown_days=int(rb_cfg["cooldown_days"]),
         force=force,
+        outside_model=outside_model,
     )
 
     log.info(
@@ -357,20 +423,37 @@ def _needs_rebalance(
     profile: str,
     rb_cfg: dict[str, Any],
     force: bool = False,
+    outside: dict[str, Any] | None = None,
 ) -> tuple[bool, dict[str, Any]]:
     """Cadence dispatcher.
 
     Returns ``(should_rebalance, diagnostics)``. The diagnostics dict is
     persisted in the run log so post-mortems can answer "why didn't the
     runner trade today?" without re-running anything.
+
+    ``outside`` is :func:`_holdings_outside_model`. Shares held outside the
+    model are a reason to rebalance under either cadence (the drift gate's
+    cooldown still applies), since the basket is what sells them.
     """
+    from src.runtime.auto_rebalance import outside_model_reason
+
+    outside = outside or {}
+    sell = list(outside.get("sell") or [])
     cadence = str(rb_cfg.get("cadence", "monthly")).lower()
     if cadence == "drift":
-        return _needs_rebalance_drift(profile=profile, rb_cfg=rb_cfg, force=force)
+        decided, diag = _needs_rebalance_drift(profile=profile, rb_cfg=rb_cfg, force=force, outside_model=sell)
+        if diag.get("cold_start") and sell:
+            diag["reason"] += f"; {outside_model_reason(sell)}"
+        return decided, {**diag, "outside_model": outside}
     if cadence != "monthly":
         log.warning("Unknown cadence %r in execution.yaml → falling back to monthly.", cadence)
     decided = _needs_rebalance_monthly(targets_df, force=force)
-    return decided, {"cadence": "monthly", "rebalance": decided}
+    diag: dict[str, Any] = {"cadence": "monthly", "rebalance": decided}
+    if not decided and sell:
+        log.info("Holdings outside the model → will rebalance; the basket sells them.")
+        decided = True
+        diag.update(rebalance=True, reason=outside_model_reason(sell))
+    return decided, {**diag, "outside_model": outside}
 
 
 def _write_run_log(run_id: str, result: dict[str, Any]) -> Path:
@@ -763,8 +846,11 @@ def run(
         rb_cfg["cooldown_days"],
     )
     targets_df = _load_latest_targets()
+    outside = _holdings_outside_model(
+        targets_df, profile=profile, host=host, port=port, client_id=client_id + 10,
+    )
     should_rebalance, rebalance_diag = _needs_rebalance(
-        targets_df, profile=profile, rb_cfg=rb_cfg, force=force_rebalance,
+        targets_df, profile=profile, rb_cfg=rb_cfg, force=force_rebalance, outside=outside,
     )
     run_result["should_rebalance"] = should_rebalance
     run_result["rebalance_decision"] = rebalance_diag

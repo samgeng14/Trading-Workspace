@@ -2,7 +2,8 @@
 leverage.py — The no-leverage check on the whole book, before orders go out.
 
 The fund is long/short with no leverage: gross = (long + |short|) / NAV <= 100%
-with futures at notional, and cash >= 0 after the orders (no margin loan). The
+with futures at notional and leveraged or inverse ETFs at their economic
+exposure (EXPOSURE below), and cash >= 0 after the orders (no margin loan). The
 rules live in the C++ engine (engine/src/risk.cpp, ``dv02_engine.risk``); this
 module builds its input from the run's own files:
 
@@ -30,6 +31,24 @@ from src.runtime.risk_checks import PreTradeRiskResult
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PREFIX = "no leverage"
+
+# Economic exposure per dollar of market value, for shares that are not one
+# dollar of exposure per dollar held. The engine counts a position's market
+# value times this toward gross and net; cash still moves at market value.
+# A leveraged ETF goes in at its multiple (UPRO 3.0, SSO 2.0); an inverse ETF
+# goes in as a negative factor (SH -1.0, SQQQ -3.0), so holding it long counts
+# as a short. Shares not listed are 1.0. Futures and options are measured by
+# their multiplier instead and always stay at 1.0. The API's no-leverage check
+# (services/api/dv02_api/mandate.py) reads this same table.
+EXPOSURE: dict[str, float] = {"TQQQ": 3.0}
+SHARES = ("", "STK", "ETF")
+
+
+def exposure_of(symbol: str, sec_type: str = "STK") -> float:
+    """``symbol``'s exposure per dollar held: EXPOSURE for shares, 1.0 for anything else."""
+    if (sec_type or "") not in SHARES:
+        return 1.0
+    return EXPOSURE.get(str(symbol).upper().strip(), 1.0)
 
 
 @dataclass
@@ -165,7 +184,7 @@ def check_leverage(
         symbol = str(row["symbol"]).upper()
         sec_type = row.get("sec_type") if isinstance(row.get("sec_type"), str) else ""
         # shares are one unit each; a future or option without its multiplier can't be measured
-        multiplier = _positive(row.get("multiplier")) or (1.0 if sec_type in ("", "STK", "ETF") else math.nan)
+        multiplier = _positive(row.get("multiplier")) or (1.0 if sec_type in SHARES else math.nan)
         positions.append(
             risk.Position(
                 symbol,
@@ -173,6 +192,7 @@ def check_leverage(
                 price(symbol, row.get("market_price")),
                 multiplier,
                 risk.asset_class_from_ibkr(sec_type),
+                exposure_of(symbol, sec_type),
             )
         )
 
@@ -193,6 +213,7 @@ def check_leverage(
                 1.0,
                 risk.AssetClass.ETF,
                 float(row.get("estimated_commission", 0.0)),
+                exposure_of(symbol),
             )
         )
 

@@ -22,12 +22,19 @@ IBKR-agnostic logic (fetchers are plain callables, so tests use fakes):
   * repair_master_basis  find symbols whose stored history is already mixed
                          (bad jumps, or disagreement with IBKR now) and
                          replace them with a fresh refetch
+
+A genuine market move can be as large as a split ratio (ETH fell about 42% on
+2020-03-12). The owner lists those in config/confirmed_moves.yaml (symbol,
+date, note; ``python -m src.production.backfill_gaps --confirm-move SYMBOL
+DATE`` adds one after showing the bars), and the merge, the repair and the
+validator accept exactly those symbol/date pairs.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
 from fractions import Fraction
+from pathlib import Path
 from typing import Any, Callable, Iterable
 
 import numpy as np
@@ -95,6 +102,75 @@ REFETCH_END_SLACK_DAYS = 10
 Fetcher = Callable[[str, str], pd.DataFrame]
 # symbol -> the symbol's full, consistent history in COLUMNS
 Refetcher = Callable[[str], pd.DataFrame]
+
+# Owner-confirmed genuine moves: (symbol, date) pairs find_bad_jumps leaves alone.
+CONFIRMED_MOVES_PATH = Path(__file__).resolve().parents[3] / "config" / "confirmed_moves.yaml"
+CONFIRM_COMMAND = "python -m src.production.backfill_gaps --confirm-move"
+Confirmed = frozenset[tuple[str, pd.Timestamp]]
+
+
+# ── Owner-confirmed moves ────────────────────────────────────────────────────
+
+def load_confirmed_moves(path: Path | None = None) -> Confirmed:
+    """The (symbol, date) pairs in config/confirmed_moves.yaml; none when the file is missing.
+
+    An entry without a symbol or a readable date is an error, not skipped: a
+    typo there would otherwise leave trading blocked with no explanation.
+    """
+    import yaml
+
+    path = path or CONFIRMED_MOVES_PATH
+    if not path.exists():
+        return frozenset()
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (yaml.YAMLError, ValueError) as exc:  # an impossible date fails inside the YAML parser
+        raise ValueError(f"{path} can't be read: {exc}") from exc
+    moves = doc.get("moves") if isinstance(doc, dict) else doc
+    if not isinstance(doc, dict) or not isinstance(moves, (list, type(None))):
+        raise ValueError(f"{path} needs a moves: list of entries (symbol, date, note), got {moves!r}")
+    out: set[tuple[str, pd.Timestamp]] = set()
+    for i, move in enumerate(moves or [], start=1):
+        try:
+            out.add((str(move["symbol"]).upper().strip(), pd.Timestamp(str(move["date"])).normalize()))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"{path}: entry {i} needs a symbol and a date (YYYY-MM-DD), got {move!r}") from exc
+    return frozenset(out)
+
+
+def resolve_confirmed(confirmed: Iterable[tuple[str, Any]] | None = None) -> Confirmed:
+    """``confirmed`` as normalized (SYMBOL, date) pairs; None reads the owner's file."""
+    if confirmed is None:
+        return load_confirmed_moves()
+    return frozenset((str(s).upper().strip(), pd.Timestamp(d).normalize()) for s, d in confirmed)
+
+
+def add_confirmed_move(symbol: str, day: Any, note: str, path: Path | None = None) -> bool:
+    """Record a genuine move in config/confirmed_moves.yaml. False if it is already there.
+
+    The file's leading comment block is kept; the entries are rewritten.
+    """
+    import yaml
+
+    path = path or CONFIRMED_MOVES_PATH
+    symbol = symbol.upper().strip()
+    day = pd.Timestamp(day).normalize()
+    if (symbol, day) in load_confirmed_moves(path):
+        return False
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    lines = text.splitlines()
+    header = []
+    for line in lines:
+        if line.strip() and not line.lstrip().startswith("#"):
+            break
+        header.append(line)
+    moves = list((yaml.safe_load(text) or {}).get("moves") or [])
+    moves.append({"symbol": symbol, "date": day.date(), "note": note.strip()})
+    body = yaml.safe_dump({"moves": moves}, sort_keys=False, allow_unicode=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    head = "\n".join(header).rstrip()
+    path.write_text((head + "\n\n" if head else "") + body, encoding="utf-8")
+    return True
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -174,6 +250,14 @@ class BadJump:
     def ratio(self) -> float:
         return self.close / self.prev_close
 
+    def if_genuine(self) -> str:
+        """What to run when this is a real market move, not bad data."""
+        return (
+            f"if this is a genuine market move, confirm it with {CONFIRM_COMMAND} "
+            f"{self.symbol} {self.date.date()} (it shows the bars first and adds it to "
+            "config/confirmed_moves.yaml)"
+        )
+
     def describe(self) -> str:
         d = self.date.date()
         move = f"{self.prev_close:g} -> {self.close:g} ({(self.ratio - 1) * 100:+.0f}%)"
@@ -195,15 +279,19 @@ def find_bad_jumps(
     split_tolerance: float = SPLIT_MATCH_TOLERANCE,
     spike_min_log_move: float = SPIKE_MIN_LOG_MOVE,
     spike_revert_band: float = SPIKE_REVERT_BAND,
+    confirmed: Iterable[tuple[str, Any]] | None = None,
 ) -> list[BadJump]:
     """Split-ratio jumps and reverting one-day spikes in long-format prices.
 
     Needs ``date``, ``symbol`` and ``close``. Rows with a missing or
     non-positive close are skipped (the validator reports those separately).
-    ``since`` keeps only jumps dated on or after it.
+    ``since`` keeps only jumps dated on or after it. ``confirmed`` (symbol,
+    date) pairs are genuine moves and never reported; None reads them from
+    config/confirmed_moves.yaml.
     """
     if df is None or len(df) == 0:
         return []
+    confirmed = resolve_confirmed(confirmed)
     d = df[["date", "symbol", "close"]].copy()
     d["date"] = pd.to_datetime(d["date"]).dt.normalize()
     d["symbol"] = d["symbol"].astype(str).str.upper().str.strip()
@@ -227,6 +315,8 @@ def find_bad_jumps(
     out: list[BadJump] = []
     for row in candidates.itertuples(index=False):
         if since is not None and row.date < since:
+            continue
+        if (row.symbol, row.date) in confirmed:
             continue
         if row.spike:
             out.append(BadJump(row.symbol, row.date, float(row.prev), float(row.close), "spike",
@@ -343,17 +433,25 @@ def replace_history(
     reason: str,
     tolerance: float = BASIS_TOLERANCE,
     overlap: OverlapCheck | None = None,
+    *,
+    jump: BadJump | None = None,
+    confirmed: Iterable[tuple[str, Any]] | None = None,
 ) -> SymbolMerge:
     """Replace ``symbol``'s history with ``refetch(symbol)``, or refuse.
 
     The fresh history must be non-empty, free of split-ratio jumps and
-    reverting spikes, long enough (see MIN_REFETCH_HISTORY_DAYS), reach the
-    stored history's end, and overlap and agree with ``new`` (bars fetched
-    moments ago). Otherwise the symbol's old rows are kept as they are and
-    the new bars are not merged.
+    reverting spikes (other than ``confirmed`` moves), long enough (see
+    MIN_REFETCH_HISTORY_DAYS), reach the stored history's end, and overlap
+    and agree with ``new`` (bars fetched moments ago). Otherwise the symbol's
+    old rows are kept as they are and the new bars are not merged. ``jump``
+    is the bad jump that prompted the refetch, if one did: a refusal then
+    says how to confirm it as a genuine move.
     """
-    def refuse(why: str) -> SymbolMerge:
-        return SymbolMerge(symbol, "refused", existing, overlap, f"{reason}; {why}")
+    confirmed = resolve_confirmed(confirmed)
+
+    def refuse(why: str, about: BadJump | None = jump) -> SymbolMerge:
+        hint = f"; {about.if_genuine()}" if about is not None else ""
+        return SymbolMerge(symbol, "refused", existing, overlap, f"{reason}; {why}{hint}")
 
     if refetch is None:
         return refuse("no way to refetch its history")
@@ -364,11 +462,12 @@ def replace_history(
     full = full[full["symbol"] == symbol]
     if full.empty:
         return refuse("refetching its full history returned no bars")
-    jumps = find_bad_jumps(full)
+    jumps = find_bad_jumps(full, confirmed=confirmed)
     if jumps:
         return refuse(
             "the refetched history has bad jumps of its own (IBKR may not have "
-            f"adjusted it yet): {jumps[0].describe()}"
+            f"adjusted it yet): {jumps[0].describe()}",
+            jumps[0],
         )
     first, last = full["date"].min(), full["date"].max()
     if len(existing):
@@ -411,8 +510,14 @@ def merge_symbol_bars(
     new: pd.DataFrame,
     refetch: Refetcher | None,
     tolerance: float = BASIS_TOLERANCE,
+    *,
+    confirmed: Iterable[tuple[str, Any]] | None = None,
 ) -> SymbolMerge:
-    """Merge one symbol's new IBKR bars into its master rows, checking the basis first."""
+    """Merge one symbol's new IBKR bars into its master rows, checking the basis first.
+
+    ``confirmed`` moves (None reads config/confirmed_moves.yaml) are not bad jumps.
+    """
+    confirmed = resolve_confirmed(confirmed)
     existing = normalize_bars(existing, symbol)
     new = normalize_bars(new, symbol)
     if new.empty:
@@ -421,17 +526,19 @@ def merge_symbol_bars(
         return SymbolMerge(symbol, "added", new)
     ov = check_overlap(existing, new, tolerance)
     if not ov.consistent:
-        return replace_history(symbol, existing, new, refetch, ov.describe(), tolerance, ov)
+        return replace_history(symbol, existing, new, refetch, ov.describe(), tolerance, ov, confirmed=confirmed)
     merged = _combine(existing, new)
     # The overlap agrees, but the new bars themselves may carry a jump: on a
     # split's first day IBKR can send the post-split bar before rescaling the
     # older ones. Look at the seam and everything after it.
     prior = existing[existing["date"] < new["date"].min()]["date"]
     seam = prior.max() if len(prior) else new["date"].min()
-    jumps = find_bad_jumps(merged, since=seam)
+    jumps = find_bad_jumps(merged, since=seam, confirmed=confirmed)
     if jumps:
         reason = f"the new bars bring a bad jump into the master: {jumps[0].describe()}"
-        return replace_history(symbol, existing, new, refetch, reason, tolerance, ov)
+        return replace_history(
+            symbol, existing, new, refetch, reason, tolerance, ov, jump=jumps[0], confirmed=confirmed,
+        )
     return SymbolMerge(symbol, "merged", merged, ov)
 
 
@@ -474,14 +581,21 @@ def merge_into_master(
     fetched: pd.DataFrame,
     refetch: Refetcher | None,
     tolerance: float = BASIS_TOLERANCE,
+    *,
+    confirmed: Iterable[tuple[str, Any]] | None = None,
 ) -> MergeReport:
-    """Merge freshly fetched bars (any symbols) into the master, one basis check per symbol."""
+    """Merge freshly fetched bars (any symbols) into the master, one basis check per symbol.
+
+    ``confirmed`` moves (None reads config/confirmed_moves.yaml) are not bad jumps.
+    """
+    confirmed = resolve_confirmed(confirmed)
     master = normalize_bars(master)
     fetched = normalize_bars(fetched)
     results: dict[str, SymbolMerge] = {}
     for sym in sorted(set(fetched["symbol"])):
         results[sym] = merge_symbol_bars(
             sym, master[master["symbol"] == sym], fetched[fetched["symbol"] == sym], refetch, tolerance,
+            confirmed=confirmed,
         )
     return MergeReport(_assemble(master, results), results)
 
@@ -493,16 +607,19 @@ def repair_master_basis(
     recent: Callable[[str], pd.DataFrame] | None = None,
     symbols: Iterable[str] | None = None,
     tolerance: float = BASIS_TOLERANCE,
+    confirmed: Iterable[tuple[str, Any]] | None = None,
 ) -> MergeReport:
     """Find symbols whose stored history is mixed and replace it with a fresh refetch.
 
     A symbol is flagged when its rows contain a split-ratio jump or a
-    reverting spike anywhere, or (with ``recent``, which returns IBKR's bars
-    for a recent window) when IBKR's bars disagree with the stored rows on
-    the overlap. Flagged symbols get ``refetch(symbol)`` or are refused;
+    reverting spike anywhere (other than ``confirmed`` moves; None reads
+    config/confirmed_moves.yaml), or (with ``recent``, which returns IBKR's
+    bars for a recent window) when IBKR's bars disagree with the stored rows
+    on the overlap. Flagged symbols get ``refetch(symbol)`` or are refused;
     everything else is left untouched. A failure of ``recent`` alone is
     reported with status "unchecked" and leaves the symbol untouched.
     """
+    confirmed = resolve_confirmed(confirmed)
     master = normalize_bars(master)
     wanted = sorted({s.upper().strip() for s in symbols} if symbols else set(master["symbol"]))
     results: dict[str, SymbolMerge] = {}
@@ -511,7 +628,8 @@ def repair_master_basis(
         if existing.empty:
             results[sym] = SymbolMerge(sym, "unchanged", existing, reason="not in the master")
             continue
-        reasons = [j.describe() for j in find_bad_jumps(existing)]
+        jumps = find_bad_jumps(existing, confirmed=confirmed)
+        reasons = [j.describe() for j in jumps]
         ov: OverlapCheck | None = None
         unchecked = ""
         if recent is not None:
@@ -529,6 +647,7 @@ def repair_master_basis(
         if reasons:
             results[sym] = replace_history(
                 sym, existing, pd.DataFrame(columns=COLUMNS), refetch, "; ".join(reasons), tolerance, ov,
+                jump=jumps[0] if jumps else None, confirmed=confirmed,
             )
         elif unchecked:
             results[sym] = SymbolMerge(sym, "unchecked", existing, reason=unchecked)
