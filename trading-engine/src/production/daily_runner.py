@@ -6,11 +6,15 @@ Run this at 15:35 ET every trading day (bin/tradeit schedule install sets
 that up), before the closing auctions stop taking orders. It handles the full
 cycle automatically:
 
+  0. Reconcile the orders earlier runs sent against IBKR's positions
+     (src/runtime/end_of_day_reconcile.py): a material break arms the kill
+     switch, and a reconcile that couldn't run blocks this run's orders
   1. Append IBKR daily bars to the master price file, up to the last
      completed session (before the close, yesterday's: today's bar is partial)
   2. Regenerate targets from those closes
-  3. Detect if today is a rebalance date (end-of-month or new signal, drift,
-     or shares held outside the model, which the basket sells)
+  3. Detect if today is a rebalance date (end-of-month or new signal; drift
+     of the account's positions now from today's targets; or shares held
+     outside the model, which the basket sells)
   4. If rebalance needed: build basket (diff vs current positions)
   5. Submit paper orders to IBKR, sells first: market-on-close, filled at
      today's close, when sent by 15:45 ET; market-on-open for the next session
@@ -253,12 +257,34 @@ def _weights_from_reconciliation(
     return target_weights, current_weights
 
 
+def _nav_from_summary(profile: str) -> float | None:
+    """NetLiquidation from the latest saved account summary, if any."""
+    import pandas as pd
+
+    files = sorted((PROJECT_ROOT / "data" / "broker" / "account").glob(f"{profile}_account_summary_*.csv"))
+    if not files:
+        return None
+    try:
+        summary = pd.read_csv(files[-1])
+        tag_col = "tag" if "tag" in summary.columns else summary.columns[0]
+        val_col = "value" if "value" in summary.columns else summary.columns[1]
+        hit = summary.loc[summary[tag_col].astype(str).str.lower() == "netliquidation"]
+        if hit.empty:
+            return None
+        nav = float(str(hit.iloc[0][val_col]).replace(",", ""))
+        return nav if nav > 0 else None
+    except Exception as exc:
+        log.warning("Could not parse NAV from %s: %s", files[-1].name, exc)
+        return None
+
+
 def _current_positions(
     profile: str, host: str, port: int, client_id: int,
-) -> tuple["pd.DataFrame | None", str]:
-    """Every position in the account and where it came from: IBKR now, else
-    the last positions snapshot. The snapshot is written when a basket is
-    built, before its orders fill, so it is only the fallback."""
+) -> tuple["pd.DataFrame | None", float | None, str]:
+    """Every position in the account, NAV, and where they came from: IBKR now,
+    else the last positions snapshot and account summary. The snapshot is
+    written when a basket is built, before its orders fill, so it is only the
+    fallback. Read once per run, for the drift gate and the outside-model check."""
     import pandas as pd
 
     try:
@@ -270,39 +296,65 @@ def _current_positions(
         )
         client.connect()
         try:
-            return fetch_positions_df(client), "ibkr"
+            return fetch_positions_df(client), client.net_liquidation(), "ibkr"
         finally:
             client.disconnect()
     except Exception as exc:
         log.warning("Could not read positions from IBKR (%s: %s); using the last snapshot.", type(exc).__name__, exc)
     path = PROJECT_ROOT / "data" / "broker" / "positions" / f"{profile}_positions_snapshot.csv"
     if path.exists():
-        return pd.read_csv(path), "snapshot"
-    return None, "none"
+        return pd.read_csv(path), _nav_from_summary(profile), "snapshot"
+    return None, None, "none"
+
+
+def _latest_targets(targets_df: "pd.DataFrame") -> "pd.DataFrame":
+    """Today's targets: the latest rebalance date's rows, in the model universe."""
+    from src.production.generate_targets import model_universe
+
+    latest = targets_df.loc[targets_df["rebalance_date"] == targets_df["rebalance_date"].max()]
+    return latest.loc[latest["symbol"].astype(str).str.upper().isin(model_universe())]
+
+
+def _current_weights(positions: "pd.DataFrame", nav: float, fallback_prices: dict[str, float]) -> dict[str, float]:
+    """Each share holding's weight of NAV: shares times IBKR's mark, else the
+    symbol's last close (``fallback_prices``). Only shares: the basket trades
+    shares, and a future or option it can't sell would otherwise show as drift
+    on every run. A holding with no price is left out, with a warning."""
+    from src.production.runtime.build_paper_basket import SHARES
+
+    weights: dict[str, float] = {}
+    for row in positions.to_dict("records"):
+        qty = float(row.get("current_shares") or 0.0)
+        sec_type = row.get("sec_type") if isinstance(row.get("sec_type"), str) else ""
+        if not qty or sec_type not in SHARES:
+            continue
+        symbol = str(row["symbol"]).upper().strip()
+        try:
+            mark = float(row.get("market_price"))
+        except (TypeError, ValueError):
+            mark = float("nan")
+        price = mark if mark == mark and mark > 0 else fallback_prices.get(symbol)
+        if not price:
+            log.warning("No price for %s; it is left out of the drift check.", symbol)
+            continue
+        weights[symbol] = weights.get(symbol, 0.0) + qty * price / nav
+    return weights
 
 
 def _holdings_outside_model(
     targets_df: "pd.DataFrame | None",
-    profile: str,
-    host: str,
-    port: int,
-    client_id: int,
+    positions: "pd.DataFrame | None",
+    source: str,
 ) -> dict[str, Any]:
     """Shares the account holds that the latest targets don't include (the
     basket sells them whole) and holdings it leaves alone (futures, options).
     JSON-safe, for the run log."""
-    from src.production.generate_targets import model_universe
     from src.production.runtime.build_paper_basket import holdings_outside_model
 
-    out: dict[str, Any] = {"sell": [], "kept": [], "warnings": [], "positions_from": "none"}
-    if targets_df is None or targets_df.empty:
+    out: dict[str, Any] = {"sell": [], "kept": [], "warnings": [], "positions_from": source}
+    if targets_df is None or targets_df.empty or positions is None:
         return out
-    latest = targets_df.loc[targets_df["rebalance_date"] == targets_df["rebalance_date"].max()]
-    latest = latest.loc[latest["symbol"].astype(str).str.upper().isin(model_universe())]
-    positions, source = _current_positions(profile, host, port, client_id)
-    out["positions_from"] = source
-    if positions is None:
-        return out
+    latest = _latest_targets(targets_df)
     outside = holdings_outside_model(latest, positions)
     out.update(sell=outside.sell, kept=outside.kept, warnings=outside.warnings())
     if outside.sell:
@@ -395,21 +447,43 @@ def _needs_rebalance_drift(
     rb_cfg: dict[str, Any],
     force: bool = False,
     outside_model: Sequence[str] = (),
+    *,
+    targets_df: "pd.DataFrame | None" = None,
+    positions: "pd.DataFrame | None" = None,
+    nav: float | None = None,
+    source: str = "none",
 ) -> tuple[bool, dict[str, Any]]:
     """Drift-band cadence: daily check, fire on holdings outside the model,
-    composition or drift.
+    composition or drift, comparing today's targets with the account's
+    weights now (``positions`` over ``nav``, from IBKR or the last snapshot).
+    The previous run's reconciliation file is not used: it holds that run's
+    targets and the shares held before its orders filled, so a composition
+    change would never show.
 
     Returns ``(should_rebalance, diagnostics)`` where ``diagnostics`` is
     a JSON-safe dict suitable for the run log.
     """
+    from src.production.runtime.build_paper_basket import load_last_closes
     from src.runtime.auto_rebalance import decide_rebalance_with_drift
 
-    recon = _load_reconciliation(profile)
-    if recon is None or recon.empty:
-        log.info("No reconciliation found → will rebalance (cold start).")
-        return True, {"reason": "no reconciliation file", "cold_start": True}
+    if targets_df is None or targets_df.empty:
+        log.info("No targets → will rebalance (cold start).")
+        return True, {"reason": "no targets", "cold_start": True, "positions_from": source}
+    if positions is None or nav is None or nav <= 0:
+        log.info("No positions or NAV to compare with today's targets → will rebalance (cold start).")
+        return True, {"reason": "no positions or NAV to compare with today's targets", "cold_start": True,
+                      "positions_from": source}
 
-    target_weights, current_weights = _weights_from_reconciliation(recon)
+    latest = _latest_targets(targets_df)
+    target_weights = {
+        str(row["symbol"]).upper(): float(row["target_weight"])
+        for _, row in latest.iterrows()
+        if float(row.get("target_weight", 0.0)) > 0
+    }
+    closes = load_last_closes(PROJECT_ROOT / "data" / "market" / "cleaned" / "prices" / "etf_prices_master.parquet")
+    if "close" in latest.columns:
+        closes.update({str(s).upper(): float(c) for s, c in zip(latest["symbol"], latest["close"]) if float(c) > 0})
+    current_weights = _current_weights(positions, nav, closes)
 
     state_path = PROJECT_ROOT / rb_cfg["state_path"]
     state = _load_last_rebalance_state(state_path)
@@ -451,6 +525,8 @@ def _needs_rebalance_drift(
         "cadence": "drift",
         "rebalance": decision.rebalance,
         "reason": decision.reason,
+        "positions_from": source,
+        "nav": nav,
         "max_drift": decision.max_drift,
         "composition_changed": decision.composition_changed,
         "in_cooldown": decision.in_cooldown,
@@ -471,6 +547,10 @@ def _needs_rebalance(
     rb_cfg: dict[str, Any],
     force: bool = False,
     outside: dict[str, Any] | None = None,
+    *,
+    positions: "pd.DataFrame | None" = None,
+    nav: float | None = None,
+    source: str = "none",
 ) -> tuple[bool, dict[str, Any]]:
     """Cadence dispatcher.
 
@@ -488,7 +568,10 @@ def _needs_rebalance(
     sell = list(outside.get("sell") or [])
     cadence = str(rb_cfg.get("cadence", "monthly")).lower()
     if cadence == "drift":
-        decided, diag = _needs_rebalance_drift(profile=profile, rb_cfg=rb_cfg, force=force, outside_model=sell)
+        decided, diag = _needs_rebalance_drift(
+            profile=profile, rb_cfg=rb_cfg, force=force, outside_model=sell,
+            targets_df=targets_df, positions=positions, nav=nav, source=source,
+        )
         if diag.get("cold_start") and sell:
             diag["reason"] += f"; {outside_model_reason(sell)}"
         return decided, {**diag, "outside_model": outside}
@@ -543,6 +626,74 @@ def _already_ran_today_successfully() -> Optional[Path]:
 
 
 # ── Step functions ────────────────────────────────────────────────────────────
+
+def step_reconcile(host: str, port: int, profile: str) -> dict[str, Any]:
+    """Reconcile the orders earlier runs sent against IBKR's positions now
+    (src/runtime/end_of_day_reconcile.py). A material break arms the kill
+    switch, which then blocks this run's orders. A reconcile that couldn't run
+    (gateway unreachable, book unreadable) blocks them too, in step_submit_orders:
+    the book is unverified."""
+    log.info("── Step 0: Reconcile earlier orders against IBKR ───────────")
+    try:
+        from src.broker.ibkr.settings import make_client
+        from src.runtime.end_of_day_reconcile import reconcile_end_of_day
+
+        res = reconcile_end_of_day(
+            profile=profile,
+            client=make_client(profile, "reconcile", host=host, port=port, readonly=True),
+            root=PROJECT_ROOT,
+        )
+    except Exception as exc:
+        log.exception("Reconcile raised")
+        return {"ok": False, "action": "reconcile", "error": f"{type(exc).__name__}: {exc}"}
+    out: dict[str, Any] = {
+        "ok": res.ok,
+        "action": "reconcile",
+        "material_mismatch": res.material_mismatch,
+        "diffs": res.diffs,
+        "report_path": res.report_path,
+    }
+    if res.skipped:
+        out.update(skipped=True, reason=res.skipped)
+        log.info("Reconcile skipped: %s", res.skipped)
+    elif res.error:
+        out["error"] = res.error
+        log.error("✗ Reconcile failed: %s (this run sends no orders)", res.error)
+    elif res.material_mismatch:
+        log.error("✗ Reconcile: %s breaks against IBKR, kill switch armed; see %s", len(res.diffs), res.report_path)
+    elif res.diffs:
+        log.warning("Reconcile: %s small breaks against IBKR, under the threshold; see %s", len(res.diffs), res.report_path)
+    else:
+        log.info("✓ Reconcile: the book matches IBKR to the share (%s orders counted).", len(res.orders))
+    return out
+
+
+def _record_submission(profile: str, run_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Add the orders just sent to the expected book, for the next run's
+    reconcile: the positions snapshot the basket was built on plus the
+    submission log (symbol, action, quantity, IBKR ids, status)."""
+    import pandas as pd
+    from src.runtime.end_of_day_reconcile import record_submission
+
+    try:
+        positions = pd.read_csv(PROJECT_ROOT / "data" / "broker" / "positions" / f"{profile}_positions_snapshot.csv")
+        orders = pd.read_csv(result["submission_path"])
+        path = record_submission(
+            profile,
+            run_id=run_id,
+            positions=positions,
+            orders=orders,
+            execution=(result.get("result") or {}).get("execution"),
+            root=PROJECT_ROOT,
+        )
+        log.info("Recorded the submission in the expected book: %s", path)
+        return {"ok": True, "book": str(path)}
+    except Exception as exc:
+        # The next reconcile then sees these fills as breaks and arms the switch:
+        # the safe side, and the run log says why.
+        log.exception("Could not record the submission in the expected book")
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
 
 def step_append_daily(
     host: str,
@@ -715,7 +866,13 @@ def step_submit_orders(
     client_id: int,
     profile: str,
     dry_run: bool = False,
+    *,
+    run_id: str | None = None,
+    reconciled: bool = True,
 ) -> dict[str, Any]:
+    """``reconciled`` is whether step_reconcile passed (or had nothing to do);
+    a run whose reconcile failed sends nothing. ``run_id`` labels the
+    submission in the expected book."""
     log.info("── Step 4: Submit paper orders ──────────────────────────────")
 
     # ── Pre-trade risk gate ──────────────────────────────────────────────
@@ -738,22 +895,8 @@ def step_submit_orders(
             else pd.read_csv(recon_path)
         )
 
-        # NAV from latest account summary.
-        acct_dir = PROJECT_ROOT / "data" / "broker" / "account"
-        files = sorted(acct_dir.glob(f"{profile}_account_summary_*.csv"))
-        nav = 0.0
-        if files:
-            try:
-                summary = pd.read_csv(files[-1])
-                tag_col = "tag" if "tag" in summary.columns else summary.columns[0]
-                val_col = "value" if "value" in summary.columns else summary.columns[1]
-                hit = summary.loc[
-                    summary[tag_col].astype(str).str.lower() == "netliquidation"
-                ]
-                if not hit.empty:
-                    nav = float(str(hit.iloc[0][val_col]).replace(",", ""))
-            except Exception as exc:
-                log.warning("Could not parse NAV from account summary: %s", exc)
+        # NAV from the latest account summary; a missing one blocks (NAV 0).
+        nav = _nav_from_summary(profile) or 0.0
 
         prices_path = PROJECT_ROOT / "data" / "market" / "cleaned" / "prices" / "etf_prices_master.parquet"
         risk = run_pre_trade_risk_checks(
@@ -794,6 +937,15 @@ def step_submit_orders(
         )
         return {"ok": True, "action": "submit_orders", "skipped": True, "reason": "dry_run"}
 
+    if not reconciled:
+        log.error("✗ The reconcile of earlier orders did not pass: not trading on an unverified book.")
+        return {
+            "ok": False,
+            "action": "submit_orders",
+            "blocked": True,
+            "reasons": ["the end-of-day reconcile did not pass (see the reconcile step): the book is unverified"],
+        }
+
     try:
         from src.production.runtime.order_service import submit_paper_orders
         result = submit_paper_orders(
@@ -811,6 +963,10 @@ def step_submit_orders(
                 result.get("submitted"),
                 result.get("submission_path"),
             )
+            if result.get("submitted"):
+                result["recorded"] = _record_submission(
+                    profile, run_id or datetime.now().strftime("%Y%m%d_%H%M%S"), result
+                )
         else:
             log.error("✗ Submit failed: %s", result.get("reason") or result.get("error"))
         return result
@@ -862,6 +1018,10 @@ def run(
             "Early close today (13:00 ET). A run after it sends its orders market-on-open "
             "for the next session; that is by design, not a fault."
         )
+
+    # ── Step 0: Reconcile the orders earlier runs sent ────────────────────────
+    reconcile_result = step_reconcile(host=host, port=port, profile=profile)
+    run_result["steps"]["reconcile"] = reconcile_result
 
     # ── Step 1: Append daily bars ─────────────────────────────────────────────
     if not skip_append:
@@ -915,11 +1075,11 @@ def run(
         rb_cfg["cooldown_days"],
     )
     targets_df = _load_latest_targets()
-    outside = _holdings_outside_model(
-        targets_df, profile=profile, host=host, port=port, client_id=client_id + 10,
-    )
+    positions, nav, source = _current_positions(profile, host, port, client_id + 10)
+    outside = _holdings_outside_model(targets_df, positions, source)
     should_rebalance, rebalance_diag = _needs_rebalance(
         targets_df, profile=profile, rb_cfg=rb_cfg, force=force_rebalance, outside=outside,
+        positions=positions, nav=nav, source=source,
     )
     run_result["should_rebalance"] = should_rebalance
     run_result["rebalance_decision"] = rebalance_diag
@@ -950,6 +1110,7 @@ def run(
     submit_result = step_submit_orders(
         host=host, port=port, client_id=client_id_for("orders", profile),
         profile=profile, dry_run=dry_run,
+        run_id=run_id, reconciled=bool(reconcile_result.get("ok")),
     )
     run_result["steps"]["submit_orders"] = submit_result
 

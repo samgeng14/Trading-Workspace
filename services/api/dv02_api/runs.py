@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 
 LAUNCH_AGENT = "com.capitalfund.daily-runner"
 STEP_LABELS = {
+    "reconcile": "Reconcile",
     "append_daily": "ETF bars",
     "append_indices_daily": "Index bars",
     "append_futures_daily": "Futures bars",
@@ -76,6 +77,11 @@ def _step_detail(name: str, step: dict[str, Any]) -> tuple[bool, str]:
             f"{step.get('orders_rows', 0)} orders on NAV {_money(step.get('portfolio_value'))}: "
             f"buy {_money(step.get('buy_dollars'))}, sell {_money(step.get('sell_dollars'))}"
         )
+    if name == "reconcile":
+        breaks = len(step.get("diffs") or [])
+        if step.get("material_mismatch"):
+            return False, f"{breaks} breaks against IBKR; kill switch armed (see {step.get('report_path')})"
+        return ok, f"{breaks} small breaks against IBKR, under the threshold" if breaks else "book matches IBKR"
     if name == "submit_orders":
         if step.get("blocked"):
             return False, "blocked by pre-trade risk: " + "; ".join(step.get("reasons") or [])

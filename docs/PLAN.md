@@ -1093,12 +1093,17 @@ order paths).
   submits bypass it.~~ Fixed: `submit_paper_orders()`, the one function that
   places orders, runs the kill switch and the no-leverage check itself before it
   connects; the unguarded Streamlit submit page is deleted.
-- Three sets of limits disagree: `exposure_limits` defaults, `risk_limits.yaml`
-  (unread), and `order_policy`. ~~Stale data only produces a warning.~~ Fixed: a
-  model ETF more than a session behind the last completed close blocks the run.
-- The drift gate reads the previous run's reconciliation file, not today's targets.
-- The EOD reconcile is not scheduled. Its "book" is a sum of order deltas
-  rather than positions, so it would false-alarm.
+- ~~Three sets of limits disagree: `exposure_limits` defaults, `risk_limits.yaml`
+  (unread), and `order_policy`.~~ The gate's limits now come from
+  `risk_limits.yaml` (every key set, none looser than the mandate);
+  `order_policy` is still its own thing. ~~Stale data only produces a warning.~~
+  Fixed: a model ETF more than a session behind the last completed close blocks the run.
+- ~~The drift gate reads the previous run's reconciliation file, not today's targets.~~
+  Fixed: it compares today's targets with the account's positions now.
+- ~~The EOD reconcile is not scheduled. Its "book" is a sum of order deltas
+  rather than positions, so it would false-alarm.~~ Fixed: the reconcile is the
+  daily run's first step, on an expected book of positions plus the orders sent
+  since, at their fills; a break of $100 or more arms the kill switch.
 - ~~No holiday calendar in the runner (it skips weekends only).~~ Fixed: a real run
   skips NYSE holidays and weekends (`src/common/clock.py`), and says so in its run log.
 - Production trades all 22 ETFs in the price master, not the 13-name universe

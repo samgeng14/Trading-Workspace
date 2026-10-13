@@ -19,7 +19,13 @@ Two cadence policies live here:
     as a cold start. Includes a global cooldown to suppress same-day churn.
 
 Both are pure: tests hammer them with synthetic inputs without touching
-disk or the broker. The daily_runner picks which to call from config.
+disk or the broker. The daily_runner picks which to call from config, and
+for the drift gate passes today's targets (the run's freshly generated
+targets file) and the account's weights now (IBKR's positions at decision
+time, else the last positions snapshot, over NAV). It must not pass the
+last reconciliation file: that holds the previous run's targets and the
+shares held before its orders filled, so composition never changes and
+drift re-fires as soon as the cooldown ends.
 """
 from __future__ import annotations
 
@@ -148,6 +154,10 @@ def decide_rebalance_with_drift(
 ) -> DriftDecision:
     """Decide whether to rebalance today using a drift band.
 
+    ``target_weights`` are today's targets; ``current_weights`` are the
+    account's holdings now, as fractions of NAV; ``last_basket`` is the
+    target weights of the last submission.
+
     Triggers (any one fires the rebalance, evaluated in this order):
 
       1. ``force=True`` — operator override.
@@ -157,17 +167,24 @@ def decide_rebalance_with_drift(
          them whole, so the runner rebalances while any are left, however
          small.
       4. Composition change — the set of names with target weight at or
-         above ``composition_threshold`` differs from the same set in
-         ``last_basket``. Catches regime shifts (e.g. a new ETF entering
-         the materially-held basket) regardless of weight magnitude.
-      5. Drift band — ``max_symbol |target − current| > drift_threshold``.
+         above ``composition_threshold`` differs between today's targets
+         and ``last_basket``. Catches the model changing which names it
+         holds materially, whatever the drift.
+      5. Drift band — ``max_symbol |target − current| > drift_threshold``,
+         over every name in either set (a holding the targets dropped
+         counts its whole weight).
 
-    A global cooldown blocks triggers (3), (4) and (5) — but never (1) or
-    (2) — when ``today - last_submitted_at < cooldown_days``. This is the
-    fence against same-day churn on volatile days, and against selling a
-    holding again before the last run's sell has filled (IBKR's positions
-    don't show orders still working); it deliberately does *not* gate cold
-    starts or operator forces.
+    The cooldown: when ``last_submitted_at`` is less than ``cooldown_days``
+    calendar days before ``today``, triggers (3), (4) and (5) are held
+    back; (1) and (2) never are. It exists because the positions behind
+    ``current_weights`` don't show orders still working: a second run on
+    the day of a submission (from the dashboard, or a catch-up) sees the
+    book before its market-on-close orders fill, and would send the same
+    trades again. It also caps how often the gate can trade: at most once
+    per ``cooldown_days`` unless forced. With the default of 3, an order
+    sent Monday holds back Tuesday and Wednesday, and Thursday decides on
+    its own merits. A ``last_submitted_at`` after ``today`` (clock skew)
+    is ignored rather than trusted.
 
     All thresholds are in fractional weight units (0.05 = 5%). All
     weights should be on the same NAV basis; the helper does not

@@ -355,7 +355,7 @@ def test_the_runner_trades_on_yesterdays_close_before_the_close(at, tree, monkey
     at(et("2026-10-13", "15:35"))
     monkeypatch.setattr(daily_runner, "PROJECT_ROOT", tree.root)
     monkeypatch.setattr(daily_runner, "_today", lambda: TUESDAY)
-    monkeypatch.setattr(daily_runner, "_current_positions", lambda *a, **k: (None, "none"))
+    monkeypatch.setattr(daily_runner, "_current_positions", lambda *a, **k: (None, None, "none"))
     monkeypatch.setattr(daily_runner, "_load_rebalance_config",
                         lambda: {**daily_runner.DEFAULT_REBALANCE_CONFIG, "cadence": "monthly"})  # fmt: skip
     monkeypatch.setattr("src.production.generate_targets.model_universe", lambda: SYMBOLS)

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -43,9 +43,12 @@ from src.portfolio.target_builder import (  # noqa: E402
     TargetBookConfig,
     build_target_book,
 )
+from src.common import clock  # noqa: E402
+from src.production.runtime.build_paper_basket import POSITION_COLUMNS  # noqa: E402
 from src.runtime.auto_rebalance import decide_rebalance  # noqa: E402
-from src.runtime.end_of_day_reconcile import reconcile_end_of_day  # noqa: E402
+from src.runtime.end_of_day_reconcile import record_submission, reconcile_end_of_day  # noqa: E402
 from src.runtime.risk_checks import run_pre_trade_risk_checks  # noqa: E402
+from tests.unit.test_expected_book import FakeClient, FakeIB  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -137,13 +140,26 @@ def test_full_cycle_happy_path(isolated_runtime, monkeypatch):
         assert record["stage"] == "post_submit"
         assert record["broker_response"]["ok"] is True
 
-    # 7. EOD reconcile against a broker whose positions match the book.
-    monkeypatch.setattr(
-        "src.broker.ibkr.reconciler.diff_book_vs_account", lambda **_: []
-    )
-    eod = reconcile_end_of_day(profile="paper", as_of=today)
-    assert eod.ok is True
-    assert eod.material_mismatch is False
+    # 7. EOD reconcile: the batch goes into the expected book, and a broker whose
+    #    positions show it filled reconciles clean.
+    record_submission(
+        "paper",
+        run_id="20260430_153500",
+        positions=pd.DataFrame(columns=POSITION_COLUMNS),  # all cash before this basket
+        orders=pd.DataFrame(
+            [{"symbol": t.symbol, "action": "BUY" if t.qty > 0 else "SELL", "quantity": abs(t.qty),
+              "order_id": i, "perm_id": 100 + i, "status": "Submitted", "estimated_trade_dollars": abs(t.qty) * t.price}
+             for i, t in enumerate(tickets, start=1)]
+        ),
+        execution={"fills_at": "2026-04-30T16:00:00-04:00", "summary": "market-on-close"},
+    )  # fmt: skip
+    held = {t.symbol: (float(t.qty), t.price) for t in tickets}
+    eod = reconcile_end_of_day(
+        profile="paper", as_of=today, client=FakeClient(FakeIB(held)),
+        now=datetime(2026, 4, 30, 16, 45, tzinfo=clock.NYSE_TZ),
+    )  # fmt: skip
+    assert eod.ok is True, eod.error
+    assert eod.diffs == [] and eod.material_mismatch is False
     assert is_kill_switch_armed() is False
 
 
@@ -224,30 +240,33 @@ def test_empty_basket_is_blocked_at_risk_gate(isolated_runtime):
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Material-mismatch path — EOD reconciler arms switch when broker ≠ book
-# (uses a monkeypatched reconciler module that returns a synthetic diff)
+# Material-mismatch path — the EOD reconcile arms the switch when IBKR's
+# positions differ from the expected book (a fake broker, no network)
 # ─────────────────────────────────────────────────────────────────────────
 
+TODAY = date(2026, 4, 30)
+SETTLED = datetime(2026, 4, 30, 16, 45, tzinfo=clock.NYSE_TZ)
 
-def test_eod_arms_kill_switch_on_material_mismatch(isolated_runtime, monkeypatch):
-    # Inject a fake reconciler module exposing diff_book_vs_account.
-    import types
 
-    fake_reconciler = types.ModuleType("fake_reconciler")
-    fake_reconciler.diff_book_vs_account = lambda profile, as_of: [
-        {"symbol": "SPY", "broker_qty": 100, "book_qty": 90,
-         "notional_diff_usd": 1_000.0},
-    ]
-    monkeypatch.setitem(sys.modules, "src.broker.ibkr.reconciler", fake_reconciler)
-    import src.broker.ibkr as _ibkr_pkg
-    monkeypatch.setattr(_ibkr_pkg, "reconciler", fake_reconciler, raising=False)
+def _expect_spy(qty: int, price: float) -> None:
+    """A book expecting ``qty`` SPY: all cash, then one buy counted in full."""
+    record_submission(
+        "paper", run_id="r", positions=pd.DataFrame(columns=POSITION_COLUMNS),
+        orders=pd.DataFrame([{"symbol": "SPY", "action": "BUY", "quantity": qty, "order_id": 1, "perm_id": 11,
+                              "status": "Submitted", "estimated_trade_dollars": qty * price}]),
+        execution={"fills_at": "2026-04-30T16:00:00-04:00", "summary": "market-on-close"},
+    )  # fmt: skip
 
-    today = date(2026, 4, 30)
+
+def test_eod_arms_kill_switch_on_material_mismatch(isolated_runtime):  # noqa: ARG001
+    _expect_spy(90, 100.0)
     res = reconcile_end_of_day(
-        profile="paper", as_of=today, material_threshold_usd=100.0
-    )
+        profile="paper", as_of=TODAY, material_threshold_usd=100.0,
+        client=FakeClient(FakeIB({"SPY": (100.0, 100.0)})), now=SETTLED,
+    )  # fmt: skip
     assert res.ok is True
     assert res.material_mismatch is True
+    assert res.diffs[0]["qty_diff"] == 10 and res.diffs[0]["notional_diff_usd"] == 1_000.0
     assert res.report_path is not None
     state = read_kill_switch_state()
     assert state.armed is True
@@ -256,49 +275,26 @@ def test_eod_arms_kill_switch_on_material_mismatch(isolated_runtime, monkeypatch
     disarm_kill_switch(by="cleanup")
 
 
-def test_eod_does_not_arm_below_material_threshold(isolated_runtime, monkeypatch):
-    import types
-
-    fake = types.ModuleType("fake_reconciler")
-    fake.diff_book_vs_account = lambda profile, as_of: [
-        {"symbol": "SPY", "broker_qty": 100, "book_qty": 99,
-         "notional_diff_usd": 50.0},
-    ]
-    monkeypatch.setitem(sys.modules, "src.broker.ibkr.reconciler", fake)
-    import src.broker.ibkr as _ibkr_pkg
-    monkeypatch.setattr(_ibkr_pkg, "reconciler", fake, raising=False)
-
+def test_eod_does_not_arm_below_material_threshold(isolated_runtime):  # noqa: ARG001
+    _expect_spy(99, 50.0)
     res = reconcile_end_of_day(
-        profile="paper", as_of=date(2026, 4, 30), material_threshold_usd=100.0
-    )
+        profile="paper", as_of=TODAY, material_threshold_usd=100.0,
+        client=FakeClient(FakeIB({"SPY": (100.0, 50.0)})), now=SETTLED,
+    )  # fmt: skip
+    assert res.diffs[0]["notional_diff_usd"] == 50.0
     assert res.material_mismatch is False
     assert is_kill_switch_armed() is False
 
 
-def test_eod_handles_garbage_diffs_gracefully(isolated_runtime, monkeypatch):
-    """Reconciler returns garbage rows — EOD must not crash; rows with
-    non-numeric notionals are dropped silently (and a log warning is
-    emitted)."""
-    import types
+def test_eod_reports_an_unreadable_book_as_a_failure(isolated_runtime):
+    """A corrupt expected book is not a clean reconcile: the result says so, names
+    the file, and the broker is never asked."""
+    from src.runtime.end_of_day_reconcile import book_path
 
-    fake = types.ModuleType("fake_reconciler")
-    fake.diff_book_vs_account = lambda profile, as_of: [
-        {"symbol": "X", "notional_diff_usd": "not a number"},
-        "not even a dict",
-        {"symbol": "Y", "notional_diff_usd": float("nan")},
-        {"symbol": "Z", "notional_diff_usd": 200.0},  # this one IS material
-    ]
-    monkeypatch.setitem(sys.modules, "src.broker.ibkr.reconciler", fake)
-    import src.broker.ibkr as _ibkr_pkg
-    monkeypatch.setattr(_ibkr_pkg, "reconciler", fake, raising=False)
-
-    res = reconcile_end_of_day(
-        profile="paper", as_of=date(2026, 4, 30), material_threshold_usd=100.0
-    )
-    assert res.ok is True
-    assert res.material_mismatch is True
-    # The non-dict row is filtered out; the two with bad notionals are
-    # kept (they're still valid diff rows) but their notionals don't
-    # contribute to the material check.
-    assert len(res.diffs) == 3
-    disarm_kill_switch(by="cleanup")
+    path = book_path("paper")
+    path.write_text("{not json")
+    client = FakeClient(FakeIB({"SPY": (100.0, 50.0)}))
+    res = reconcile_end_of_day(profile="paper", as_of=TODAY, client=client, now=SETTLED)
+    assert res.ok is False and res.material_mismatch is False
+    assert path.name in res.error and client.connections == 0
+    assert is_kill_switch_armed() is False

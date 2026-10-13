@@ -34,7 +34,6 @@ jobs:
             --extend-exclude src/broker/ibkr/orders.py \
             --extend-exclude src/execution/build_live_basket.py \
             --extend-exclude src/execution/order_policy.py \
-            --extend-exclude src/portfolio/risk/exposure_limits.py \
             --extend-exclude src/production/daily_runner.py \
             --extend-exclude src/production/runtime/submit_paper_orders.py \
             --extend-exclude src/strategies/etf/natr_mean_reversion.py \

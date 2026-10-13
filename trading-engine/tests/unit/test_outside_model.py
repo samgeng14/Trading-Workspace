@@ -267,8 +267,8 @@ DRIFT = {
 
 @pytest.fixture()
 def runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """The daily runner on a temp tree: targets and a reconciliation on target (no drift),
-    a prior basket, and every step after the decision stubbed out."""
+    """The daily runner on a temp tree: targets, positions on target (no drift), a
+    prior basket, and every step after the decision stubbed out."""
     from src.production import daily_runner
 
     monkeypatch.setattr(daily_runner, "PROJECT_ROOT", tmp_path)
@@ -299,7 +299,7 @@ def runner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     def holding(*rows: dict) -> None:
         positions = pd.DataFrame([position("SPY", 995, 500.0), position("TLT", 4975, 100.0), *rows])
-        monkeypatch.setattr(daily_runner, "_current_positions", lambda *a, **k: (positions, "ibkr"))
+        monkeypatch.setattr(daily_runner, "_current_positions", lambda *a, **k: (positions, NAV, "ibkr"))
 
     state(date(2026, 10, 1))
     return SimpleNamespace(module=daily_runner, called=called, state=state, holding=holding)
@@ -359,10 +359,10 @@ def test_positions_come_from_ibkr_else_the_last_snapshot(tmp_path: Path, monkeyp
             raise ConnectionRefusedError("nothing is listening on 127.0.0.1:4002")
 
     monkeypatch.setattr(ibkr_client, "IBKRClient", Down)
-    assert daily_runner._current_positions("paper", "127.0.0.1", 4002, 111) == (None, "none")
+    assert daily_runner._current_positions("paper", "127.0.0.1", 4002, 111) == (None, None, "none")
 
     snap = tmp_path / "data" / "broker" / "positions" / "paper_positions_snapshot.csv"
     snap.parent.mkdir(parents=True)
     pd.DataFrame([position("XLE", 300, 90.0)]).to_csv(snap, index=False)
-    positions, source = daily_runner._current_positions("paper", "127.0.0.1", 4002, 111)
+    positions, _nav, source = daily_runner._current_positions("paper", "127.0.0.1", 4002, 111)
     assert source == "snapshot" and list(positions["symbol"]) == ["XLE"]
