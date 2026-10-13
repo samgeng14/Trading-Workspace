@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "e2e": "playwright test",
+    "e2e:staging": "playwright test -c playwright.staging.config.ts",
     "gen:api": "openapi-typescript ../../schemas/api/v1.yaml -o src/api/schema.d.ts",
     "format": "prettier --write src e2e",
     "format:check": "prettier --check src e2e"
