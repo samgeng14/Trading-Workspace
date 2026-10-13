@@ -5,6 +5,8 @@ import numpy as np
 import polars as pl
 from polars import DataFrame, LazyFrame
 
+from trading_engine.solvers import pick_solver
+
 
 class RiskModel(Protocol):
     def __call__(self, window_returns: np.ndarray) -> np.ndarray: ...
@@ -56,7 +58,6 @@ def _align_prices_to_tickers(prices_df: DataFrame, tickers: List[str]) -> DataFr
     :param tickers: Target tickers to include
     :return: Prices DataFrame aligned to tickers
     """
-    present = [c for c in prices_df.columns if c in tickers]
     missing = [t for t in tickers if t not in prices_df.columns]
     if missing:
         prices_df = prices_df.with_columns([pl.lit(None).alias(t) for t in missing])
@@ -207,7 +208,7 @@ def _solve_mv(
                     constraints.append(w[i] <= w_max[i])
 
     problem = cp.Problem(objective, constraints)
-    problem.solve(solver=cp.MOSEK, verbose=False)
+    problem.solve(solver=pick_solver(), verbose=False)
 
     if w.value is None:
         # Fallback to unconstrained if solver fails

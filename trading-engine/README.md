@@ -331,6 +331,19 @@ ETFs with weights tilted toward winners (top weights ~10-12%, all
 holdings ≥ 1%). The legacy `momentum_top5` still exists if you want a
 concentrated 5-pick portfolio.
 
+**Do I need a MOSEK license?**
+No. The daily runner's target generation (`src/production/generate_targets.py`)
+uses no solver. The research optimizers and the MVO aggregator in
+`src/trading_engine/` get their cvxpy solver from `src/trading_engine/solvers.py`:
+MOSEK only when the `mosek` package is installed and a license checks out,
+otherwise CLARABEL, which comes with cvxpy. If you have a MOSEK license, keep
+it outside the repo: save it as `~/mosek/mosek.lic`, or point
+`MOSEKLM_LICENSE_FILE` at it (`*.lic` files are git-ignored). Set
+`DV02_SOLVER=CLARABEL` (or any installed cvxpy solver) to force one. The MIQP
+optimizer needs a mixed-integer solver (licensed MOSEK, or SCIP via
+`pip install pyscipopt`); without one it warns and solves without its minimum
+trade size rule.
+
 **How do I switch from paper to live?**
 You don't from this README. There's a deliberate friction step: the
 `profile=live` code path requires you to flip a flag, set
