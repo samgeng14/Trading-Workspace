@@ -37,6 +37,7 @@ endif()
 
 add_library(dv02 STATIC
   src/risk.cpp
+  src/costs.cpp
   src/backtest.cpp
   src/backtest_input.cpp
   src/backtest_metrics.cpp
@@ -53,6 +54,8 @@ if(DV02_BUILD_TESTS)
     tests/test_backtest_commission.cpp
     tests/test_backtest_input.cpp
     tests/test_backtest_metrics.cpp
+    tests/test_costs.cpp
+    tests/test_backtest_costs.cpp
   )
   target_link_libraries(dv02_tests PRIVATE dv02 dv02_options)
   add_test(NAME dv02_tests COMMAND dv02_tests)
@@ -67,6 +70,7 @@ if(DV02_BUILD_PYTHON)
   nanobind_add_module(_core NB_STATIC
     python/module.cpp
     python/bind_risk.cpp
+    python/bind_costs.cpp
     python/bind_backtest.cpp
   )
   target_link_libraries(_core PRIVATE dv02)

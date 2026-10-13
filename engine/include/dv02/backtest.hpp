@@ -10,18 +10,37 @@
 //
 // Weights may sum past 1 or go negative, with cash going negative to match:
 // the backtester models what it is given. The fund's no-leverage mandate is
-// enforced on real orders by dv02::risk, not here.
+// enforced on real orders by dv02::risk; here it is an optional check that
+// flags the days a backtest breaks it (Settings::mandate) and never rescales.
+//
+// Costs: with no cost model, slippage_bps and fee_model charge exactly what
+// the Rust hawk-backtester charged, and the numbers are the same. A cost
+// model (Settings::costs, dv02::costs) replaces both and charges what the
+// live book pays: commission, spread, impact, borrow, cash interest, futures
+// rolls. A day with a cost model runs in this order:
+//   1. mark every held position to the day's price
+//   2. accrue borrow and cash interest for the calendar days since the last
+//      price date, on the previous day's closing book
+//   3. roll held futures whose roll date this is
+//   4. rebalance, if a weight event is due, paying commission, spread and
+//      impact on each asset's dollars traded
+// Every cost comes out of cash; interest goes into it.
 //
 // This replaces the Rust hawk-backtester and gives the same numbers.
 #pragma once
 
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include "dv02/costs.hpp"
 
 namespace dv02::backtest {
 
@@ -108,6 +127,21 @@ struct Metrics {
     double cumulative_slippage_cost = 0.0;
     std::vector<double> daily_commission_costs;
     double cumulative_commission_cost = 0.0;
+
+    // With a cost model (0 without one). Commission is cumulative_commission_cost
+    // and spread + impact is cumulative_slippage_cost.
+    double cumulative_spread_cost = 0.0;
+    double cumulative_impact_cost = 0.0;
+    double cumulative_borrow_cost = 0.0;
+    double cumulative_roll_cost = 0.0;
+    double cumulative_interest_income = 0.0;
+    double cumulative_total_cost = 0.0;   // commission + spread + impact + borrow + roll - interest
+    std::size_t unmeasured_impact_trades = 0;  // trades charged no impact: no volume, or too little history
+
+    // With a mandate check (0 without one).
+    std::size_t mandate_breach_days = 0;
+    double max_gross_exposure = 0.0;  // the largest end-of-day gross, fraction of value
+    double min_mandate_cash = 0.0;    // the lowest end-of-day cash as the mandate counts it, fraction of value
 };
 
 // 252 trading days a year and a 0% risk-free rate. num_days sets the length
@@ -128,8 +162,21 @@ struct Result {
     std::vector<double> cumulative_log_return;
     std::vector<double> drawdown;       // value / running peak - 1
     std::vector<double> volume_traded;  // dollars bought plus dollars sold
-    std::vector<double> daily_slippage_cost;
+    std::vector<double> daily_slippage_cost;    // with a cost model: spread + impact
     std::vector<double> daily_commission_cost;
+
+    // With a cost model, one per row (empty without one).
+    std::vector<double> daily_spread_cost;
+    std::vector<double> daily_impact_cost;
+    std::vector<double> daily_borrow_cost;
+    std::vector<double> daily_roll_cost;
+    std::vector<double> daily_interest_income;
+    std::vector<double> daily_total_cost;  // commission + spread + impact + borrow + roll - interest
+
+    // With a mandate check, one per row at the day's close (empty without one).
+    std::vector<double> gross_exposure;           // sum of |position x exposure| / value
+    std::vector<double> mandate_cash;             // cash / value, futures moving no cash
+    std::vector<std::uint8_t> mandate_breach;     // 1 when gross or cash is outside the mandate
 
     // the assets named in any weight event, in weight-table order
     std::vector<std::string> assets;
@@ -141,18 +188,51 @@ struct Result {
     Metrics metrics;
 };
 
+// The no-leverage mandate as dv02::risk measures it, checked at each day's
+// close: gross = sum of |position x exposure| / value <= max_gross, and
+// cash / value >= min_cash, where cash counts futures as moving no cash
+// (it is the book's cash plus the futures' notional). Futures are the cost
+// model's futures instruments; without a cost model every asset is an
+// equity. Limits are compared with a 1e-9 tolerance, as dv02::risk does. A
+// value that isn't positive is a breach. Costs paid from a fully invested
+// book take cash below 0, which this flags: leave a cash buffer.
+struct Mandate {
+    double max_gross = 1.0;
+    double min_cash = 0.0;
+    // Economic exposure per dollar of market value by symbol, default 1:
+    // 3 for TQQQ, -1 for an inverse ETF (as dv02::risk::Position::exposure).
+    std::map<std::string, double, std::less<>> exposure{};
+};
+
+// Throws std::invalid_argument for a max_gross that isn't positive, a
+// min_cash that isn't finite, or an exposure that is 0 or not finite.
+void validate(const Mandate& mandate);
+
 struct Settings {
     double initial_value = 1'000'000.0;
     std::optional<Date> start_date = std::nullopt;  // default: the first weight event's date
     double slippage_bps = 0.0;                      // 1.0 = 0.01% of every dollar traded
     FeeModel fee_model = FeeModel::None;
+    // The live book's costs, replacing slippage_bps and fee_model (setting
+    // both is an error).
+    std::optional<costs::CostModel> costs = std::nullopt;
+    // Flag the days the book breaks the no-leverage mandate.
+    std::optional<Mandate> mandate = std::nullopt;
 };
 
-// Price dates before the start date are skipped, and so are weight events.
-// Both tables must be in date order (parse_table and sort_by_date sort).
-// Throws std::invalid_argument for a table out of order or of the wrong size,
-// an asset named twice in one table, or no start date (none set and no
-// weight events).
+// Price dates before the start date are skipped, and so are weight events;
+// the cost model still reads their prices and volumes as history. All tables
+// must be in date order (parse_table and sort_by_date sort). Throws
+// std::invalid_argument for a table out of order or of the wrong size, an
+// asset named twice in one table, no start date (none set and no weight
+// events), a cost model set with slippage_bps or fee_model, an invalid cost
+// model or mandate, or volumes without a cost model.
 Result run(const Table& prices, const Table& weights, const Settings& settings = {});
+
+// With daily volumes (shares, or contracts for futures) for the cost model's
+// market impact. Volumes are matched to prices by date and asset; a missing
+// volume, or an asset with none, leaves its trades without impact (counted in
+// Metrics::unmeasured_impact_trades), paying spread and commission only.
+Result run(const Table& prices, const Table& weights, const Table& volumes, const Settings& settings);
 
 }  // namespace dv02::backtest

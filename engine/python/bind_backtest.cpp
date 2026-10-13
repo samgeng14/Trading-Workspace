@@ -2,11 +2,15 @@
 // (polars or pandas) are read and written in python/dv02_engine/backtest.py.
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/map.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/vector.h>
 
 #include <cstdint>
+#include <map>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -55,6 +59,26 @@ nb::object to_numpy(std::vector<double>&& v) {
 void bind_backtest(nb::module_& m) {
     nb::module_ bm = m.def_submodule("backtest", "Portfolio backtester (engine/src/backtest.cpp)");
 
+    nb::class_<bt::Mandate>(bm, "Mandate")
+        .def(
+            "__init__",
+            [](bt::Mandate* self, double max_gross, double min_cash, std::map<std::string, double, std::less<>> exposure) {
+                bt::Mandate mandate{max_gross, min_cash, std::move(exposure)};
+                bt::validate(mandate);
+                new (self) bt::Mandate(std::move(mandate));
+            },
+            nb::kw_only(), "max_gross"_a = 1.0, "min_cash"_a = 0.0,
+            "exposure"_a = std::map<std::string, double, std::less<>>{},
+            "The no-leverage mandate the backtest flags: gross (sum of |position x exposure| / value) at most "
+            "max_gross, cash / value at least min_cash. exposure is per symbol, default 1 (TQQQ 3).")
+        .def_ro("max_gross", &bt::Mandate::max_gross)
+        .def_ro("min_cash", &bt::Mandate::min_cash)
+        .def_ro("exposure", &bt::Mandate::exposure)
+        .def("__repr__", [](const bt::Mandate& x) {
+            return nb::str("Mandate(max_gross={!r}, min_cash={!r}, exposure={!r})")
+                .format(x.max_gross, x.min_cash, nb::cast(x.exposure));
+        });
+
     nb::enum_<bt::FeeModel>(bm, "FeeModel")
         .value("NONE", bt::FeeModel::None)
         .value("IBKR_PRO_FIXED", bt::FeeModel::IbkrProFixed);
@@ -78,18 +102,28 @@ void bind_backtest(nb::module_& m) {
         "run",
         [](const Days& price_days, const Matrix& prices, std::vector<std::string> price_assets, const Days& weight_days,
            const Matrix& weights, std::vector<std::string> weight_assets, double initial_value, double slippage_bps,
-           bt::FeeModel fee_model) {
+           bt::FeeModel fee_model, std::optional<dv02::costs::CostModel> costs, std::optional<bt::Mandate> mandate,
+           std::optional<Days> volume_days, std::optional<Matrix> volumes, std::vector<std::string> volume_assets,
+           std::optional<std::int32_t> start_day) {
             const bt::Table price_table = table(price_days, prices, std::move(price_assets), "prices");
             const bt::Table weight_table = table(weight_days, weights, std::move(weight_assets), "weights");
+            bt::Table volume_table;
+            if (volume_days && volumes)
+                volume_table = table(*volume_days, *volumes, std::move(volume_assets), "volumes");
+            else if (volume_days || volumes || !volume_assets.empty())
+                throw std::invalid_argument("volumes: pass volume_days, volumes and volume_assets together");
             bt::Settings settings;
             settings.initial_value = initial_value;
             settings.slippage_bps = slippage_bps;
             settings.fee_model = fee_model;
+            settings.costs = std::move(costs);
+            settings.mandate = std::move(mandate);
+            if (start_day) settings.start_date = bt::Date{std::chrono::days{*start_day}};
 
             bt::Result r;
             {
                 nb::gil_scoped_release release;
-                r = bt::run(price_table, weight_table, settings);
+                r = bt::run(price_table, weight_table, volume_table, settings);
             }
 
             const std::size_t rows = r.dates.size(), cols = r.assets.size();
@@ -114,6 +148,20 @@ void bind_backtest(nb::module_& m) {
             metrics["holding_period_years"] = mx.holding_period_years;
             metrics["cumulative_slippage_cost"] = mx.cumulative_slippage_cost;
             metrics["cumulative_commission_cost"] = mx.cumulative_commission_cost;
+            if (settings.costs) {
+                metrics["cumulative_spread_cost"] = mx.cumulative_spread_cost;
+                metrics["cumulative_impact_cost"] = mx.cumulative_impact_cost;
+                metrics["cumulative_borrow_cost"] = mx.cumulative_borrow_cost;
+                metrics["cumulative_roll_cost"] = mx.cumulative_roll_cost;
+                metrics["cumulative_interest_income"] = mx.cumulative_interest_income;
+                metrics["cumulative_total_cost"] = mx.cumulative_total_cost;
+                metrics["unmeasured_impact_trades"] = mx.unmeasured_impact_trades;
+            }
+            if (settings.mandate) {
+                metrics["mandate_breach_days"] = mx.mandate_breach_days;
+                metrics["max_gross_exposure"] = mx.max_gross_exposure;
+                metrics["min_mandate_cash"] = mx.min_mandate_cash;
+            }
 
             nb::dict out;
             out["dates"] = std::move(dates);
@@ -126,6 +174,20 @@ void bind_backtest(nb::module_& m) {
             out["volume_traded"] = to_numpy(std::move(r.volume_traded));
             out["daily_slippage_cost"] = to_numpy(std::move(r.daily_slippage_cost));
             out["daily_commission_cost"] = to_numpy(std::move(r.daily_commission_cost));
+            if (settings.costs) {
+                out["daily_spread_cost"] = to_numpy(std::move(r.daily_spread_cost));
+                out["daily_impact_cost"] = to_numpy(std::move(r.daily_impact_cost));
+                out["daily_borrow_cost"] = to_numpy(std::move(r.daily_borrow_cost));
+                out["daily_roll_cost"] = to_numpy(std::move(r.daily_roll_cost));
+                out["daily_interest_income"] = to_numpy(std::move(r.daily_interest_income));
+                out["daily_total_cost"] = to_numpy(std::move(r.daily_total_cost));
+            }
+            if (settings.mandate) {
+                out["gross_exposure"] = to_numpy(std::move(r.gross_exposure));
+                out["mandate_cash"] = to_numpy(std::move(r.mandate_cash));
+                const std::size_t n = r.mandate_breach.size();
+                out["mandate_breach"] = to_numpy(std::move(r.mandate_breach), {n});
+            }
             out["assets"] = std::move(r.assets);
             out["positions"] = to_numpy(std::move(r.positions), {rows, cols});
             out["cash"] = to_numpy(std::move(r.cash));
@@ -135,8 +197,14 @@ void bind_backtest(nb::module_& m) {
             return out;
         },
         "price_days"_a, "prices"_a, "price_assets"_a, "weight_days"_a, "weights"_a, "weight_assets"_a,
-        "initial_value"_a, "slippage_bps"_a, "fee_model"_a,
+        "initial_value"_a, "slippage_bps"_a, "fee_model"_a, nb::kw_only(), "costs"_a = nb::none(),
+        "mandate"_a = nb::none(), "volume_days"_a = nb::none(), "volumes"_a = nb::none(),
+        "volume_assets"_a = std::vector<std::string>{}, "start_day"_a = nb::none(),
         "Run the backtest. Days are days since 1970-01-01 (parse_dates); the matrices are dates x assets, float64, "
-        "C order, NaN for a missing price or an asset an event leaves out. Rows need not be sorted. Returns a dict "
-        "of date strings, column arrays, the position and weight matrices, and the metrics.");
+        "C order, NaN for a missing price, volume or an asset an event leaves out. Rows need not be sorted. costs "
+        "(a costs.CostModel) replaces slippage_bps and fee_model; volumes (shares or contracts a day) feed its "
+        "market impact; mandate (a Mandate) flags the days outside it; start_day (days since 1970-01-01) starts "
+        "the backtest there instead of on the first weight date. Returns a dict of date strings, column "
+        "arrays, the position and weight matrices, and the metrics, with the cost and mandate columns and metrics "
+        "when those are set.");
 }
