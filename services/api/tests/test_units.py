@@ -172,6 +172,39 @@ def test_broker_snapshot_maps_ibkr_objects() -> None:
     assert b.market_data_type() == 3
 
 
+def test_broker_ignores_ibkrs_minus_one_no_quote() -> None:
+    """Outside market hours delayed data can carry -1 for last, bid/ask and close. It
+    is "no quote", not a price: the position falls back to IBKR's own mark, and the
+    ticker strip leaves the line out rather than showing a -100% day."""
+    b = Broker("paper")
+    b._ib = _FakeIB()
+    b.account = "DU1234567"
+    b.status.connected = True
+    b._pnl = SimpleNamespace(dailyPnL=-50.0)
+    tick = SimpleNamespace(last=-1.0, close=-1.0, marketDataType=3, marketPrice=lambda: -1.0)
+    b._position_lines = {1: SimpleNamespace(ticker=tick)}
+    b._pnl_single = {1: SimpleNamespace(value=60_000.0, dailyPnL=-566.0)}
+    spy, _ = b.snapshot().positions
+    assert spy.last == 600.0  # the portfolio mark, not -1
+    assert spy.prev_close is None
+    assert spy.market_value == pytest.approx(60_000.0)
+    assert spy.day_pnl == -566.0
+    assert b.market_data_type() is None  # no line has a usable price
+
+    b._strip_lines = [
+        SimpleNamespace(symbol="UNG", label="UNG", kind="etf", ticker=tick),
+        SimpleNamespace(
+            symbol="SPX",
+            label="S&P 500",
+            kind="index",
+            ticker=SimpleNamespace(last=6650.0, close=6600.0, marketDataType=3, marketPrice=lambda: 6650.0),
+        ),
+    ]
+    quotes = b.quotes()
+    assert [q["symbol"] for q in quotes] == ["SPX"]
+    assert quotes[0]["change_pct"] == pytest.approx(6650 / 6600 - 1)
+
+
 def test_broker_refuses_a_live_account_under_paper() -> None:
     import asyncio
 

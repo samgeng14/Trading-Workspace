@@ -45,6 +45,14 @@ def _num(x: Any) -> float | None:
     return None if math.isnan(v) or math.isinf(v) or abs(v) > 1e300 else v
 
 
+def _price(x: Any) -> float | None:
+    """A usable price. IBKR sends -1 (and sometimes 0) for "no quote", e.g. delayed
+    data outside market hours; taken as a price, it shows -100% days and values the
+    book at nothing."""
+    v = _num(x)
+    return v if v is not None and v > 0 else None
+
+
 @dataclass
 class PositionSnap:
     con_id: int
@@ -288,7 +296,7 @@ class Broker:
         types = [
             line.ticker.marketDataType
             for line in [*self._position_lines.values(), *self._strip_lines]
-            if _num(line.ticker.last) is not None or _num(line.ticker.close) is not None
+            if _price(line.ticker.last) is not None or _price(line.ticker.close) is not None
         ]
         return max(types) if types else None
 
@@ -318,11 +326,12 @@ class Broker:
             mult = _num(c.multiplier) or 1.0
             line = self._position_lines.get(c.conId)
             ticker = line.ticker if line else None
-            last = _num(ticker.last) if ticker else None
+            # the latest trade, else IBKR's own mark for the position (after hours, the close)
+            last = _price(ticker.last) if ticker else None
             if last is None and ticker is not None:
-                last = _num(ticker.marketPrice())
-            last = last if last is not None else _num(item.marketPrice)
-            prev_close = _num(ticker.close) if ticker else None
+                last = _price(ticker.marketPrice())
+            last = last if last is not None else _price(item.marketPrice)
+            prev_close = _price(ticker.close) if ticker else None
             pnl = self._pnl_single.get(c.conId)
             single_value = _num(pnl.value) if pnl is not None else None
             if last is not None:
@@ -361,10 +370,10 @@ class Broker:
         out = []
         for line in self._strip_lines:
             t = line.ticker
-            last = _num(t.last)
+            last = _price(t.last)
             if last is None:
-                last = _num(t.marketPrice())
-            prev = _num(t.close)
+                last = _price(t.marketPrice())
+            prev = _price(t.close)
             if last is None or prev is None or prev == 0:
                 continue
             if line.kind == "yield":  # CBOE TNX quotes 10x the yield

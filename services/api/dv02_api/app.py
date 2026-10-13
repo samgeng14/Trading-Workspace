@@ -208,6 +208,9 @@ def position_rows(ctx: Ctx, snap: AccountSnap) -> list[dict[str, Any]]:
         unit = p.quantity * p.multiplier
         last = p.last if p.last is not None else (p.market_value / unit if unit else 0.0)
         prev = p.prev_close if p.prev_close else last
+        if not p.prev_close and p.day_pnl is not None and unit and last:
+            # no previous close quoted (delayed data off hours): IBKR's day P&L still says how far it moved
+            prev = last - p.day_pnl / unit
         day_pnl = p.day_pnl if p.day_pnl is not None else unit * (last - prev)
         cost = p.avg_cost * unit
         out.append(

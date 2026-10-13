@@ -122,6 +122,24 @@ def test_positions_carry_targets_and_futures_notional(client: TestClient) -> Non
     assert pos["SPY"]["day_return"] == pytest.approx(612 / 608 - 1)
 
 
+def test_off_hours_rows_take_the_day_move_from_ibkrs_day_pnl(client: TestClient, fake_broker) -> None:
+    """With no previous close quoted (IBKR's -1 off hours), the day's move comes from
+    IBKR's day P&L for the position instead of reading as 0%."""
+    import dataclasses
+
+    snap = fake_broker.snapshot()
+    spy = next(p for p in snap.positions if p.symbol == "SPY")
+    off_hours = dataclasses.replace(spy, prev_close=None)  # last 612, day P&L +1,600 on 400 shares
+    snap = dataclasses.replace(snap, positions=[off_hours if p is spy else p for p in snap.positions])
+    fake_broker.snapshot = lambda: snap
+    body = client.get("/api/v1/portfolio/positions").json()
+    assert_schema(body, response_schema("/portfolio/positions", "get"))
+    row = next(p for p in body["positions"] if p["symbol"] == "SPY")
+    assert row["prev_close"] == pytest.approx(608.0)
+    assert row["day_return"] == pytest.approx(612 / 608 - 1)
+    assert row["day_pnl"] == pytest.approx(1_600.0)
+
+
 def test_status_reports_delayed_data_and_runs(client: TestClient) -> None:
     st = client.get("/api/v1/status").json()
     comp = {c["id"]: c for c in st["components"]}
