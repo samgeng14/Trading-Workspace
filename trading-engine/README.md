@@ -15,9 +15,9 @@ to without touching the runtime.
 
 ## What it does, in plain English
 
-1. **Every weekday at 4:32 PM ET**, your Mac wakes (if asleep), connects
-   to a running TWS or IB Gateway window, and pulls today's close prices
-   for the model's 21 ETFs.
+1. **Every weekday at 3:35 PM ET** (2:35 PM Central), your Mac wakes (if
+   asleep), connects to a running IB Gateway, and pulls the last completed
+   session's close prices for the model's 21 ETFs.
 2. It runs the **multi-model strategy** — 14 different signal generators
    (momentum, mean reversion, volatility-targeting, MACD, RSI, …) score
    every ETF, an aggregator combines those scores into target weights,
@@ -131,8 +131,8 @@ Every IBKR connection in the repo reads its host, port and clientId from
 ### Step 5 · Bootstrap the autonomous schedule
 
 From the repo root, `bin/tradeit schedule install` installs a macOS
-LaunchAgent that runs the daily runner for this checkout Mon-Fri at 16:32
-local time; `bin/tradeit schedule status` shows whether it is loaded and
+LaunchAgent that runs the daily runner for this checkout Mon-Fri at 15:35
+ET, written in this Mac's zone; `bin/tradeit schedule status` shows whether it is loaded and
 where it runs from, and `bin/tradeit schedule remove` takes it out.
 
 Or run **all of the above + sleep settings + auto-login checklist** with
@@ -160,7 +160,7 @@ Once installed, the system runs itself:
 
 | What | Where | When |
 |---|---|---|
-| Pull bars + rebalance + submit orders | LaunchAgent | Mon-Fri 16:32 ET |
+| Pull bars + rebalance + submit orders | LaunchAgent | Mon-Fri 15:35 ET |
 | Watch what's happening | Dashboard at `localhost:8501` | Whenever |
 | Force a refresh manually | Sidebar **Refresh ETF Data** button | Anytime |
 | Halt all trading | `python -m src.execution.kill_switch arm "reason"` | Emergency |
@@ -199,7 +199,7 @@ trading-engine/
 │   ├── storage/               ← persistence repos (DB-backed, future)
 │   ├── backtest/              ← backtester wiring (future); the backtester is C++, in engine/
 │   ├── cli/                   ← command-line entry points
-│   ├── production/            ← daily runner, scheduler, generate_targets
+│   ├── production/            ← daily runner, generate_targets
 │   └── dashboard/             ← Streamlit UI
 ├── data/
 │   ├── market/cleaned/        ← master price file + monthly target weights
@@ -319,11 +319,12 @@ holidays and weekends.
 Yes — except the macOS-specific LaunchAgent. Use `cron` or `systemd`
 instead. The `daily_runner` itself is platform-agnostic.
 
-**Do I need to keep the laptop awake at 16:32 ET?**
+**Do I need to keep the laptop awake at 15:35 ET?**
 Yes, unless you set up the truly-headless variant in
 `scripts/HEADLESS.md` (LaunchDaemon + IBC). The simpler path: enable
-auto-login + a 16:30 wake schedule (`pmset repeat wakeorpoweron MTWRF
-16:30:00`).
+auto-login + a wake schedule five minutes before the run, in the Mac's
+own time (`scripts/setup_automation.sh` offers it; in Central time that is
+`pmset repeat wakeorpoweron MTWRF 14:30:00`).
 
 **Will it sell my whole portfolio?**
 No — by default the optimizer is `momentum_tilted` which holds all 22

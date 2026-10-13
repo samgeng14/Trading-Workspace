@@ -755,7 +755,7 @@ def components(ctx: Ctx, offline: AccountSnap | None) -> list[dict[str, str]]:
     if installed is False:
         sched = {
             "status": "warning",
-            "detail": "Not scheduled: bin/tradeit schedule install sets up the 16:32 run for this folder",
+            "detail": "Not scheduled: bin/tradeit schedule install sets up the 15:35 ET run for this folder",
         }
     elif last is not None and not last["ok"]:
         sched = {"status": "warning", "detail": last_text}

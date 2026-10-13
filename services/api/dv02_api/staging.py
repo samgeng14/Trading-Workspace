@@ -14,12 +14,12 @@ running API.
 
 Scenarios:
   fresh    what a new setup shows: 1 day of NAV history (today's), the price master
-           and targets ending 2026-05-06 (stale), no daily run yet (after 16:32 the
+           and targets ending 2026-05-06 (stale), no daily run yet (after 15:35 ET the
            schedule says the run failed to happen), the doctor not run.
   history  an account that has been running: 131 trading days of IBKR Flex NAV
            through the latest close, daily bars for the benchmarks and holdings,
            fresh targets, a daily run every session (today's succeeded once it is
-           past 16:32), a doctor report.
+           past 15:35 ET), a doctor report.
 
 Nothing real is read or written: the engine's data tree is a temp folder deleted
 on exit, .env is never read, IBKR_* settings in the environment are ignored, and
@@ -183,7 +183,7 @@ def parse_now(text: str) -> datetime:
 
 
 def pin_timezone(name: str = "UTC") -> None:
-    """The daily run fires at 16:32 local time; one zone everywhere makes --now repeatable."""
+    """The daily run's time is 15:35 ET in the local zone; one zone everywhere makes --now repeatable."""
     os.environ["TZ"] = name
     time.tzset()
 

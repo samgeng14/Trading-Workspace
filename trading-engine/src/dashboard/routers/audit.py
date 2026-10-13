@@ -200,7 +200,8 @@ def _check_sleep_settings() -> dict[str, Any]:
     return _check(
         "Wake schedule",
         "warn",
-        "No wake schedule. Set one: sudo pmset repeat wakeorpoweron MTWRF 16:30:00",
+        "No wake schedule. Set one five minutes before the daily run, in this Mac's time "
+        "(14:30 in Central time): sudo pmset repeat wakeorpoweron MTWRF 14:30:00",
         severity="minor",
     )
 

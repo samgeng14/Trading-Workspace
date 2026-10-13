@@ -70,11 +70,11 @@ own Host and Origin (`localhost:5173`) reach the API unchanged and pass.
 | Benchmarks, betas, VaR | IBKR dividend-adjusted daily bars (cached in `artifacts/api/bars/`), else the engine's price master |
 | Risk limits | Gross and cash: the C++ engine's measure of the whole account (below). Net, largest position, beta, volatility, drawdown and day P&L: computed here from the positions and the NAV history |
 | Rebalance preview | The engine's own `build_reconciliation` and `run_pre_trade_risk_checks` on live positions, then the C++ no-leverage check on every holding plus the basket's orders |
-| Submit | Starts the engine's daily runner with `--force-rebalance`, using the LaunchAgent's Python and environment. One order path, the engine's risk gate and kill switch, and the 16:32 run then skips the day |
+| Submit | Starts the engine's daily runner with `--force-rebalance`, using the LaunchAgent's Python and environment. One order path, the engine's risk gate and kill switch, and the 15:35 ET run then skips the day |
 | Orders | IBKR, all clients, this session. Offline, the engine's last submission files |
 | Cancel | IBKR only lets the placing client cancel, so the API reconnects briefly as that client (the runner's 300) |
 | Kill switch | The engine's file, `artifacts/runs/kill_switch.json`. Arming here stops the runner too. The POST takes `{"armed": true, "reason": "..."}` or `{"armed": false}`; anything else, `{}` included, is a 400 and changes nothing |
-| Runs, schedule | `artifacts/runs/daily_run_*.json`; the LaunchAgent's time (16:32 Mac local) |
+| Runs, schedule | `artifacts/runs/daily_run_*.json`; the LaunchAgent's time (15:35 ET, written in the Mac's zone) |
 | Doctor | `src/broker/ibkr/doctor.py`, on client ID 309. It runs at startup and from the Run doctor button |
 
 With IB Gateway down, the dashboard says so. It shows the engine's last saved
@@ -164,9 +164,10 @@ fresh.
 
 ## The scheduled daily run
 
-On a Mac, launchd starts the engine's daily runner Mon–Fri at 16:32 local
-time: new bars and targets, then paper orders when the model calls for a
-rebalance. Nothing runs at 16:32 until it is installed:
+On a Mac, launchd starts the engine's daily runner Mon–Fri at 15:35 ET,
+written in the Mac's own zone (14:35 in Central time): new bars and targets
+from the last close, then paper orders, market-on-close, when the model calls
+for a rebalance. Nothing runs until it is installed:
 
 ```bash
 bin/tradeit schedule install   # asks first; checks the C++ engine
@@ -182,9 +183,10 @@ port and host come from `.env` (or `broker.yaml`), the optimizer from
 `CAPITALFUND_OPTIMIZER` (default `momentum_tilted`), and the time from
 `DV02_RUNNER_TIME`, so install again after changing them. The API reads the
 same file: runs started from the dashboard use its Python and environment,
-and a day that already has a successful run is skipped at 16:32. IB Gateway
-has to be running and logged in at 16:32; the run doesn't start it. If the
-Mac is asleep at 16:32 the run starts when it wakes; if it is off, the day
+and a day that already has a successful run is skipped at 15:35. IB Gateway
+has to be running and logged in then; the run doesn't start it. If the Mac
+is asleep at 15:35 the run starts when it wakes (after 15:45 ET its orders go
+market-on-open for the next session); if it is off, the day
 is missed. It refuses to install while the engine (`dv02_engine`) can't be
 imported, since the runner would then block every order, or while its gross
 and cash limits let a levered test book through (the Engine light's
@@ -256,15 +258,16 @@ cd services/api && ../../.venv/bin/python -m dv02_api.staging --scenario history
 - **fresh:** a new setup. One day of NAV (today's), so the equity panels
   show "No NAV history yet"; the price master and targets end 2026-05-06,
   so the preview blocks on stale targets; no LaunchAgent and no run today,
-  so after 16:32 the schedule reports the run as missed; the doctor not run.
+  so after 15:35 ET the schedule reports the run as missed; the doctor not run.
 - **history:** an account that has been running. 131 trading days of Flex
   NAV through the latest close, daily bars, fresh targets, a daily run every
   session (a rebalance, a failure, holdings outside the model in cooldown),
   a doctor report.
 
 `--now` starts the clock at that moment (ISO 8601; exchange time without an
-offset) and lets it run. The staging API runs on UTC, so the daily run's
-16:32 is 12:32 ET there and the same `--now` gives the same page everywhere.
+offset) and lets it run. The staging API runs on UTC, so the same `--now`
+gives the same page on every machine; the daily run is at 15:35 ET there as
+everywhere.
 Nothing real is read or written: the engine files are a temp folder deleted
 on exit, `.env` and `IBKR_*` settings are ignored, Run doctor reports on the
 made-up account, and Submit is refused instead of starting the daily

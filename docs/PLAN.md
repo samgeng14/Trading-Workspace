@@ -19,7 +19,7 @@ a fixed API contract. That way nothing built early gets thrown away.
 
 | Topic | Recommendation | Why |
 |---|---|---|
-| Fund mandate | **Long/short, strictly no leverage.** Gross (long + \|short\|) ≤ 100% of NAV, with futures at full notional and options at delta-adjusted notional once that can be measured (until then any option blocks). Leveraged and inverse ETFs count at their economic exposure (TQQQ at 3×). Cash ≥ 0 after orders, so no margin loan. Enforced in C++ on every order path (the dashboard's submit and the 4:32pm daily run), counting every holding in the account, not just the model's. *Decided.* | Your rule. A check that sees only the model's targets misses everything else in the account. |
+| Fund mandate | **Long/short, strictly no leverage.** Gross (long + \|short\|) ≤ 100% of NAV, with futures at full notional and options at delta-adjusted notional once that can be measured (until then any option blocks). Leveraged and inverse ETFs count at their economic exposure (TQQQ at 3×). Cash ≥ 0 after orders, so no margin loan. Enforced in C++ on every order path (the dashboard's submit and the 15:35 ET daily run), counting every holding in the account, not just the model's. *Decided.* | Your rule. A check that sees only the model's targets misses everything else in the account. |
 | Languages | **C++ and Python only**; TypeScript only for the dashboard UI (`apps/web`). No Rust in our code: the Rust `hawk-backtester` has been ported to C++ as `dv02_engine.backtest`. *Decided.* | Fewer toolchains to build, test and review. Bindings already share the C++ math with Python, so a third language adds nothing. |
 | Universe | **Anything IBKR trades**, subject to the mandate and the account's permissions: stocks, ETFs, futures, options, bonds, FX, crypto. *Decided.* | Each sleeve trades where its edge is. Permissions (Section 7) and the no-leverage check decide what can actually trade. |
 | Frontend language | **TypeScript + React + Vite**, hand-built design system, no UI kit theme. *Decided.* | Best tooling for dense, live, data-heavy screens. The "vibe-coded" look comes from default kits (Tailwind/shadcn gradients, glows, rounded cards), not from React. |
@@ -1089,20 +1089,24 @@ order paths).
   and sends market-on-close orders until 15:45 ET (12:45 on an early close), and
   market-on-open orders for the next session after that (`src/broker/ibkr/auction.py`).
   The MOC setting in `broker.yaml` / `execution.yaml` is still not read: the clock decides.
-- The kill switch is checked only in the daily-runner path. Dashboard and CLI
-  submits bypass it.
+- ~~The kill switch is checked only in the daily-runner path. Dashboard and CLI
+  submits bypass it.~~ Fixed: `submit_paper_orders()`, the one function that
+  places orders, runs the kill switch and the no-leverage check itself before it
+  connects; the unguarded Streamlit submit page is deleted.
 - Three sets of limits disagree: `exposure_limits` defaults, `risk_limits.yaml`
   (unread), and `order_policy`. Stale data only produces a warning.
 - The drift gate reads the previous run's reconciliation file, not today's targets.
 - The EOD reconcile is not scheduled. Its "book" is a sum of order deltas
   rather than positions, so it would false-alarm.
-- No holiday calendar in the runner (it skips weekends only).
+- ~~No holiday calendar in the runner (it skips weekends only).~~ Fixed: a real run
+  skips NYSE holidays and weekends (`src/common/clock.py`), and says so in its run log.
 - Production trades all 22 ETFs in the price master, not the 13-name universe
   in `paper.yaml`. The live optimizer is chosen by env var (`momentum_tilted`
   in the LaunchAgent, `ensemble_default` otherwise); `paper.yaml`'s
   AMMA/MVO/MOSEK setup only drives a broken pipeline.
-- Schedule times disagree across `app.yaml` (14:50 CT), the LaunchAgent (16:32
-  local) and `schedule.py` (16:30 ET).
+- ~~Schedule times disagree across `app.yaml` (14:50 CT), the LaunchAgent (16:32
+  local) and `schedule.py` (16:30 ET).~~ Fixed: one schedule, `bin/tradeit schedule`
+  at 15:35 ET; the old `production/scheduler.py` and `runtime/schedule.py` are deleted.
 
 **Data (Phase 0 / 2):**
 - No dividend or split adjustment; bond-ETF momentum and total returns are wrong.

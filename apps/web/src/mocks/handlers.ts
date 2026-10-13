@@ -1048,7 +1048,7 @@ function runs(): S["RunsResponse"] {
   const list: S["Run"][] = dates.reverse().map((date) => {
     const failed = Number(date.slice(8)) % 7 === 1; // an occasional gateway outage, for the failure state
     const trades = tradesOn(date).filter((t) => t.reason !== "hedge");
-    const start = etTime(date, "16:32");
+    const start = etTime(date, "15:35");
     return {
       id: `daily-${date}`,
       kind: "daily",

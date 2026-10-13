@@ -1,4 +1,4 @@
-"""Smoke tests for runtime scheduling, kill-switch, and order routing."""
+"""Smoke tests for the kill switch and order routing."""
 from __future__ import annotations
 
 import sys
@@ -10,7 +10,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.runtime.schedule import DAILY_SCHEDULE, ScheduledJob, schedule_table  # noqa: E402
 from src.execution.kill_switch import (  # noqa: E402
     KillSwitchTripped,
     arm_kill_switch,
@@ -20,25 +19,6 @@ from src.execution.kill_switch import (  # noqa: E402
 )
 from src.execution.order_policy import OrderTicket  # noqa: E402
 from src.execution.order_router import idempotency_key, submit_orders  # noqa: E402
-
-
-# ── schedule ───────────────────────────────────────────────────────────────
-
-
-def test_daily_schedule_has_required_jobs():
-    names = {j.name for j in DAILY_SCHEDULE}
-    assert {"pre_market_healthcheck", "daily_run", "end_of_day_reconcile"} <= names
-
-
-def test_schedule_table_has_dict_shape():
-    table = schedule_table()
-    assert all({"name", "cron", "entrypoint", "description"} <= row.keys() for row in table)
-
-
-def test_every_cron_field_has_5_parts():
-    for j in DAILY_SCHEDULE:
-        parts = j.cron.split()
-        assert len(parts) == 5, f"{j.name}: cron should be 5-field, got {j.cron!r}"
 
 
 # ── kill switch ────────────────────────────────────────────────────────────

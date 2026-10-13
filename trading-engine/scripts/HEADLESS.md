@@ -17,7 +17,7 @@ risk tolerance.
 
 This is what `setup_automation.sh` configures. Your Mac auto-logs you in on
 boot, your TWS/IB Gateway auto-launches on login, the LaunchAgent fires daily
-at 16:32. The user session persists even when the screen is locked.
+at 15:35 ET (in the Mac's zone). The user session persists even when the screen is locked.
 
 **Pros:** Simple. No third-party software. Survives reboots if auto-login is
 enabled.
@@ -143,7 +143,7 @@ file (encrypt it). LaunchDaemons are harder to debug than LaunchAgents.
    ```
 
 5. **Reboot to test.** Don't log in. SSH into the Mac (or wait until
-   16:32). Verify:
+   15:35 ET). Verify:
 
    ```bash
    ssh you@mac-mini
@@ -168,7 +168,7 @@ checks both paths require:
 - IBKR API listener on the right port (both)
 - Daily runner log shows recent successful run (both)
 
-If every row is green, the next 16:32 ET trading day will run unattended.
+If every row is green, the next trading day's 15:35 ET run goes unattended.
 
 ## Common pitfalls
 

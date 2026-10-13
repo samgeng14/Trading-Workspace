@@ -239,7 +239,7 @@ streamlit run src/dashboard/streamlit_entrypoint.py --server.port 8501
 
 ## 第七步(可选):设置每日自动跑
 
-如果你想让系统每个工作日下午 4:32(美东时间)自动跑(收盘后 2 分钟):
+如果你想让系统每个工作日下午 3:35(美东时间,中部时间 2:35)自动跑(收盘前 25 分钟,订单在当天收盘价成交):
 
 ```bash
 # 装 LaunchAgent(Mac),在仓库根目录运行
@@ -258,7 +258,7 @@ bash scripts/setup_automation.sh
 这个脚本会:
 - 检查 Python 依赖
 - 装 LaunchAgent
-- 设置 Mac 16:30 自动唤醒(这样 16:32 跑的时候不会因为休眠错过)
+- 设置 Mac 在跑之前 5 分钟自动唤醒(这样 15:35 美东跑的时候不会因为休眠错过)
 - 关闭外接电源时的休眠
 - 打印一个手动检查清单(自动登录、TWS API 设置等)
 
@@ -277,7 +277,7 @@ source ../.venv/bin/activate
 streamlit run src/dashboard/streamlit_entrypoint.py --server.port 8501
 ```
 
-### 想立刻跑一次(不等下午 4:32)
+### 想立刻跑一次(不等下午 3:35)
 
 ```bash
 # 完整流程:拉数据 + 重新算目标 + 提交订单(如果今天是再平衡日)

@@ -46,7 +46,7 @@ Install once, from the repo root:
 bin/tradeit schedule install
 ```
 
-This creates a LaunchAgent that runs the full pipeline for this checkout **every weekday at 4:32 PM** local time.
+This creates a LaunchAgent that runs the full pipeline for this checkout **every weekday at 3:35 PM ET** (2:35 PM Central), before the closing auction, so its orders fill at that day's close.
 
 To check it's running:
 ```bash
@@ -58,15 +58,7 @@ To uninstall:
 bin/tradeit schedule remove
 ```
 
-### Option B: Keep terminal open (simpler)
-
-```bash
-python -m src.production.scheduler
-```
-
-This blocks the terminal and runs daily. Press Ctrl+C to stop.
-
-### Option C: Manual trigger
+### Option B: Manual trigger
 
 ```bash
 # Dry run (no orders submitted)
@@ -84,10 +76,10 @@ python -m src.production.daily_runner --force-rebalance
 ## What happens on each daily run
 
 ```
-4:32 PM ET (after market close)
+3:35 PM ET (before the close; orders go market-on-close by 3:45 PM ET)
     │
     ├── 1. Append IBKR Daily Bars (lookback 5 D)
-    │       → fetches today's bar for all 22 ETFs
+    │       → fetches bars through the last completed session (yesterday's close) for all 22 ETFs
     │       → appends to data/market/cleaned/prices/etf_prices_master.parquet
     │
     ├── 2. Generate Targets
