@@ -1,10 +1,14 @@
 import { useMemo, useState } from "react";
-import { useBenchmarks, usePerformance } from "../api/hooks";
+import { useBenchmarks, usePerformance, useSummary } from "../api/hooks";
 import type { Schemas } from "../api/client";
+import { tickDecimals } from "../charts/axis";
+import { EquityChart } from "../charts/EquityChart";
+import { EQUITY_MODES, type EquityMode, equityLines } from "../charts/equity";
 import { LineChart, monthTicks } from "../charts/LineChart";
 import { Delta, LoadError, PageHead, Panel, Segmented, Stat } from "../components/bits";
+import { HistoryEmpty, isShortHistory } from "../components/HistoryEmpty";
 import { Figure } from "../components/Figure";
-import { dateLong, monthName, num, pct } from "../lib/format";
+import { dateLong, money, monthName, num, pct } from "../lib/format";
 import { MIN_RATIO_OBS } from "../lib/labels";
 
 type Range = Schemas["PerformanceRange"];
@@ -27,20 +31,24 @@ const MONTHLY_VIEWS = [
 export function Performance() {
   const [range, setRange] = useState<Range>("ITD");
   const [benchmark, setBenchmark] = useState("SPY");
+  const [mode, setMode] = useState<EquityMode>("growth");
   const { data, error, isPlaceholderData } = usePerformance(range, benchmark);
   const benchmarks = useBenchmarks().data ?? [];
+  const history = useSummary().data?.history;
 
   const view = useMemo(() => {
     if (!data) return null;
     const dates = data.series.map((p) => p.date);
-    return {
-      dates,
-      port: data.series.map((p) => p.portfolio),
-      bench: data.series.map((p) => p.benchmark),
-      dd: data.drawdown.map((p) => p.value * 100),
-      ticks: monthTicks(dates, 9),
-    };
+    return { dates, dd: data.drawdown.map((p) => p.value * 100), ticks: monthTicks(dates, 9) };
   }, [data]);
+  const equityRows = useMemo(() => {
+    const series = data?.series ?? [];
+    const lines = equityLines(series, mode);
+    const fmt = mode === "nav" ? (v: number) => money(v) : (v: number) => num(v, 2);
+    return series
+      .map((p, i) => [p.date, fmt(lines.portfolio[i]!), fmt(lines.benchmark[i]!)])
+      .filter((_, i, a) => i % 5 === 0 || i === a.length - 1);
+  }, [data, mode]);
 
   const s = data?.stats;
   const benchLabel = data?.benchmark.label ?? "Benchmark";
@@ -69,7 +77,14 @@ export function Performance() {
         </label>
       </PageHead>
 
-      {error && <LoadError error={error} />}
+      {error &&
+        (isShortHistory(error) ? (
+          <Panel title="Since inception">
+            <HistoryEmpty history={history} />
+          </Panel>
+        ) : (
+          <LoadError error={error} />
+        ))}
 
       {s && (
         <section
@@ -140,47 +155,44 @@ export function Performance() {
       )}
 
       <Figure
-        title={`Growth of $100 vs ${benchLabel}`}
-        meta="total return, after costs"
+        title={mode === "nav" ? `NAV vs ${benchLabel}` : `Growth of $100 vs ${benchLabel}`}
+        meta={
+          mode === "nav"
+            ? "account value in dollars, after costs, including any deposits and withdrawals"
+            : "total return, after costs"
+        }
         control="performance.growth"
         stale={isPlaceholderData}
+        actions={
+          <Segmented
+            value={mode}
+            options={EQUITY_MODES}
+            onChange={setMode}
+            label="Equity curve units"
+            control="performance.growth.mode"
+          />
+        }
         chart={
-          view &&
-          s && (
-            <LineChart
-              labels={view.dates}
-              series={[
-                {
-                  id: "portfolio",
-                  label: "Portfolio",
-                  color: "var(--series-1)",
-                  values: view.port,
-                  endText: pct(s.total_return, 1, true),
-                },
-                {
-                  id: "benchmark",
-                  label: benchLabel,
-                  color: "var(--bench)",
-                  values: view.bench,
-                  endText: pct(s.benchmark_total_return, 1, true),
-                },
-              ]}
-              baseline={100}
-              yFormat={(v) => num(v, 0)}
-              xLabel={(i) => dateLong(view.dates[i]!)}
-              xTicks={view.ticks}
+          data && (
+            <EquityChart
+              data={data}
+              mode={mode}
               height={300}
-              ariaLabel={`Growth of $100, portfolio versus ${benchLabel}`}
+              maxTicks={9}
+              ariaLabel={
+                mode === "nav"
+                  ? `NAV in dollars, portfolio versus ${benchLabel} from the same starting NAV`
+                  : `Growth of $100, portfolio versus ${benchLabel}`
+              }
               control="performance.growth.plot"
             />
           )
         }
         table={{
-          head: ["Date", "Portfolio", benchLabel],
+          head:
+            mode === "nav" ? ["Date", "Portfolio NAV", `${benchLabel}, same start`] : ["Date", "Portfolio", benchLabel],
           numeric: [1, 2],
-          rows: (data?.series ?? [])
-            .filter((_, i, a) => i % 5 === 0 || i === a.length - 1)
-            .map((p) => [p.date, num(p.portfolio, 2), num(p.benchmark, 2)]),
+          rows: equityRows,
         }}
       />
 
@@ -192,11 +204,10 @@ export function Performance() {
         chart={
           view && (
             <LineChart
-              labels={view.dates}
               series={[{ id: "dd", label: "Drawdown", color: "var(--down)", values: view.dd, area: true }]}
               baseline={0}
               yMax={0}
-              yFormat={(v) => `${num(v, 0)}%`}
+              yFormat={(v, ticks) => `${num(v, tickDecimals(ticks))}%`}
               xLabel={(i) => dateLong(view.dates[i]!)}
               xTicks={view.ticks}
               height={160}

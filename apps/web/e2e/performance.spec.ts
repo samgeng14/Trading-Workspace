@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { covers, ctl, open } from "./helpers";
 
 test("period presets change the window", async ({ page }) => {
@@ -61,4 +61,105 @@ test("growth and drawdown charts answer the pointer and the keyboard", async ({ 
   await expect(page.locator("section[aria-label='Drawdown'] .tooltip")).toContainText("Drawdown");
   await page.keyboard.press("Escape");
   await expect(page.locator("section[aria-label='Drawdown'] .tooltip")).toHaveCount(0);
+});
+
+/** Smallest gap, in px, between any tick label and the first point of any line in a chart. */
+async function firstPointClearance(page: Page, control: string): Promise<number> {
+  return ctl(page, control).evaluate((svg) => {
+    const labels = Array.from(svg.querySelectorAll("text.tick"), (t) => t.getBoundingClientRect());
+    const lines = Array.from(svg.querySelectorAll<SVGPathElement>("path[stroke]"));
+    let min = Infinity;
+    for (const line of lines) {
+      const p = line.getPointAtLength(0);
+      const m = line.getScreenCTM()!;
+      const x = p.x * m.a + p.y * m.c + m.e;
+      const y = p.x * m.b + p.y * m.d + m.f;
+      for (const r of labels) {
+        const dx = Math.max(r.left - x, 0, x - r.right);
+        const dy = Math.max(r.top - y, 0, y - r.bottom);
+        min = Math.min(min, Math.hypot(dx, dy));
+      }
+    }
+    return min;
+  });
+}
+
+test("equity curve switches between growth of $100 and NAV in dollars", async ({ page }) => {
+  covers("performance.growth.mode.*");
+  await open(page, "/performance");
+  await expect(ctl(page, "performance.growth.mode.growth")).toHaveAttribute("aria-pressed", "true");
+  const growth = page.locator("section[aria-label='Growth of $100 vs S&P 500']");
+  await expect(growth.locator("text.tick").filter({ hasText: /^100$/ })).toHaveCount(1);
+
+  await ctl(page, "performance.growth.mode.nav").click();
+  await expect(ctl(page, "performance.growth.mode.nav")).toHaveAttribute("aria-pressed", "true");
+  const nav = page.locator("section[aria-label='NAV vs S&P 500']");
+  await expect(nav.locator(".legend")).toContainText("S&P 500, from the same starting NAV");
+  await expect(
+    nav
+      .locator("text.tick")
+      .filter({ hasText: /^\$\d\.\d{2}M$/ })
+      .first(),
+  ).toBeVisible();
+  const plot = ctl(page, "performance.growth.plot");
+  const box = (await plot.boundingBox())!;
+  await plot.hover({ position: { x: box.width * 0.5, y: box.height * 0.5 } });
+  await expect(nav.locator(".tooltip")).toContainText(/\$(\d{1,3},)?\d{3},\d{3}/);
+  await expect(nav.locator(".tooltip")).toContainText("Portfolio");
+
+  await ctl(page, "performance.growth.view-table").click();
+  await expect(nav.locator("thead")).toContainText("Portfolio NAV");
+  await expect(nav.locator("tbody tr").first().locator("td").nth(1)).toHaveText(/^\$(\d{1,3},)?\d{3},\d{3}$/);
+  await ctl(page, "performance.growth.view-chart").click();
+
+  await ctl(page, "performance.growth.mode.growth").click();
+  await expect(growth).toBeVisible();
+});
+
+test("the overview equity panel has the same switch", async ({ page }) => {
+  covers("overview.performance.mode.*");
+  await open(page);
+  const panel = page.locator("section[aria-label='Since inception vs S&P 500']");
+  await expect(panel.locator(".panel-meta")).toContainText("growth of $100");
+  await ctl(page, "overview.performance.mode.nav").click();
+  await expect(panel.locator(".panel-meta")).toContainText("NAV in dollars");
+  await expect(panel.locator(".legend")).toContainText("from the same starting NAV");
+  await expect(panel.locator(".end-value").first()).toHaveText(/^\$(\d{1,3},)?\d{3},\d{3}$/);
+  await ctl(page, "overview.performance.mode.growth").click();
+  await expect(panel.locator(".panel-meta")).toContainText("growth of $100");
+});
+
+for (const width of [375, 1440]) {
+  test(`tick labels stay clear of the lines' first points at ${width}px`, async ({ page }) => {
+    for (const [path, prefix, other] of [
+      ["/performance", "performance.growth", "performance.drawdown.plot"],
+      ["/", "overview.performance", "overview.intraday.plot"],
+    ] as const) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await open(page, path); // waits for the top bar, which a phone layout hides
+      await page.setViewportSize({ width, height: 900 });
+      for (const mode of ["growth", "nav"]) {
+        await ctl(page, `${prefix}.mode.${mode}`).click();
+        // a hover dot is r 4 with a 2px ring
+        expect(await firstPointClearance(page, `${prefix}.plot`)).toBeGreaterThan(5);
+      }
+      expect(await firstPointClearance(page, other)).toBeGreaterThan(5);
+    }
+  });
+}
+
+test("y labels never repeat, even over a quiet month", async ({ page }) => {
+  await open(page, "/performance");
+  // the demo's 1M drawdown runs 0 to -3% in half-point ticks
+  await ctl(page, "performance.range.1M").click();
+  const yLabels = (control: string) => ctl(page, control).locator("text.tick[x^='-']");
+  await expect(yLabels("performance.drawdown.plot").filter({ hasText: /^−2\.5%$/ })).toHaveCount(1);
+  for (const mode of ["growth", "nav"]) {
+    await ctl(page, `performance.growth.mode.${mode}`).click();
+    for (const control of ["performance.growth.plot", "performance.drawdown.plot"]) {
+      const labels = await yLabels(control).allTextContents();
+      expect(labels.length, control).toBeGreaterThan(2);
+      expect(new Set(labels).size, labels.join(" ")).toBe(labels.length);
+    }
+  }
 });

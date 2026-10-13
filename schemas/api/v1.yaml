@@ -221,6 +221,29 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/RunsResponse" }
 
+  /stream:
+    get:
+      operationId: openStream
+      summary: Live updates over a WebSocket (ws://<host>/api/v1/stream).
+      description: |
+        Upgrade to a WebSocket; the client sends nothing. On connect the server
+        sends one StreamMessage per topic with its current value, then a topic's
+        new value whenever it changes (checked about every 2 seconds). Each
+        message's `data` is exactly the body its REST endpoint returns:
+
+          status → /status · strip → /market/strip · summary → /portfolio/summary
+          positions → /portfolio/positions · intraday → /portfolio/intraday
+          orders → /trading/orders
+
+        A topic whose endpoint can't answer right now is skipped; its REST
+        endpoint says why. Demo mode has no stream, so the dashboard polls.
+      responses:
+        "101":
+          description: Switching to the WebSocket protocol. Frames are StreamMessage JSON.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StreamMessage" }
+
 components:
   schemas:
     Problem:
@@ -500,6 +523,50 @@ components:
               t: { type: string, format: date-time }
               pnl: { type: number }
 
+    StreamTopic:
+      type: string
+      enum: [status, strip, summary, positions, intraday, orders]
+
+    StreamMessage:
+      description: One WebSocket frame from /stream. `data` is the topic's REST body.
+      oneOf:
+        - type: object
+          required: [topic, at, data]
+          properties:
+            topic: { type: string, const: status }
+            at: { type: string, format: date-time }
+            data: { $ref: "#/components/schemas/SystemStatus" }
+        - type: object
+          required: [topic, at, data]
+          properties:
+            topic: { type: string, const: strip }
+            at: { type: string, format: date-time }
+            data: { $ref: "#/components/schemas/MarketStrip" }
+        - type: object
+          required: [topic, at, data]
+          properties:
+            topic: { type: string, const: summary }
+            at: { type: string, format: date-time }
+            data: { $ref: "#/components/schemas/PortfolioSummary" }
+        - type: object
+          required: [topic, at, data]
+          properties:
+            topic: { type: string, const: positions }
+            at: { type: string, format: date-time }
+            data: { $ref: "#/components/schemas/PositionsResponse" }
+        - type: object
+          required: [topic, at, data]
+          properties:
+            topic: { type: string, const: intraday }
+            at: { type: string, format: date-time }
+            data: { $ref: "#/components/schemas/IntradayPnl" }
+        - type: object
+          required: [topic, at, data]
+          properties:
+            topic: { type: string, const: orders }
+            at: { type: string, format: date-time }
+            data: { $ref: "#/components/schemas/OrdersResponse" }
+
     PerformanceRange:
       type: string
       enum: [1M, 3M, 6M, YTD, 1Y, ITD]
@@ -565,14 +632,18 @@ components:
         benchmark: { $ref: "#/components/schemas/Benchmark" }
         series:
           type: array
-          description: Total-return growth of $100 at `start`.
+          description: |
+            Total-return growth of $100 at `start` (`portfolio`, `benchmark`), and
+            the account's NAV in dollars that day (`nav`; deposits and withdrawals
+            included, so it can move without a return).
           items:
             type: object
-            required: [date, portfolio, benchmark]
+            required: [date, portfolio, benchmark, nav]
             properties:
               date: { type: string, format: date }
               portfolio: { type: number }
               benchmark: { type: number }
+              nav: { type: number }
         drawdown:
           type: array
           items: { $ref: "#/components/schemas/DatedValue" }

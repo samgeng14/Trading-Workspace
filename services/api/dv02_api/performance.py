@@ -62,7 +62,9 @@ def performance(
     base_idx = max((i for i, r in enumerate(rows) if r[0] <= start), default=0)
     window = rows[base_idx:]
     p0, b0 = window[0][1], window[0][2]
-    series = [{"date": d.isoformat(), "portfolio": 100 * v / p0, "benchmark": 100 * b / b0} for d, v, b in window]
+    series = [
+        {"date": d.isoformat(), "portfolio": 100 * v / p0, "benchmark": 100 * b / b0, "nav": v} for d, v, b in window
+    ]
     levels = [v for _, v, _ in window]
     p_rets = stats.returns_of(levels)
     b_rets = stats.returns_of([b for _, _, b in window])

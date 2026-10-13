@@ -9,7 +9,7 @@ test("rebalance preview: rows toggle and sortable columns", async ({ page }) => 
   const orders = Number(await preview.locator(".preview-totals .stat").first().locator(".stat-value").innerText());
   await expect(rows).toHaveCount(orders);
   await ctl(page, "trading.preview.rows.all").click();
-  await expect(rows).toHaveCount(22);
+  await expect(rows).toHaveCount(21); // the 21-ETF model; TQQQ left it
   await ctl(page, "trading.preview.rows.trades").click();
   await expect(rows).toHaveCount(orders);
 
@@ -28,6 +28,10 @@ test("submitting needs SUBMIT typed; orders appear working, can be cancelled, an
 }) => {
   covers("trading.orders.filter.*");
   await open(page, "/trading");
+  // the normal rebalance passes the engine's no-leverage check on the whole book: that is why it can go
+  const leverage = page.locator("ul.checks li").filter({ hasText: "No leverage" });
+  await expect(leverage).toContainText(/gross \d+\.\d% → \d+\.\d% of NAV, cash \$[\d,]+ after; every holding counted/);
+  await expect(leverage.locator('circle[fill="var(--status-good)"]')).toHaveCount(1);
   const submit = ctl(page, "trading.preview.submit");
   await expect(submit).toBeEnabled();
   await submit.click();

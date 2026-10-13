@@ -3,6 +3,8 @@
 Historical simulation applies today's weights to the last year of daily
 returns of each holding (dividend-adjusted closes from IBKR). Scenario P&L
 uses each position's measured beta to SPY, its duration and its asset class.
+Gross and cash, the no-leverage mandate, are the C++ engine's measure of the
+whole account (``mandate``), the same one that gates every order.
 """
 
 from __future__ import annotations
@@ -32,7 +34,17 @@ DEFAULT_LIMITS = {
     "day_loss": -0.02,
     "names": 25,
     "target_vol": 0.10,
+    "cash": 0.0,
 }
+
+# What each limit means for orders; the API appends it to the limit's detail.
+ENFORCEMENT = {
+    "gross": "the engine blocks orders that would leave the book above this; every holding counts",
+    "cash": "the engine blocks orders that would leave cash below this; every holding counts",
+    "net": "the engine blocks orders above this",
+    "single_name": "the engine blocks orders above this",
+}
+NOT_ENFORCED = "monitored here, not enforced by the engine"
 
 
 def beta_of(rets: dict[date, float], mkt: dict[date, float], fallback: float) -> float:
@@ -68,6 +80,16 @@ def limit(id_: str, label: str, value: float, lim: float, unit: str, detail: str
     return {"id": id_, "label": label, "value": value, "limit": lim, "unit": unit, "status": status, "detail": detail}
 
 
+def mandate_limit(
+    id_: str, label: str, value: float, lim: float, detail: str, *, floor: bool = False
+) -> dict[str, Any]:
+    """A mandate limit: breached only beyond it (with the engine's tolerance), never "warning".
+    A fully invested unlevered book sits at about 99.5% gross by design."""
+    beyond = value < lim - 1e-9 if floor else value > lim + 1e-9
+    status = "breach" if beyond else "ok"
+    return {"id": id_, "label": label, "value": value, "limit": lim, "unit": "pct", "status": status, "detail": detail}
+
+
 def report(
     *,
     as_of: str,
@@ -80,7 +102,13 @@ def report(
     sleeves: list[dict[str, Any]],
     limits_cfg: dict[str, float],
     durations: dict[str, float],
+    cash: float,
+    book: dict[str, Any] | None,
+    engine_error: str = "",
 ) -> dict[str, Any]:
+    """``book`` is the C++ engine's exposure of the whole account (``mandate.exposure``);
+    None when the engine is missing, which shows gross and cash as breached: no order can go.
+    A book the engine can't measure (``unmeasured``) shows gross as breached, for the same reason."""
     cfg = {**DEFAULT_LIMITS, **limits_cfg}
     classes: dict[str, dict[str, float]] = {}
     for p in positions:
@@ -115,16 +143,39 @@ def report(
                 pnl += mv * shock.get("crypto", 0.0)
         scenarios.append({"id": id_, "label": label, "pnl": pnl, "pnl_pct": pnl / nav if nav else 0.0})
 
+    mandate_limits = [
+        mandate_limit(
+            "gross",
+            "Gross exposure",
+            book["gross"] if book is not None else gross,
+            cfg["gross"],
+            "Long plus short notional, futures included",
+        ),
+        mandate_limit(
+            "cash",
+            "Cash (no margin loan)",
+            book["cash_ratio"] if book is not None else (cash / nav if nav else 0.0),
+            cfg["cash"],
+            "Cash as a share of NAV; below 0 is a margin loan",
+            floor=True,
+        ),
+    ]
+    if book is None:
+        for lim in mandate_limits:
+            lim["status"], lim["detail"] = "breach", engine_error
+    elif book.get("unmeasured"):
+        mandate_limits[0]["status"], mandate_limits[0]["detail"] = "breach", "; ".join(book["unmeasured"])
     limits = [
-        limit("gross", "Gross exposure", gross, cfg["gross"], "pct", "Long plus short notional, futures included"),
+        *mandate_limits,
         limit("net", "Net exposure", net, cfg["net"], "pct"),
+        # as the engine measures it: |net notional| per symbol, shorts and futures included
         limit(
             "single_name",
             "Largest position",
-            largest["weight"] if largest else 0.0,
+            book["largest_weight"] if book is not None else largest["weight"] if largest else 0.0,
             cfg["single_name"],
             "pct",
-            largest["symbol"] if largest else "",
+            (book["largest_name"] or "") if book is not None else largest["symbol"] if largest else "",
         ),
         limit("beta", "Beta to S&P 500", beta, cfg["beta"], "ratio", "Measured on a year of daily returns"),
         limit("vol", "Forecast volatility", forecast_vol, cfg["vol"], "pct", "63-day, annualized"),

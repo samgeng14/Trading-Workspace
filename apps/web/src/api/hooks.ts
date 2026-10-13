@@ -1,9 +1,11 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, type Schemas, unwrap } from "./client";
+import { type Frame, useStreamLive } from "./stream";
 
-// Live views poll every few seconds; the engine's WebSocket feed replaces
-// this in Phase 3 without changing the hooks' callers.
+// Live views poll every few seconds. While the API's stream is up it pushes
+// the streamed topics, and their polling drops to a safety net.
 const LIVE_MS = 5_000;
+const SAFETY_MS = 30_000;
 const SLOW_MS = 60_000;
 
 export const keys = {
@@ -21,27 +23,55 @@ export const keys = {
   runs: ["ops", "runs"] as const,
 };
 
+/** Where each stream topic lands: the cache entry its hook below reads. */
+export const streamKeys = {
+  status: keys.status,
+  strip: keys.strip,
+  summary: keys.summary,
+  positions: keys.positions,
+  intraday: keys.intraday,
+  orders: keys.orders,
+} satisfies Record<Frame["topic"], readonly string[]>;
+
+export function applyFrame(qc: QueryClient, frame: Frame): void {
+  if (Object.hasOwn(streamKeys, frame.topic)) qc.setQueryData(streamKeys[frame.topic], frame.data);
+}
+
+const useStreamedInterval = () => (useStreamLive() ? SAFETY_MS : LIVE_MS);
+
 export const useStatus = () =>
-  useQuery({ queryKey: keys.status, queryFn: () => unwrap(api.GET("/status")), refetchInterval: LIVE_MS });
+  useQuery({
+    queryKey: keys.status,
+    queryFn: () => unwrap(api.GET("/status")),
+    refetchInterval: useStreamedInterval(),
+  });
 
 export const useMarketStrip = () =>
-  useQuery({ queryKey: keys.strip, queryFn: () => unwrap(api.GET("/market/strip")), refetchInterval: LIVE_MS });
+  useQuery({
+    queryKey: keys.strip,
+    queryFn: () => unwrap(api.GET("/market/strip")),
+    refetchInterval: useStreamedInterval(),
+  });
 
 export const useSummary = () =>
-  useQuery({ queryKey: keys.summary, queryFn: () => unwrap(api.GET("/portfolio/summary")), refetchInterval: LIVE_MS });
+  useQuery({
+    queryKey: keys.summary,
+    queryFn: () => unwrap(api.GET("/portfolio/summary")),
+    refetchInterval: useStreamedInterval(),
+  });
 
 export const usePositions = () =>
   useQuery({
     queryKey: keys.positions,
     queryFn: () => unwrap(api.GET("/portfolio/positions")),
-    refetchInterval: LIVE_MS,
+    refetchInterval: useStreamedInterval(),
   });
 
 export const useIntraday = () =>
   useQuery({
     queryKey: keys.intraday,
     queryFn: () => unwrap(api.GET("/portfolio/intraday")),
-    refetchInterval: LIVE_MS,
+    refetchInterval: useStreamedInterval(),
   });
 
 export const useBenchmarks = () =>
@@ -59,7 +89,11 @@ export const useRisk = () =>
   useQuery({ queryKey: keys.risk, queryFn: () => unwrap(api.GET("/risk")), refetchInterval: LIVE_MS * 2 });
 
 export const useOrders = () =>
-  useQuery({ queryKey: keys.orders, queryFn: () => unwrap(api.GET("/trading/orders")), refetchInterval: LIVE_MS });
+  useQuery({
+    queryKey: keys.orders,
+    queryFn: () => unwrap(api.GET("/trading/orders")),
+    refetchInterval: useStreamedInterval(),
+  });
 
 export const useRebalancePreview = () =>
   useQuery({

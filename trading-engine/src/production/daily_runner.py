@@ -587,10 +587,14 @@ def step_submit_orders(
 
     # ── Pre-trade risk gate ──────────────────────────────────────────────
     # Runs the kill switch + price validators + exposure limits before any
-    # network call to IBKR. Aborts with a structured reason if anything
-    # fails so the run log makes the failure cause obvious.
+    # network call to IBKR, then the C++ no-leverage check on the whole
+    # book (every holding, the model's or not, plus these orders). Either
+    # one blocks. Runs on dry runs too, so the log says what a real run
+    # would do. Aborts with a structured reason if anything fails so the
+    # run log makes the failure cause obvious.
     try:
         import pandas as pd
+        from src.runtime.leverage import check_leverage
         from src.runtime.risk_checks import run_pre_trade_risk_checks
 
         recon_path = PROJECT_ROOT / "data" / "broker" / "reconciliations" / f"{profile}_reconciliation.parquet"
@@ -625,15 +629,17 @@ def step_submit_orders(
             prices_path=prices_path,
         )
         log.info(risk.report())
-        if not risk.ok:
+        leverage = check_leverage(profile, root=PROJECT_ROOT)
+        log.info(leverage.report())
+        if not (risk.ok and leverage.ok):
             log.error("✗ Pre-trade risk checks BLOCKED submission.")
             return {
                 "ok": False,
                 "action": "submit_orders",
                 "blocked": True,
-                "reasons": risk.blocking_reasons,
-                "warnings": risk.warnings,
-                "risk_details": risk.details,
+                "reasons": risk.blocking_reasons + leverage.blocking_reasons,
+                "warnings": risk.warnings + leverage.warnings,
+                "risk_details": {**risk.details, "leverage": leverage.details},
             }
     except Exception as exc:
         # If the risk gate itself fails to load, that's a *fail-open* risk —

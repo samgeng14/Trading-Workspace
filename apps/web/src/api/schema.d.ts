@@ -265,6 +265,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live updates over a WebSocket (ws://<host>/api/v1/stream).
+         * @description Upgrade to a WebSocket; the client sends nothing. On connect the server
+         *     sends one StreamMessage per topic with its current value, then a topic's
+         *     new value whenever it changes (checked about every 2 seconds). Each
+         *     message's `data` is exactly the body its REST endpoint returns:
+         *
+         *       status → /status · strip → /market/strip · summary → /portfolio/summary
+         *       positions → /portfolio/positions · intraday → /portfolio/intraday
+         *       orders → /trading/orders
+         *
+         *     A topic whose endpoint can't answer right now is skipped; its REST
+         *     endpoint says why. Demo mode has no stream, so the dashboard polls.
+         */
+        get: operations["openStream"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -453,6 +483,46 @@ export interface components {
                 pnl: number;
             }[];
         };
+        /** @enum {string} */
+        StreamTopic: "status" | "strip" | "summary" | "positions" | "intraday" | "orders";
+        /** @description One WebSocket frame from /stream. `data` is the topic's REST body. */
+        StreamMessage: {
+            /** @constant */
+            topic: "status";
+            /** Format: date-time */
+            at: string;
+            data: components["schemas"]["SystemStatus"];
+        } | {
+            /** @constant */
+            topic: "strip";
+            /** Format: date-time */
+            at: string;
+            data: components["schemas"]["MarketStrip"];
+        } | {
+            /** @constant */
+            topic: "summary";
+            /** Format: date-time */
+            at: string;
+            data: components["schemas"]["PortfolioSummary"];
+        } | {
+            /** @constant */
+            topic: "positions";
+            /** Format: date-time */
+            at: string;
+            data: components["schemas"]["PositionsResponse"];
+        } | {
+            /** @constant */
+            topic: "intraday";
+            /** Format: date-time */
+            at: string;
+            data: components["schemas"]["IntradayPnl"];
+        } | {
+            /** @constant */
+            topic: "orders";
+            /** Format: date-time */
+            at: string;
+            data: components["schemas"]["OrdersResponse"];
+        };
         /**
          * @default ITD
          * @enum {string}
@@ -491,12 +561,17 @@ export interface components {
             /** Format: date */
             end: string;
             benchmark: components["schemas"]["Benchmark"];
-            /** @description Total-return growth of $100 at `start`. */
+            /**
+             * @description Total-return growth of $100 at `start` (`portfolio`, `benchmark`), and
+             *     the account's NAV in dollars that day (`nav`; deposits and withdrawals
+             *     included, so it can move without a return).
+             */
             series: {
                 /** Format: date */
                 date: string;
                 portfolio: number;
                 benchmark: number;
+                nav: number;
             }[];
             drawdown: components["schemas"]["DatedValue"][];
             stats: components["schemas"]["PerformanceStats"];
@@ -1028,6 +1103,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunsResponse"];
+                };
+            };
+        };
+    };
+    openStream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Switching to the WebSocket protocol. Frames are StreamMessage JSON. */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StreamMessage"];
                 };
             };
         };

@@ -71,6 +71,7 @@ export function Meter({
   valueText,
   limitText,
   detail,
+  floor = limit === 0,
 }: {
   label: string;
   value: number;
@@ -79,9 +80,17 @@ export function Meter({
   valueText: string;
   limitText: string;
   detail?: string;
+  /**
+   * The value must stay at or above the limit (cash >= 0). A zero limit is always a floor:
+   * there is no share of zero to use up. A floor above zero has to be named here.
+   */
+  floor?: boolean;
 }) {
-  // Same sign as the limit counts toward it (a -4% drawdown uses 80% of a -5% limit).
-  const used = Math.min(1, Math.max(0, value / (limit || 1)));
+  // How much of the limit is used. Same sign as the limit counts toward it (a -4% drawdown uses
+  // 80% of a -5% limit). A floor is used from the top down: cash at 0.4% of NAV has used 99.6% of
+  // the room above a 0% floor. A breach always fills the bar, so a margin loan never shows empty.
+  const share = floor ? (1 - value) / (1 - limit) : value / (limit || 1);
+  const used = status === "breach" ? 1 : Math.min(1, Math.max(0, share));
   return (
     <div className="meter-row" data-status={status}>
       <span className="meter-label">{label}</span>
@@ -93,6 +102,7 @@ export function Meter({
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(used * 100)}
+        aria-valuetext={`${valueText}, limit ${limitText}`}
       >
         <div className="meter-fill" data-status={status} style={{ width: `${used * 100}%` }} />
       </div>

@@ -4,7 +4,7 @@ import argparse
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
@@ -127,28 +127,67 @@ def load_latest_targets(targets_path: Path) -> pd.DataFrame:
     return latest_targets
 
 
+POSITION_COLUMNS = ["symbol", "current_shares", "avg_cost", "sec_type", "multiplier", "market_price"]
+# Sized by a multiplier, and one row per contract (MESZ6, not MES): two expiries, or a
+# stock and its options, summed into one row would be a position nobody holds.
+PER_CONTRACT = ("FUT", "CONTFUT", "OPT", "FOP", "WAR")
+
+
+def _positive(value: Any) -> float:
+    """``value`` as a float when it is finite and > 0, else NaN."""
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return x if np.isfinite(x) and x > 0 else float("nan")
+
+
 def fetch_positions_df(client: IBKRClient) -> pd.DataFrame:
+    """Every position in the account. ``sec_type``, ``multiplier`` and ``market_price``
+    (IBKR's own mark, NaN when it has none) let the no-leverage check
+    (src/runtime/leverage.py) price holdings the model doesn't trade. Futures and
+    options are keyed by their local symbol; a multiplier IBKR leaves empty is 1
+    for shares and NaN for them, which the check blocks as unpriced."""
     positions = client.positions()
     if len(positions) == 0:
-        return pd.DataFrame(columns=["symbol", "current_shares", "avg_cost"])
+        return pd.DataFrame(columns=POSITION_COLUMNS)
 
-    positions_df = pd.DataFrame(
-        [
+    marks = {
+        getattr(item.contract, "conId", None): _positive(getattr(item, "marketPrice", None))
+        for item in client.ib.portfolio()
+    }
+    rows = []
+    for p in positions:
+        contract = getattr(p, "contract", None)
+        sec_type = getattr(contract, "secType", None)
+        multiplier = _positive(getattr(contract, "multiplier", None))
+        symbol = getattr(contract, "symbol", None)
+        if sec_type in PER_CONTRACT:
+            symbol = getattr(contract, "localSymbol", None) or f"{symbol} {getattr(contract, 'conId', '')}"
+        rows.append(
             {
-                "symbol": getattr(getattr(p, "contract", None), "symbol", None),
+                "symbol": symbol,
                 "current_shares": float(getattr(p, "position", 0.0)),
                 "avg_cost": float(getattr(p, "avgCost", 0.0)),
+                "sec_type": sec_type,
+                "multiplier": multiplier if np.isfinite(multiplier) or sec_type in PER_CONTRACT else 1.0,
+                "market_price": marks.get(getattr(contract, "conId", None), float("nan")),
             }
-            for p in positions
-        ]
-    )
+        )
     positions_df = (
-        positions_df.groupby("symbol", as_index=False)
-        .agg(current_shares=("current_shares", "sum"), avg_cost=("avg_cost", "mean"))
+        pd.DataFrame(rows)
+        .groupby("symbol", as_index=False)
+        .agg(
+            current_shares=("current_shares", "sum"),
+            avg_cost=("avg_cost", "mean"),
+            sec_type=("sec_type", "first"),
+            multiplier=("multiplier", "first"),
+            market_price=("market_price", "first"),
+        )
         .sort_values("symbol")
         .reset_index(drop=True)
     )
-    return positions_df
+    return positions_df[POSITION_COLUMNS]
 
 
 def fetch_account_snapshot_df(client: IBKRClient) -> pd.DataFrame:

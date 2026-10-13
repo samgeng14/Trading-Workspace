@@ -2,8 +2,9 @@
 
 The preview runs ``build_reconciliation`` (the function the daily runner uses)
 on live positions and NAV, then ``run_pre_trade_risk_checks`` (the runner's
-gate: kill switch, NAV, price-file validation, exposure limits). Submitting
-starts the daily runner itself, so there is one order path.
+gate: kill switch, NAV, price-file validation, exposure limits), then the C++
+no-leverage check over every holding plus the basket's orders (``mandate``).
+Submitting starts the daily runner itself, so there is one order path.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from . import nyse, runs
+from . import mandate, nyse, runs
 from .broker import AccountSnap
 
 log = logging.getLogger(__name__)
@@ -20,6 +21,31 @@ log = logging.getLogger(__name__)
 
 def _check(id_: str, label: str, status: str, detail: str) -> dict[str, str]:
     return {"id": id_, "label": label, "status": status, "detail": detail}
+
+
+def _money(v: float) -> str:
+    return f"-${-v:,.0f}" if v < 0 else f"${v:,.0f}"
+
+
+def leverage_check(snap: AccountSnap, orders: list[dict[str, Any]]) -> dict[str, str]:
+    """The C++ no-leverage check on the whole book after these orders."""
+    label = "No leverage"
+    try:
+        res = mandate.check(snap, orders)
+    except mandate.EngineMissing as exc:
+        return _check("leverage", label, "fail", str(exc))
+    if not res["ok"]:
+        return _check("leverage", label, "fail", "; ".join(b["message"] for b in res["breaches"] if b["blocking"]))
+    if res["breaches"]:
+        return _check("leverage", label, "warn", "; ".join(b["message"] for b in res["breaches"]))
+    before, after = res["before"], res["after"]
+    return _check(
+        "leverage",
+        label,
+        "pass",
+        f"gross {before['gross']:.1%} → {after['gross']:.1%} of NAV, cash {_money(after['cash'])} after; "
+        "every holding counted",
+    )
 
 
 def sleeve_name() -> str:
@@ -87,9 +113,13 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
 
     price_now = {p.symbol: (p.last or 0.0) for p in snap.positions} if snap else {}
     rows = []
+    basket = []  # what the leverage check sees: the orders at the prices est_notional uses
     for r in recon.itertuples(index=False):
         px = price_now.get(r.symbol) or float(r.close)
         trade = int(r.delta_shares) if r.symbol in order_syms else 0
+        cost = float(r.estimated_commission) if trade else 0.0
+        if trade:
+            basket.append({"symbol": r.symbol, "quantity": trade, "price": float(r.close), "commission": cost})
         rows.append(
             {
                 "symbol": r.symbol,
@@ -99,7 +129,7 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
                 "target_qty": int(r.target_shares),
                 "trade_qty": trade,
                 "est_notional": trade * float(r.close),
-                "est_cost": float(r.estimated_commission) if trade else 0.0,
+                "est_cost": cost,
             }
         )
     targeted = set(recon["symbol"])
@@ -125,7 +155,9 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
                 "untargeted",
                 "Holdings outside the targets",
                 "warn",
-                ", ".join(p.symbol for p in untargeted) + ": the engine's basket leaves these untouched",
+                ", ".join(p.symbol for p in untargeted)
+                + ": not in the model. They count toward the no-leverage check, but the engine doesn't trade "
+                "them until you decide whether to sell them or keep them",
             )
         )
 
@@ -163,6 +195,7 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
             if isinstance(gross, (int, float)):
                 detail += f" (gross after trades {gross:.1%})"
             checks.append(_check("gate", "Engine pre-trade gate", "pass", detail))
+        checks.append(leverage_check(snap, basket))
 
     turnover = (buy + sell) / nav if nav else 0.0
     checks.append(

@@ -1,12 +1,16 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useIntraday, useOrders, usePerformance, usePositions, useRisk, useStatus, useSummary } from "../api/hooks";
 import type { Schemas } from "../api/client";
 import { DivergingBars } from "../charts/DivergingBars";
-import { LineChart, monthTicks } from "../charts/LineChart";
+import { sessionMinutes } from "../charts/axis";
+import { EquityChart } from "../charts/EquityChart";
+import { EQUITY_MODES, type EquityMode, equityLines } from "../charts/equity";
+import { LineChart } from "../charts/LineChart";
 import { Sparkline } from "../charts/Sparkline";
-import { Delta, LoadError, Meter, Panel, Stat } from "../components/bits";
+import { Delta, LoadError, Meter, Panel, Segmented, Stat } from "../components/bits";
 import { StatusIcon } from "../components/icons";
+import { HistoryEmpty, isShortHistory } from "../components/HistoryEmpty";
 import { NextJob, ScheduleList } from "../components/Schedule";
 import { Figure } from "../components/Figure";
 import { type Column, SortableTable } from "../components/SortableTable";
@@ -266,19 +270,25 @@ function KpiBand() {
 
 const HOURS = ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"];
 
+/** "09:30" on the minute, "14:12:15" between minutes (the API samples on its own clock). */
+const sampleTime = (t: string) => {
+  const s = timeET(t);
+  return s.endsWith(":00") ? s.slice(0, 5) : s;
+};
+
 function IntradayPanel({ className }: { className: string }) {
   const { data, error } = useIntraday();
   const view = useMemo(() => {
     if (!data) return null;
-    const open = Date.parse(data.session_open);
-    const minutes = Math.round((Date.parse(data.session_close) - open) / 60_000);
-    const values = data.points.map((p) => p.pnl);
+    // x comes from each point's own timestamp; the axis always spans the whole session.
+    const points = sessionMinutes(data.points, data.session_open, data.session_close);
+    const minutes = (Date.parse(data.session_close) - Date.parse(data.session_open)) / 60_000;
     const ticks = HOURS.map((h) => {
       const [hh, mm] = h.split(":").map(Number) as [number, number];
-      return { index: (hh - 9) * 60 + mm - 30, text: h };
-    }).filter((t) => t.index <= minutes);
-    const last = values[values.length - 1] ?? 0;
-    return { open, minutes, values, ticks, last };
+      return { at: (hh - 9) * 60 + mm - 30, text: h };
+    }).filter((t) => t.at <= minutes);
+    const x = { values: points.map((p) => p.minute), domain: [0, minutes] as [number, number] };
+    return { points, x, ticks, last: points[points.length - 1]?.pnl ?? 0 };
   }, [data]);
 
   if (error)
@@ -287,12 +297,12 @@ function IntradayPanel({ className }: { className: string }) {
         <LoadError error={error} />
       </Panel>
     );
-  if (data && data.points.length === 0)
+  if (data && view?.points.length === 0)
     return (
       <Panel title="Today's P&L" meta={dateLong(data.trading_date)} className={className}>
         <p className="empty">
-          No intraday P&L recorded for this session. P&L is sampled every minute while the market is open and IBKR is
-          connected.
+          No intraday P&L recorded for this session. The API samples P&L while the market is open and it is connected to
+          IBKR.
         </p>
       </Panel>
     );
@@ -305,21 +315,21 @@ function IntradayPanel({ className }: { className: string }) {
       chart={
         view && (
           <LineChart
-            labels={view.values.map((_, i) => String(i))}
             series={[
               {
                 id: "pnl",
                 label: "Day P&L",
                 color: "var(--ink-1)",
-                values: view.values,
+                values: view.points.map((p) => p.pnl),
                 endText: money(view.last, { sign: true }),
               },
             ]}
             baseline={0}
             signedFill
-            xLength={view.minutes + 1}
+            x={view.x}
             yFormat={(v) => money(v, { compact: true, sign: true })}
-            xLabel={(i) => `${shortTimeET(new Date(view.open + i * 60_000))} ET`}
+            tipFormat={(v) => money(v, { sign: true })}
+            xLabel={(i) => `${sampleTime(view.points[i]!.t)} ET`}
             xTicks={view.ticks}
             height={220}
             ariaLabel="Profit and loss through today's session"
@@ -330,9 +340,12 @@ function IntradayPanel({ className }: { className: string }) {
       table={{
         head: ["Time (ET)", "P&L"],
         numeric: [1],
-        rows: (data?.points ?? [])
-          .filter((_, i) => i % 15 === 0)
-          .map((p) => [shortTimeET(p.t), money(p.pnl, { sign: true })]),
+        // the first sample in each quarter hour, and the latest
+        rows: (view?.points ?? [])
+          .filter(
+            (p, i, a) => i === 0 || i === a.length - 1 || Math.floor(p.minute / 15) > Math.floor(a[i - 1]!.minute / 15),
+          )
+          .map((p) => [sampleTime(p.t), money(p.pnl, { sign: true })]),
       }}
     />
   );
@@ -509,73 +522,79 @@ function LimitsPanel({ className }: { className: string }) {
 
 function PerformancePanel({ className }: { className: string }) {
   const { data, error } = usePerformance("ITD", "SPY");
-  const view = useMemo(() => {
-    if (!data) return null;
-    const dates = data.series.map((p) => p.date);
-    return {
-      dates,
-      port: data.series.map((p) => p.portfolio),
-      bench: data.series.map((p) => p.benchmark),
-      ticks: monthTicks(dates, 7),
-    };
+  const history = useSummary().data?.history;
+  const [mode, setMode] = useState<EquityMode>("growth");
+  const monthEnds = useMemo(() => {
+    const series = data?.series ?? [];
+    const lines = equityLines(series, "nav");
+    // the last close of each month, and the latest
+    return series.flatMap((p, i) =>
+      i === series.length - 1 || series[i + 1]!.date.slice(0, 7) !== p.date.slice(0, 7)
+        ? [[p.date, money(lines.portfolio[i]), money(lines.benchmark[i])]]
+        : [],
+    );
   }, [data]);
   if (error)
     return (
       <Panel title="Since inception" className={className}>
-        <LoadError error={error} />
+        {isShortHistory(error) ? <HistoryEmpty history={history} /> : <LoadError error={error} />}
       </Panel>
     );
+  const bench = data?.benchmark.label ?? "Benchmark";
   return (
     <Figure
       className={className}
       title="Since inception vs S&P 500"
-      meta={data ? `growth of $100, total return, through ${dateShort(data.end)} close` : undefined}
+      meta={
+        data
+          ? `${mode === "nav" ? "NAV in dollars" : "growth of $100, total return"}, through ${dateShort(data.end)} close`
+          : undefined
+      }
       control="overview.performance"
       actions={
-        <Link to="/performance" className="btn btn-ghost" data-control="overview.performance.more">
-          Performance →
-        </Link>
+        // In a narrow panel these wrap onto two lines, so the Chart / Table switch keeps its full width.
+        <div className="panel-actions" style={{ flex: "1 1 0", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <Segmented
+            value={mode}
+            options={EQUITY_MODES}
+            onChange={setMode}
+            label="Equity curve units"
+            control="overview.performance.mode"
+          />
+          <Link to="/performance" className="btn btn-ghost" data-control="overview.performance.more">
+            Performance →
+          </Link>
+        </div>
       }
       chart={
-        view &&
         data && (
-          <LineChart
-            labels={view.dates}
-            series={[
-              {
-                id: "portfolio",
-                label: "Portfolio",
-                color: "var(--series-1)",
-                values: view.port,
-                endText: pct(data.stats.total_return, 1, true),
-              },
-              {
-                id: "benchmark",
-                label: data.benchmark.label,
-                color: "var(--bench)",
-                values: view.bench,
-                endText: pct(data.stats.benchmark_total_return, 1, true),
-              },
-            ]}
-            baseline={100}
-            yFormat={(v) => num(v, 0)}
-            xLabel={(i) => dateLong(view.dates[i]!)}
-            xTicks={view.ticks}
+          <EquityChart
+            data={data}
+            mode={mode}
             height={220}
-            ariaLabel="Portfolio versus S&P 500 since inception"
+            maxTicks={7}
+            ariaLabel={
+              mode === "nav"
+                ? `NAV in dollars since inception, versus ${bench} from the same starting NAV`
+                : `Portfolio versus ${bench} since inception`
+            }
             control="overview.performance.plot"
           />
         )
       }
-      table={{
-        head: ["Month", "Portfolio", data?.benchmark.label ?? "Benchmark"],
-        numeric: [1, 2],
-        rows: (data?.monthly ?? []).map((m) => [
-          `${m.year}-${String(m.month).padStart(2, "0")}`,
-          pct(m.portfolio, 2, true),
-          pct(m.benchmark, 2, true),
-        ]),
-      }}
+      table={
+        mode === "nav"
+          ? { head: ["Date", "Portfolio NAV", `${bench}, same start`], numeric: [1, 2], rows: monthEnds }
+          : {
+              head: ["Month", "Portfolio", bench],
+              numeric: [1, 2],
+              rows: (data?.monthly ?? []).map((m) => [
+                `${m.year}-${String(m.month).padStart(2, "0")}`,
+                pct(m.portfolio, 2, true),
+                pct(m.benchmark, 2, true),
+              ]),
+            }
+      }
     />
   );
 }

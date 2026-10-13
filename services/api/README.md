@@ -38,11 +38,13 @@ http://127.0.0.1:8000/docs.
 |---|---|
 | NAV, cash, positions, day P&L | Live IBKR account updates and P&L subscriptions, on client ID 307 (paper) |
 | Prices, previous close, ticker strip | IBKR quotes. Delayed 15 min unless real-time data is shared to the paper login |
-| Intraday P&L | The API samples account P&L every minute while the market is open, to `artifacts/api/intraday/` |
+| Intraday P&L | The API samples account P&L every 15 seconds while the market is open, to `artifacts/api/intraday/`. The chart's last point is the live P&L now |
+| Live updates | One WebSocket, `/api/v1/stream`. About every 2 seconds the API computes status, the ticker strip, summary, positions, intraday P&L and orders once, and sends each open dashboard the ones that changed. Each frame's `data` is that endpoint's REST body. While the stream is up the dashboard re-checks those over REST every 30 seconds; without it, it polls every 5 seconds. A page from another site can't open the stream (the API answers 403). On paper the prices underneath are delayed 15 minutes unless real-time data is shared to the paper login |
 | NAV history, performance | IBKR Flex (below), plus the NAV the API records after each close, plus the engine's account snapshots. Inception is the first day with a NAV; `DV02_INCEPTION_DATE` (and `DV02_INCEPTION_NAV`) in `.env` pins it instead |
 | Returns and ratios on a short record | Not invented. Ratios (vol, Sharpe, Sortino, beta, tracking error) need 20+ daily returns; under a year nothing is annualized; MTD/YTD need history that reaches the period start. Until then the API sends `null` and the dashboard says why |
 | Benchmarks, betas, VaR | IBKR dividend-adjusted daily bars (cached in `artifacts/api/bars/`), else the engine's price master |
-| Rebalance preview | The engine's own `build_reconciliation` and `run_pre_trade_risk_checks` on live positions |
+| Risk limits | Gross and cash: the C++ engine's measure of the whole account (below). Net, largest position, beta, volatility, drawdown and day P&L: computed here from the positions and the NAV history |
+| Rebalance preview | The engine's own `build_reconciliation` and `run_pre_trade_risk_checks` on live positions, then the C++ no-leverage check on every holding plus the basket's orders |
 | Submit | Starts the engine's daily runner with `--force-rebalance`, using the LaunchAgent's Python and environment. One order path, the engine's risk gate and kill switch, and the 16:32 run then skips the day |
 | Orders | IBKR, all clients, this session. Offline, the engine's last submission files |
 | Cancel | IBKR only lets the placing client cancel, so the API reconnects briefly as that client (the runner's 300) |
@@ -52,6 +54,35 @@ http://127.0.0.1:8000/docs.
 
 With IB Gateway down, the dashboard says so. It shows the engine's last saved
 snapshot where one exists. Previews show but can't be submitted.
+
+## No leverage
+
+The fund is long/short with no leverage: gross (long plus short, futures at
+full notional) at most 100% of NAV, and cash at or above 0 after the orders,
+so no margin loan. The C++ engine checks it (`engine/README.md` has the exact
+rules), and `dv02_api/mandate.py` feeds it the whole IBKR account: every
+holding, including ones the model doesn't trade.
+
+- **Preview:** the "No leverage" check runs on the book after the basket's
+  orders. It fails, and the submit is refused, when that book would be over
+  either limit, a name would be over 25% of NAV, a holding has no price, or
+  the account holds options. A basket that only shrinks positions passes
+  with a warning while the book is still over.
+- **Risk:** gross and "Cash (no margin loan)" breach only beyond the limit,
+  with no early warning: a fully invested book sits near 99.5% gross by
+  design. Gross also shows as breached while a holding has no price or the
+  account holds options, since the engine then blocks every order. A breach
+  shows as a blocker on the Command Center.
+- **Holdings outside the model** count toward both, but the engine's basket
+  doesn't trade them until you decide whether to sell them or keep them. The
+  model fills 99.5% of NAV, so once they add up to more than the other 0.5%,
+  a basket that tops the model back up is blocked.
+- **The daily runner** runs the same check from its own files before it
+  sends anything (`trading-engine/src/runtime/leverage.py`).
+- **Without the engine** (`dv02_engine` not installed for this Python), the
+  preview fails, gross and cash show as breached, and nothing can be sent.
+  `bin/tradeit setup` installs it; `bin/tradeit engine` rebuilds it after a
+  pull.
 
 ## NAV history since inception (IBKR Flex)
 
@@ -95,6 +126,15 @@ What the tests cover:
 - **Units:** the calendar, stats, Flex parsing, NAV merging, order mapping,
   the IBKR snapshot mapping, the live-account refusal, and the
   dashboard-started run.
+- **No leverage** (`tests/test_mandate.py`): a levered book fails the preview
+  and the submit is refused; `/risk` shows the gross and cash breaches; an
+  unlevered book passes; a missing engine blocks. They need the engine
+  installed in `.venv`, which `bin/tradeit setup` does.
+- **Stream** (`tests/test_stream.py`): the first frames cover every topic,
+  match the contract and are the REST bodies byte for byte; only changes go
+  out after that; a failing topic is skipped and comes back; two dashboards
+  share one computation; a slow one gets the newest value, not a backlog;
+  a page from another site is refused; disconnects and shutdown clean up.
 
 ## Troubleshooting
 

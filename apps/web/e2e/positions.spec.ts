@@ -5,7 +5,7 @@ test("filters narrow the book and the totals follow", async ({ page }) => {
   covers("positions.side.*");
   await open(page, "/positions");
   const rows = page.locator("section[aria-label='Book'] tbody tr");
-  await expect(rows).toHaveCount(23);
+  await expect(rows).toHaveCount(22);
 
   await ctl(page, "positions.search").fill("bitcoin");
   await expect(rows).toHaveCount(1);
@@ -27,9 +27,9 @@ test("filters narrow the book and the totals follow", async ({ page }) => {
     "1",
   );
   await ctl(page, "positions.side.long").click();
-  await expect(rows).toHaveCount(22);
+  await expect(rows).toHaveCount(21);
   await ctl(page, "positions.side.all").click();
-  await expect(rows).toHaveCount(23);
+  await expect(rows).toHaveCount(22);
 
   await ctl(page, "positions.search").fill("zzz");
   await expect(page.locator("section[aria-label='Book']")).toContainText("No positions match the filters");

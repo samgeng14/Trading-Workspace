@@ -3,9 +3,19 @@
 // Everything is a pure function of the date: daily returns come from a
 // small factor model seeded by (symbol, date), so reloading the page or
 // running the e2e suite always shows the same history. The book mirrors the
-// current live setup: the 22-ETF universe rebalanced monthly with a
-// momentum tilt (sleeve "ETF Momentum"), plus a short micro E-mini S&P
-// position standing in for the central risk book's beta hedge.
+// current live setup: the 21-ETF model rebalanced monthly with a momentum
+// tilt (sleeve "ETF Momentum"), plus a short micro E-mini S&P position
+// standing in for the central risk book's beta hedge.
+//
+// The fund runs with no leverage (mandate.ts): gross = (long + |short|) / NAV
+// <= 100% with the futures at notional, and cash >= 0. The sleeve is sized at
+// 80% of NAV and the hedge at 15% (in whole contracts, so 13-17%), which puts
+// the book near 95% gross with about 20% of NAV in cash. The headroom matters
+// because a short hedge pushes gross up as the market rises: its notional
+// grows while its losses come out of NAV, about 2 x 15% = 0.3 points of gross
+// per 1% on the S&P, so it takes a rally of 10% or more between rebalances to
+// use it up. If a close ever leaves gross above 98%, the sleeve and the hedge
+// go back to target that day ("mandate" trades).
 
 import {
   addDays,
@@ -17,16 +27,24 @@ import {
   prevTradingDay,
   tradingDays,
 } from "./calendar";
+import { type Book, type BookOrder, check } from "./mandate";
 
 export const INCEPTION = "2025-10-15";
 export const START_NAV = 1_000_000;
 const HISTORY_START = "2024-09-03"; // momentum lookback before inception
-const ANCHOR_DATE = "2026-05-06"; // simulated paths pass through the real closes on this date
+/**
+ * Simulated paths pass through the real closes on this date. A history that
+ * ends before it (a demo_now before May 6, 2026) is not rescaled, so it shows
+ * its own price levels and a slightly different book.
+ */
+export const ANCHOR_DATE = "2026-05-06";
 const CASH_YIELD = 0.042;
 const COMMISSION_PER_SHARE = 0.005;
 const SLIPPAGE = 0.0002;
-const CASH_BUFFER = 0.005;
-const HEDGE_RATIO = 0.2; // short S&P notional as a fraction of NAV
+export const SLEEVE_WEIGHT = 0.8; // the ETF model's targets sum to this fraction of NAV
+export const HEDGE_RATIO = 0.15; // short S&P notional as a fraction of NAV
+const GROSS_TRIM = 0.98; // a close above this gross puts the sleeve and the hedge back to target
+const MIN_TRADE = 1000; // dollars, as the engine's basket builder
 const DRIFT_BAND = 0.03;
 const MOMENTUM_LOOKBACK = 126;
 
@@ -42,7 +60,10 @@ export interface Instrument {
   vol: number; // annualized total vol
   drift: number; // annualized drift
   loadings: Partial<Record<Factor, number>>;
-  /** Daily-reset leveraged product: return = leverage x underlying - fee. */
+  /**
+   * Daily-reset leveraged product: return = leverage x underlying - fee. None is in
+   * the model since TQQQ left it; the no-leverage check would count one at its leverage.
+   */
   leveraged?: { underlying: string; leverage: number };
 }
 
@@ -54,10 +75,6 @@ const FACTOR_SD: Record<Factor, number> = { mkt: 0.0098, rates: 0.0055, cmdty: 0
 export const ETFS: Instrument[] = [
   etf("SPY", "SPDR S&P 500", "equity", 733.83, 0.16, 0.09, { mkt: 1 }),
   etf("QQQ", "Invesco QQQ (Nasdaq-100)", "equity", 695.77, 0.21, 0.11, { mkt: 1.2 }),
-  {
-    ...etf("TQQQ", "ProShares UltraPro QQQ", "equity", 71.57, 0.63, -0.0095, { mkt: 3.6 }),
-    leveraged: { underlying: "QQQ", leverage: 3 },
-  },
   etf("VEA", "Vanguard Developed Markets", "equity", 70.87, 0.15, 0.07, { mkt: 0.85 }),
   etf("VWO", "Vanguard Emerging Markets", "equity", 60.75, 0.18, 0.06, { mkt: 0.8 }),
   etf("INDA", "iShares MSCI India", "equity", 50.03, 0.17, 0.05, { mkt: 0.6 }),
@@ -185,7 +202,7 @@ export interface Trade {
   symbol: string;
   qty: number; // signed
   price: number;
-  reason: "rebalance" | "drift" | "cash" | "hedge";
+  reason: "rebalance" | "drift" | "mandate" | "hedge";
 }
 
 export interface DayRecord {
@@ -261,15 +278,11 @@ export function history(lastDate: string): History {
     }
     const navBefore = navOf(cash, holdings, px);
     // 2. decide trades at the close
-    const trades: Trade[] = [];
+    let trades: Trade[] = [];
     const monthStart = book.length === 0 || date.slice(0, 7) !== book[book.length - 1]!.date.slice(0, 7);
     if (monthStart) {
       targets = momentumTargets(close, i);
       for (const t of rebalanceTo(targets, holdings, navBefore, px)) trades.push({ ...t, date, reason: "rebalance" });
-      lastTradeIdx = i;
-    } else if (cash < -0.01 * navBefore) {
-      // Hedge losses come out of cash; trim back to target instead of borrowing.
-      for (const t of rebalanceTo(targets, holdings, navBefore, px)) trades.push({ ...t, date, reason: "cash" });
       lastTradeIdx = i;
     } else if (i - lastTradeIdx >= 3) {
       const drifted = [...targets].filter(([s, w]) => {
@@ -287,6 +300,29 @@ export function history(lastDate: string): History {
     const curHedge = holdings.get(HEDGE.symbol)?.qty ?? 0;
     if (hedgeQty !== curHedge && (monthStart || Math.abs(hedgeQty - curHedge) >= 2)) {
       trades.push({ date, symbol: HEDGE.symbol, qty: hedgeQty - curHedge, price: px(HEDGE.symbol), reason: "hedge" });
+    }
+    // the mandate, with room to spare: a book the day's trades would leave above
+    // GROSS_TRIM (or short of cash) goes back to target instead, to the share if need be
+    const before = bookOf(navBefore, cash, holdings, px);
+    const tooFar = (planned: Trade[]) => {
+      const r = check(
+        before,
+        planned.map((t) => orderOf(t, px)),
+      );
+      return !r.ok || r.after.gross > GROSS_TRIM || r.after.cashRatio < 0;
+    };
+    for (const minTrade of [MIN_TRADE, 0]) {
+      if (!tooFar(trades)) break;
+      trades = rebalanceTo(targets, holdings, navBefore, px, minTrade).map((t) => ({ ...t, date, reason: "mandate" }));
+      if (hedgeQty !== curHedge)
+        trades.push({
+          date,
+          symbol: HEDGE.symbol,
+          qty: hedgeQty - curHedge,
+          price: px(HEDGE.symbol),
+          reason: "mandate",
+        });
+      lastTradeIdx = i;
     }
     // 3. apply trades
     holdings = new Map([...holdings].map(([s, h]) => [s, { ...h }]));
@@ -307,14 +343,55 @@ function navOf(cash: number, holdings: Map<string, Holding>, px: (s: string) => 
   return nav;
 }
 
+/** Economic exposure per dollar held: a leveraged ETF at its leverage, everything else 1. */
+const exposureOf = (inst: Instrument) => inst.leveraged?.leverage ?? 1;
+
+/** The whole book as the no-leverage check sees it: every holding, priced, futures at notional. */
+export function bookOf(nav: number, cash: number, holdings: Map<string, Holding>, px: (s: string) => number): Book {
+  return {
+    nav,
+    cash,
+    positions: [...holdings].map(([symbol, h]) => {
+      const inst = INSTRUMENTS.get(symbol)!;
+      return {
+        symbol,
+        quantity: h.qty,
+        price: px(symbol),
+        multiplier: inst.multiplier,
+        settlesInCash: inst.secType !== "FUT",
+        exposure: exposureOf(inst),
+      };
+    }),
+  };
+}
+
+/** A trade as an order for the no-leverage check, with the costs the simulation charges. */
+export function orderOf(t: Pick<Trade, "symbol" | "qty">, px: (s: string) => number): BookOrder {
+  const inst = INSTRUMENTS.get(t.symbol)!;
+  const price = px(t.symbol);
+  return {
+    symbol: t.symbol,
+    quantity: t.qty,
+    price,
+    multiplier: inst.multiplier,
+    settlesInCash: inst.secType !== "FUT",
+    exposure: exposureOf(inst),
+    commission: tradeCosts(inst, t.qty, price),
+  };
+}
+
+/** Commission plus slippage, in dollars. */
+export function tradeCosts(inst: Instrument, qty: number, price: number): number {
+  const notional = Math.abs(qty) * price * inst.multiplier;
+  const commission = inst.secType === "FUT" ? Math.abs(qty) * 0.62 : Math.max(1, Math.abs(qty) * COMMISSION_PER_SHARE);
+  return commission + notional * SLIPPAGE;
+}
+
 /** Cash impact of a trade (positive = cash spent); updates holdings in place. */
 function applyTrade(holdings: Map<string, Holding>, t: Trade): number {
   const inst = INSTRUMENTS.get(t.symbol)!;
   const h = holdings.get(t.symbol) ?? { qty: 0, avgCost: t.price };
-  const notional = Math.abs(t.qty) * t.price * inst.multiplier;
-  const commission =
-    inst.secType === "FUT" ? Math.abs(t.qty) * 0.62 : Math.max(1, Math.abs(t.qty) * COMMISSION_PER_SHARE);
-  const costs = commission + notional * SLIPPAGE;
+  const costs = tradeCosts(inst, t.qty, t.price);
   const newQty = h.qty + t.qty;
   let avgCost = h.avgCost;
   if (h.qty === 0 || Math.sign(t.qty) === Math.sign(h.qty)) {
@@ -333,19 +410,20 @@ function rebalanceTo(
   holdings: Map<string, Holding>,
   nav: number,
   px: (s: string) => number,
+  minTrade = MIN_TRADE,
 ): Omit<Trade, "date" | "reason">[] {
   const out: Omit<Trade, "date" | "reason">[] = [];
   const symbols = new Set([...targets.keys()]);
   for (const s of symbols) {
     const target = Math.floor(((targets.get(s) ?? 0) * nav) / px(s));
     const qty = target - (holdings.get(s)?.qty ?? 0);
-    if (qty !== 0 && Math.abs(qty * px(s)) >= 1000) out.push({ symbol: s, qty, price: px(s) });
+    if (qty !== 0 && Math.abs(qty * px(s)) >= minTrade) out.push({ symbol: s, qty, price: px(s) });
   }
   // sells first so cash is available
   return out.sort((a, b) => a.qty - b.qty);
 }
 
-/** Momentum tilt: all names held, tilted toward 6-month winners (1% floor, 12% cap). */
+/** Momentum tilt: all names held, tilted toward 6-month winners (1% floor, 12% cap), summing to SLEEVE_WEIGHT. */
 export function momentumTargets(close: Map<string, number[]>, i: number): Map<string, number> {
   const scores = ETFS.map((inst) => {
     const px = close.get(inst.symbol)!;
@@ -354,7 +432,7 @@ export function momentumTargets(close: Map<string, number[]>, i: number): Map<st
   const mu = scores.reduce((a, b) => a + b.m, 0) / scores.length;
   const sd = Math.sqrt(scores.reduce((a, b) => a + (b.m - mu) ** 2, 0) / scores.length) || 1;
   let w = scores.map(({ s, m }) => ({ s, w: Math.exp(1.2 * ((m - mu) / sd)) }));
-  const budget = 1 - CASH_BUFFER;
+  const budget = SLEEVE_WEIGHT;
   for (let iter = 0; iter < 8; iter++) {
     const total = w.reduce((a, b) => a + b.w, 0);
     w = w.map(({ s, w: x }) => ({ s, w: Math.min(0.12, Math.max(0.01, (x / total) * budget)) }));
@@ -366,40 +444,62 @@ export function momentumTargets(close: Map<string, number[]>, i: number): Map<st
 // ── intraday ─────────────────────────────────────────────────────────────
 
 export const SESSION_MINUTES = 390;
-
-/** Minutes since the open for `at` on `date`, clamped to the session. */
-export function sessionMinute(date: string, at: Date): number {
-  const open = etTime(date, OPEN).getTime();
-  const close = etTime(date, closeTime(date)).getTime();
-  const m = Math.floor((Math.min(Math.max(at.getTime(), open), close) - open) / 60_000);
-  return Math.max(0, m);
-}
+/** The real API samples intraday P&L every 15 s (services/api broker.INTRADAY_EVERY_S); prices step as often. */
+export const SAMPLE_SECONDS = 15;
+const STEP_MS = SAMPLE_SECONDS * 1000;
 
 export function sessionLength(date: string): number {
   return Math.round((etTime(date, closeTime(date)).getTime() - etTime(date, OPEN).getTime()) / 60_000);
 }
 
+/** 15-second steps in the session. */
+export function sessionSteps(date: string): number {
+  return (sessionLength(date) * 60) / SAMPLE_SECONDS;
+}
+
+/** Steps since the open at `at` on `date`, clamped to the session; fractional between steps. */
+export function sessionStep(date: string, at: Date): number {
+  const open = etTime(date, OPEN).getTime();
+  const close = etTime(date, closeTime(date)).getTime();
+  return (Math.min(Math.max(at.getTime(), open), close) - open) / STEP_MS;
+}
+
+/**
+ * Seconds after the open of the first intraday P&L sample. The API samples on
+ * its own 15 s clock from whenever it started, so the first sample of a
+ * session lands a few seconds in; this varies by day, deterministically.
+ */
+export function samplerPhase(date: string): number {
+  return 1 + (hash(`${SEED}|sampler|${date}`) % (SAMPLE_SECONDS - 1));
+}
+
 const bridgeCache = new Map<string, Float64Array>();
 
 /**
- * Log-price path (relative to the previous close) for each minute of the
+ * Log-price path (relative to the previous close) for each 15 s step of the
  * session, a Brownian bridge that ends exactly at the day's close return.
  */
 export function intradayPath(symbol: string, date: string, dayLogReturn: number): Float64Array {
   const key = `${symbol}|${date}`;
   const hit = bridgeCache.get(key);
   if (hit) return hit;
-  const n = sessionLength(date);
+  const n = sessionSteps(date);
   const inst = INSTRUMENTS.get(symbol)!;
-  const minuteSd = inst.vol / Math.sqrt(252 * SESSION_MINUTES);
+  const stepSd = inst.vol / Math.sqrt((252 * SESSION_MINUTES * 60) / SAMPLE_SECONDS);
   // reuse the S&P path for its future so they move together
   const z = normals(`${SEED}|intraday|${symbol === HEDGE.symbol ? "SPY" : symbol}|${date}`, n);
   const walk = new Float64Array(n + 1);
-  for (let k = 1; k <= n; k++) walk[k] = walk[k - 1]! + z[k - 1]! * minuteSd;
+  for (let k = 1; k <= n; k++) walk[k] = walk[k - 1]! + z[k - 1]! * stepSd;
   const path = new Float64Array(n + 1);
   for (let k = 0; k <= n; k++) path[k] = walk[k]! - (k / n) * (walk[n]! - dayLogReturn);
   bridgeCache.set(key, path);
   return path;
+}
+
+/** The path at a fractional step, straight between steps. */
+export function pathAt(path: Float64Array, step: number): number {
+  const k = Math.max(0, Math.min(Math.floor(step), path.length - 2));
+  return path[k]! + (step - k) * (path[k + 1]! - path[k]!);
 }
 
 // ── views used by the handlers ───────────────────────────────────────────
@@ -407,7 +507,8 @@ export function intradayPath(symbol: string, date: string, dayLogReturn: number)
 export interface Snapshot {
   tradingDate: string;
   live: boolean; // session in progress
-  minute: number; // minutes since open (session length when complete)
+  at: Date; // the moment, to the second
+  step: number; // 15 s steps since the open (the session's length when complete)
   prevDate: string;
   record: DayRecord; // book after the latest completed close
   prevRecord: DayRecord;
@@ -422,8 +523,14 @@ export interface Snapshot {
  * scheduled for today's close have not happened yet.
  */
 export function snapshot(tradingDate: string, live: boolean, now: Date): Snapshot {
-  const hist = history(tradingDate);
-  const minute = live ? sessionMinute(tradingDate, now) : sessionLength(tradingDate);
+  return snapshotOf(history(tradingDate), live, now);
+}
+
+/** snapshot() on a given history, whose last day is the trading date. */
+export function snapshotOf(hist: History, live: boolean, now: Date): Snapshot {
+  const tradingDate = hist.dates[hist.dates.length - 1]!;
+  const at = new Date(Math.floor(now.getTime() / 1000) * 1000);
+  const step = live ? sessionStep(tradingDate, at) : sessionSteps(tradingDate);
   const idx = hist.dates.length - 1; // tradingDate
   const prevDate = prevTradingDay(tradingDate);
   const bi = hist.bookIndex.get(tradingDate)!;
@@ -434,9 +541,9 @@ export function snapshot(tradingDate: string, live: boolean, now: Date): Snapsho
   const price = (s: string) => {
     if (!live) return closeToday(s);
     const path = intradayPath(s, tradingDate, Math.log(closeToday(s) / prevClose(s)));
-    return prevClose(s) * Math.exp(path[minute]!);
+    return prevClose(s) * Math.exp(pathAt(path, step));
   };
-  return { tradingDate, live, minute, prevDate, record, prevRecord, price, prevClose, hist };
+  return { tradingDate, live, at, step, prevDate, record, prevRecord, price, prevClose, hist };
 }
 
 export function navAt(snap: Snapshot): number {

@@ -12,10 +12,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, Query, Request, WebSocket
 from fastapi.responses import JSONResponse
 
-from . import engine, flex, history, nyse, ops, orders, performance, rebalance, risk, runs, stats
+from . import engine, flex, history, mandate, nyse, ops, orders, performance, rebalance, risk, runs, stats, stream
 from .broker import AccountSnap, Broker, PositionSnap, lookup_position
 from .universe import BENCHMARKS, BY_SYMBOL
 
@@ -205,6 +205,7 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
     if profile not in ("paper", "live"):
         raise ValueError(f"profile must be paper or live, got {profile!r}")
     ctx = Ctx(profile=profile, broker=broker if broker is not None else Broker(profile))
+    hub = stream.Hub(clock=lambda: _iso(_now()))
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -215,6 +216,7 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
         try:
             yield
         finally:
+            await hub.stop()
             for t in tasks:
                 t.cancel()
             if background:
@@ -222,6 +224,7 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
 
     app = FastAPI(title="DV02 Fund API", version="1.0.0", lifespan=lifespan)
     app.state.ctx = ctx
+    app.state.stream = hub
 
     @app.exception_handler(Problem)
     async def _problem(_: Request, exc: Problem) -> JSONResponse:
@@ -325,6 +328,10 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
         s = nyse.session_state(now)
         d = s.trading_date
         points = ctx.broker.intraday(d) if hasattr(ctx.broker, "intraday") else []
+        live = ctx.broker.snapshot() if s.session == "open" else None
+        if live is not None and live.day_pnl is not None:
+            # the chart's tip is today's P&L now, so it moves between the samples
+            points = [(t, v) for t, v in points if t < now.replace(microsecond=0)] + [(now, live.day_pnl)]
         return {
             "trading_date": d.isoformat(),
             "session_open": _iso(nyse.et_time(d, nyse.OPEN)),
@@ -365,8 +372,6 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
     # ── risk ──────────────────────────────────────────────────────────
     @app.get(f"{v1}/risk")
     async def get_risk() -> dict[str, Any]:
-        from src.portfolio.risk.exposure_limits import DEFAULT_EXPOSURE_LIMITS as engine_limits
-
         now = _now()
         snap = require_snapshot(ctx)
         rows = position_rows(ctx, snap)
@@ -388,10 +393,16 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
             sl["day_pnl"] += r["day_pnl"]
         day_pnl = snap.day_pnl if snap.day_pnl is not None else sum(r["day_pnl"] for r in rows)
         cfg = {
-            "gross": engine_limits.max_gross_exposure_pct,
-            "net": engine_limits.max_net_exposure_pct,
-            "single_name": engine_limits.max_single_position_pct,
+            "gross": mandate.POLICY["max_gross"],
+            "cash": mandate.POLICY["min_cash"],
+            "net": mandate.POLICY["max_net"],
+            "single_name": mandate.POLICY["max_single_name"],
         }
+        # gross and cash as the order gate measures them: every holding, futures at notional
+        try:
+            book, engine_error = mandate.exposure(snap), ""
+        except mandate.EngineMissing as exc:
+            book, engine_error = None, str(exc)
         doc = risk.report(
             as_of=_iso(snap.as_of),
             nav=snap.nav,
@@ -403,10 +414,12 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
             sleeves=list(sleeves.values()),
             limits_cfg=cfg,
             durations={s: i.duration for s, i in BY_SYMBOL.items()},
+            cash=snap.cash,
+            book=book,
+            engine_error=engine_error,
         )
         for lim in doc["limits"]:
-            enforced = lim["id"] in ("gross", "net", "single_name")
-            note = "the engine blocks orders above this" if enforced else "monitored here, not enforced by the engine"
+            note = risk.ENFORCEMENT.get(lim["id"], risk.NOT_ENFORCED)
             lim["detail"] = f"{lim['detail']} · {note}" if lim["detail"] else note
         return doc
 
@@ -516,6 +529,17 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
             )
         out.sort(key=lambda r: r["started_at"], reverse=True)
         return {"runs": out}
+
+    # ── stream ────────────────────────────────────────────────────────
+    # the REST routes' own functions, so a frame's data is the REST body byte for byte
+    hub.topics = {
+        "status": get_status, "strip": get_strip, "summary": get_summary,
+        "positions": get_positions, "intraday": get_intraday, "orders": get_orders,
+    }  # fmt: skip
+
+    @app.websocket(f"{v1}/stream")
+    async def open_stream(ws: WebSocket) -> None:
+        await hub.serve(ws)
 
     return app
 

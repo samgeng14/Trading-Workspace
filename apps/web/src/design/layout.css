@@ -415,8 +415,17 @@ a.seg:hover {
   grid-column: span 12;
 }
 
-@media (max-width: 1360px) {
+/* the status strip fits every health badge from 1600px, and from 1360px
+   without the stream segment; otherwise IBKR and Data */
+@media (max-width: 1360px), (min-width: 1401px) and (max-width: 1600px) {
   .topbar-health .badge:nth-child(n + 3) {
+    display: none;
+  }
+}
+
+/* below 1400px no stream segment, until the strip wraps and scrolls */
+@media (min-width: 901px) and (max-width: 1400px) {
+  .topbar-stream {
     display: none;
   }
 }

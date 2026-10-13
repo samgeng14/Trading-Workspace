@@ -43,6 +43,20 @@ def test_monthly_returns_chain_to_the_total() -> None:
     assert total - 1 == pytest.approx(rows[-1][1] / rows[0][1] - 1)
 
 
+@pytest.mark.parametrize("rng", ["3M", "ITD"])
+def test_series_nav_is_the_nav_history(engine_tree, rng: str) -> None:
+    h = history.nav_history("paper", live=(date(2026, 10, 9), 1_031_250.0))
+    by_day = dict(h.navs)
+    p = performance.performance(h.navs, history.benchmark_levels("SPY"), rng, {"id": "SPY"})
+    assert len(p["series"]) > 20 and p["series"][-1]["nav"] == 1_031_250.0
+    nav0 = p["series"][0]["nav"]
+    for pt in p["series"]:
+        assert pt["nav"] == by_day[date.fromisoformat(pt["date"])]
+        # no deposits or withdrawals in this record, so growth of $100 is NAV rebased to 100
+        assert pt["portfolio"] == pytest.approx(100 * pt["nav"] / nav0)
+    assert p["stats"]["total_return"] == pytest.approx(p["series"][-1]["nav"] / nav0 - 1)
+
+
 FLEX_XML = b"""<FlexQueryResponse queryName="DV02 NAV" type="AF"><FlexStatements count="1">
 <FlexStatement accountId="DU1234567" fromDate="20251015" toDate="20251017">
 <EquitySummaryInBase>

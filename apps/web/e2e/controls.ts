@@ -34,6 +34,7 @@ export const CONTROLS = [
   "overview.intraday.plot",
   "overview.exposure.plot",
   "overview.performance.plot",
+  "overview.performance.mode.*",
   "overview.exposure.more",
   "overview.movers.more",
   "overview.performance.more",
@@ -51,6 +52,7 @@ export const CONTROLS = [
   "performance.range.*",
   "performance.benchmark",
   "performance.growth.plot",
+  "performance.growth.mode.*",
   "performance.drawdown.plot",
   "performance.monthly.*",
   // risk

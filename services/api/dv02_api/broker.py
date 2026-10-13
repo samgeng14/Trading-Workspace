@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 # where the account has the subscription and the last delayed value otherwise.
 MARKET_DATA_TYPE = 4
 RECONNECT_S = (2, 5, 10, 30)
-INTRADAY_EVERY_S = 60
+INTRADAY_EVERY_S = 15  # intraday P&L sample; the API adds the live value as the chart's last point
 
 
 def _num(x: Any) -> float | None:

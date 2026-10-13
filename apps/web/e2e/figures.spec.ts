@@ -32,7 +32,8 @@ test("overview charts: intraday keyboard crosshair, performance hover, exposure 
   await expect(tip).toContainText("Day P&L");
   await expect(tip).toContainText("ET");
   await page.keyboard.press("Home");
-  await expect(tip).toContainText("09:30 ET");
+  // the API samples every 15 s on its own clock: the first sample lands a few seconds after the open
+  await expect(tip).toContainText(/09:30:\d{2} ET/);
 
   const perf = ctl(page, "overview.performance.plot");
   const box = (await perf.boundingBox())!;

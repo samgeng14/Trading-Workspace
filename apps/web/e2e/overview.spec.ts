@@ -5,7 +5,7 @@ test("headline numbers and panels render", async ({ page }) => {
   await open(page);
   await expect(page.getByTestId("nav")).toHaveText(/^\$1,\d{3},\d{3}$/);
   await expect(page.getByTestId("kpi-day")).toContainText("$");
-  await expect(page.locator("section[aria-label='Risk limits'] .meter-row")).toHaveCount(8);
+  await expect(page.locator("section[aria-label='Risk limits'] .meter-row")).toHaveCount(9);
   await expect(page.locator("section[aria-label='Schedule'] .schedule-row")).toHaveCount(7);
   await expect(page.locator(".next-job")).toContainText("Finalize orders");
 });

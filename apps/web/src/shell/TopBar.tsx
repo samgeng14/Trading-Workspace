@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { useRebalancePreview, useStatus } from "../api/hooks";
+import { useStream } from "../api/stream";
 import { MoonIcon, SessionIcon, StatusIcon, SunIcon } from "../components/icons";
 import { useKillSwitchDialogs } from "../components/KillSwitch";
 import { countdown, timeET, weekdayTimeET } from "../lib/format";
@@ -26,9 +27,16 @@ function Seg({ label, children, className = "" }: { label: string; children: Rea
   );
 }
 
+/** "4s ago", "2m ago". */
+function since(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
+}
+
 /** The status strip: what mode, which account, is the market open, can we trade, is everything up. */
 export function TopBar() {
   const { data: status } = useStatus();
+  const stream = useStream();
   const now = useServerNow();
   const [theme, toggleTheme] = useTheme();
   const killSwitch = useKillSwitchDialogs();
@@ -65,6 +73,27 @@ export function TopBar() {
           <span className={`tone-${g.tone}`} title="Can the next rebalance be submitted now (pre-trade checks)">
             {g.text}
           </span>
+        </Seg>
+        <Seg label="Stream" className="topbar-stream">
+          {stream.live ? (
+            <span title="The API pushes every change over a WebSocket; REST is re-checked every 30 s as a safety net">
+              Live
+              {stream.lastFrameAt !== null && (
+                <span className="muted"> · {since(Date.now() - stream.lastFrameAt)}</span>
+              )}
+            </span>
+          ) : (
+            <span
+              className="muted"
+              title={
+                status?.mode === "demo"
+                  ? "Demo mode has no stream; the simulated backend is polled every 5 s"
+                  : "No stream from the API right now; polling every 5 s and reconnecting"
+              }
+            >
+              Polling
+            </span>
+          )}
         </Seg>
         {status && (
           <Link

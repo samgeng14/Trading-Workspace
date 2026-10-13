@@ -4,11 +4,23 @@
 
 import { http, HttpResponse } from "msw";
 import type { components } from "../api/schema";
-import { closeTime, etDate, etTime, isTradingDay, nextTradingDay, prevTradingDay, sessionState } from "./calendar";
-import { now } from "./clock";
 import {
+  closeTime,
+  etDate,
+  etTime,
+  isTradingDay,
+  nextTradingDay,
+  OPEN,
+  prevTradingDay,
+  sessionState,
+} from "./calendar";
+import { now } from "./clock";
+import { type Book, type BookOrder, check, exposure, pct as pct1, POLICY } from "./mandate";
+import {
+  bookOf,
   ETFS,
   HEDGE,
+  HEDGE_RATIO,
   history,
   INCEPTION,
   INSTRUMENTS,
@@ -16,13 +28,19 @@ import {
   isRebalanceDay,
   momentumTargets,
   navAt,
+  orderOf,
+  pathAt,
+  SAMPLE_SECONDS,
+  samplerPhase,
   type Snapshot,
-  sessionLength,
+  sessionStep,
   SLEEVE_HEDGE,
   SLEEVE_MOMENTUM,
+  SLEEVE_WEIGHT,
   snapshot,
   START_NAV,
   type Trade,
+  tradeCosts,
 } from "./sim";
 import {
   annualizedVol,
@@ -54,7 +72,7 @@ const state = {
     reason: undefined as string | undefined,
   },
   submitted: [] as S["Order"][],
-  submittedFor: new Set<string>(), // execution dates with a manual submission
+  submittedFor: new Map<string, string>(), // execution date -> ET time of the manual submission
   cancelled: new Set<string>(),
   doctorRanAt: null as string | null,
 };
@@ -69,8 +87,36 @@ function current(): { at: Date; snap: Snapshot; session: ReturnType<typeof sessi
 }
 
 const iso = (d: Date) => d.toISOString();
-const beta = (symbol: string) => INSTRUMENTS.get(symbol)?.loadings.mkt ?? 0;
 const sleeveOf = (symbol: string) => (symbol === HEDGE.symbol ? SLEEVE_HEDGE : SLEEVE_MOMENTUM);
+
+const betaCache = new Map<string, number>();
+
+/**
+ * Beta to SPY measured on the last year of daily returns through the latest
+ * completed close, as the real API measures it. The future is the S&P itself.
+ */
+function measuredBeta(snap: Snapshot, symbol: string): number {
+  if (symbol === HEDGE.symbol) return 1;
+  const { dates, close } = snap.hist;
+  const end = snap.live ? dates.length - 2 : dates.length - 1;
+  const key = `${symbol}|${dates[end]}`;
+  const hit = betaCache.get(key);
+  if (hit !== undefined) return hit;
+  const px = close.get(symbol)!;
+  const spy = close.get("SPY")!;
+  const rets: number[] = [];
+  const mkt: number[] = [];
+  for (let i = Math.max(1, end - 251); i <= end; i++) {
+    rets.push(px[i]! / px[i - 1]! - 1);
+    mkt.push(spy[i]! / spy[i - 1]! - 1);
+  }
+  const b = relative(rets, mkt).beta;
+  betaCache.set(key, b);
+  return b;
+}
+
+/** The whole demo book as the engine's no-leverage check sees it, at the snapshot's prices. */
+const bookNow = (snap: Snapshot, nav: number) => bookOf(nav, snap.record.cash, snap.record.holdings, snap.price);
 
 function marketValue(snap: Snapshot, symbol: string, qty: number): number {
   return qty * INSTRUMENTS.get(symbol)!.multiplier * snap.price(symbol);
@@ -119,12 +165,12 @@ function positions(snap: Snapshot, nav: number): S["Position"][] {
       prev_close: prev,
       market_value: mv,
       weight: mv / nav,
-      target_weight: symbol === HEDGE.symbol ? -0.2 : (target ?? null),
+      target_weight: symbol === HEDGE.symbol ? -HEDGE_RATIO : (target ?? null),
       day_pnl: heldToday * inst.multiplier * (last - prev),
       day_return: last / prev - 1,
       unrealized_pnl: h.qty * inst.multiplier * (last - h.avgCost),
       unrealized_return: (Math.sign(h.qty) * (last - h.avgCost)) / h.avgCost,
-      beta: beta(symbol),
+      beta: measuredBeta(snap, symbol),
     };
   });
 }
@@ -311,36 +357,44 @@ function positionsResponse(): S["PositionsResponse"] {
   return { as_of: iso(at), nav, positions: positions(snap, nav) };
 }
 
+/**
+ * Today's P&L the way the real API records it: a sample every 15 s on its own
+ * clock (the first a few seconds after the open), and while the session is
+ * open a last point at this second carrying the live day P&L, the same number
+ * as the summary's.
+ */
 function intraday(): S["IntradayPnl"] {
   const { snap } = current();
   const date = snap.tradingDate;
-  const open = etTime(date, "09:30");
+  const open = etTime(date, OPEN);
   const close = etTime(date, closeTime(date));
-  const during = snap.prevRecord.holdings;
-  const last = snap.live ? snap.minute : sessionLength(date);
   const idx = snap.hist.dates.length - 1;
-  const paths = [...during].map(([symbol, h]) => {
+  const held = [...snap.prevRecord.holdings].map(([symbol, h]) => {
     const prev = snap.prevClose(symbol);
     const closePx = snap.hist.close.get(symbol)![idx]!;
     return {
-      qty: h.qty * INSTRUMENTS.get(symbol)!.multiplier,
-      prev,
+      value: h.qty * INSTRUMENTS.get(symbol)!.multiplier * prev,
       path: intradayPath(symbol, date, Math.log(closePx / prev)),
     };
   });
-  const raw: number[] = [];
-  for (let k = 0; k <= last; k++) {
-    let pnl = 0;
-    for (const p of paths) pnl += p.qty * p.prev * (Math.exp(p.path[k]!) - 1);
-    raw.push(pnl);
+  const pnlAt = (step: number) => held.reduce((a, p) => a + p.value * (Math.exp(pathAt(p.path, step)) - 1), 0);
+  const end = snap.live ? snap.at : close;
+  const times: Date[] = [];
+  for (let t = open.getTime() + samplerPhase(date) * 1000; t < end.getTime(); t += SAMPLE_SECONDS * 1000)
+    times.push(new Date(t));
+  const raw = times.map((t) => pnlAt(sessionStep(date, t)));
+  let points: S["IntradayPnl"]["points"];
+  if (snap.live) {
+    points = times.map((t, k) => ({ t: iso(t), pnl: raw[k]! }));
+    points.push({ t: iso(snap.at), pnl: pnlAt(snap.step) });
+  } else {
+    // A completed session's last sample carries the day's reported P&L: the
+    // closing auction, trading costs and interest, spread over the session.
+    const target = snap.record.nav - snap.prevRecord.nav;
+    const span = times.at(-1)!.getTime() - open.getTime();
+    const drift = target - raw.at(-1)!;
+    points = times.map((t, k) => ({ t: iso(t), pnl: raw[k]! + (drift * (t.getTime() - open.getTime())) / span }));
   }
-  // A completed session ends exactly at the reported day P&L (costs, interest).
-  const target = snap.live ? raw[raw.length - 1]! : snap.record.nav - snap.prevRecord.nav;
-  const drift = target - raw[raw.length - 1]!;
-  const points = raw.map((pnl, k) => ({
-    t: new Date(open.getTime() + k * 60_000).toISOString(),
-    pnl: pnl + (drift * k) / Math.max(1, raw.length - 1),
-  }));
   return { trading_date: date, session_open: iso(open), session_close: iso(close), live: snap.live, points };
 }
 
@@ -403,11 +457,11 @@ function performance(range: S["PerformanceRange"], benchmarkId: string): S["Perf
   const benchRets = benchmarkReturns(snap, bench.id, dates.slice(1));
   let p = 100;
   let b = 100;
-  const series = [{ date: dates[0]!, portfolio: 100, benchmark: 100 }];
+  const series = [{ date: dates[0]!, portfolio: 100, benchmark: 100, nav: window[0]!.nav }];
   for (let i = 1; i < dates.length; i++) {
     p *= 1 + portRets[i - 1]!;
     b *= 1 + benchRets[i - 1]!;
-    series.push({ date: dates[i]!, portfolio: p, benchmark: b });
+    series.push({ date: dates[i]!, portfolio: p, benchmark: b, nav: window[i]!.nav });
   }
   const dd = drawdowns(series.map((s) => s.portfolio));
   const rel = relative(portRets, benchRets);
@@ -474,15 +528,49 @@ function monthly(snap: Snapshot, book: typeof snap.hist.book, benchId: string): 
 
 // ── /risk ───────────────────────────────────────────────────────────────
 
-type Shock = Partial<Record<"mkt" | "rates" | "cmdty" | "crypto", number>>;
+// The real API's scenarios (services/api dv02_api/risk.py): each holding moves by
+// its measured beta times the market shock, minus duration times the rate move,
+// plus the commodity or crypto shock for those asset classes.
+type Shock = Partial<Record<"mkt" | "rates_bp" | "cmdty" | "crypto", number>>;
 const SCENARIOS: { id: string; label: string; shock: Shock }[] = [
   { id: "spx_down_10", label: "S&P 500 −10%", shock: { mkt: -0.1 } },
-  { id: "rates_up_100", label: "Rates +100 bp", shock: { rates: -0.1 } },
+  { id: "rates_up_100", label: "Rates +100 bp", shock: { rates_bp: 100 } },
   { id: "commodities_down_15", label: "Commodities −15%", shock: { cmdty: -0.15 } },
   { id: "crypto_down_30", label: "Crypto −30%", shock: { crypto: -0.3 } },
-  { id: "stagflation", label: "Stagflation shock", shock: { mkt: -0.08, rates: -0.05, cmdty: 0.1 } },
-  { id: "march_2020", label: "March 2020 replay", shock: { mkt: -0.3, rates: 0.08, cmdty: -0.4, crypto: -0.4 } },
+  { id: "stagflation", label: "Stagflation shock", shock: { mkt: -0.08, rates_bp: 50, cmdty: 0.1 } },
+  { id: "march_2020", label: "March 2020 replay", shock: { mkt: -0.3, rates_bp: -100, cmdty: -0.4, crypto: -0.4 } },
 ];
+/** Years, for the rates scenario: the real API's table (services/api dv02_api/universe.py). */
+const DURATION: Record<string, number> = { VNQ: 4, VPU: 3, TLT: 16.5, IEI: 4.4, SHY: 1.9, BIL: 0.1, AGG: 6 };
+
+function limit(
+  id: string,
+  label: string,
+  value: number,
+  lim: number,
+  unit: S["LimitCheck"]["unit"],
+  detail: string,
+): S["LimitCheck"] {
+  const used = lim ? value / lim : 0; // same sign as the limit counts toward it
+  const status = used >= 1 ? "breach" : used >= 0.8 ? "warning" : "ok";
+  return { id, label, value, limit: lim, unit, status, detail };
+}
+
+/** A mandate limit: breached only beyond it (with the engine's tolerance), never "warning". */
+function mandateLimit(id: string, label: string, value: number, lim: number, detail: string, floor = false) {
+  const beyond = floor ? value < lim - 1e-9 : value > lim + 1e-9;
+  return { id, label, value, limit: lim, unit: "pct", status: beyond ? "breach" : "ok", detail } as S["LimitCheck"];
+}
+
+/** What each limit means for orders; the real API appends it to the limit's detail. */
+function enforcement(id: string): string {
+  if (id === "gross") return "the engine blocks orders that would leave the book above this; every holding counts";
+  if (id === "cash") return "the engine blocks orders that would leave cash below this; every holding counts";
+  if (id === "net" || id === "single_name") return "the engine blocks orders above this";
+  return "monitored here, not enforced by the engine";
+}
+
+const pct0 = (v: number) => `${Math.round(v * 100)}%`;
 
 function risk(): S["RiskReport"] {
   const { at, snap } = current();
@@ -514,24 +602,13 @@ function risk(): S["RiskReport"] {
   const es975 = -mean(tail);
   const forecastVol = annualizedVol(histRets.slice(-63));
   const cashLike = pos.filter((p) => p.sec_type !== "FUT").sort((a, b) => b.weight - a.weight);
-  const largest = cashLike[0]!;
   const top5 = cashLike.slice(0, 5).reduce((a, p) => a + p.weight, 0);
   const levels = snap.hist.book.map((d) => d.nav);
   levels.push(nav);
   const hwm = Math.max(...levels);
-  const dayLoss = nav / (snap.live ? snap.record.nav : snap.prevRecord.nav) - 1;
-  const limit = (
-    id: string,
-    label: string,
-    value: number,
-    lim: number,
-    unit: S["LimitCheck"]["unit"],
-    detail: string,
-  ): S["LimitCheck"] => {
-    const used = value / lim; // same sign as the limit counts toward it
-    const st = used >= 1 ? "breach" : used >= 0.8 ? "warning" : "ok";
-    return { id, label, value, limit: lim, unit, status: st, detail };
-  };
+  const dayPnl = nav - (snap.live ? snap.record.nav : snap.prevRecord.nav);
+  // gross, cash and the largest name as the engine's order gate measures them (mandate.ts)
+  const book = exposure(bookNow(snap, nav));
   return {
     as_of: iso(at),
     nav,
@@ -547,26 +624,43 @@ function risk(): S["RiskReport"] {
         gross: pos.filter((p) => p.sleeve === SLEEVE_MOMENTUM).reduce((a, p) => a + Math.abs(p.weight), 0),
         net: pos.filter((p) => p.sleeve === SLEEVE_MOMENTUM).reduce((a, p) => a + p.weight, 0),
         day_pnl: pos.filter((p) => p.sleeve === SLEEVE_MOMENTUM).reduce((a, p) => a + p.day_pnl, 0),
-        mandate: "Long-only ETF rotation; market beta allowed",
+        mandate: `Long-only ETF rotation, ${pct0(SLEEVE_WEIGHT)} of NAV; market beta allowed`,
       },
       {
         sleeve: SLEEVE_HEDGE,
         gross: pos.filter((p) => p.sleeve === SLEEVE_HEDGE).reduce((a, p) => a + Math.abs(p.weight), 0),
         net: pos.filter((p) => p.sleeve === SLEEVE_HEDGE).reduce((a, p) => a + p.weight, 0),
         day_pnl: pos.filter((p) => p.sleeve === SLEEVE_HEDGE).reduce((a, p) => a + p.day_pnl, 0),
-        mandate: "Beta overlay: short S&P futures, −20% of NAV",
+        mandate: `Beta overlay: short S&P futures, −${pct0(HEDGE_RATIO)} of NAV`,
       },
     ],
+    // The real API's limits (services/api dv02_api/risk.py report() and app.py get_risk):
+    // the mandate's gross and cash breach only beyond the limit, the rest warn at 80%.
     limits: [
-      limit("gross", "Gross exposure", ex.gross, 1.5, "pct", "Long plus short notional, futures included"),
-      limit("net", "Net exposure", ex.net, 1.0, "pct", ""),
-      limit("single_name", "Largest position", largest.weight, 0.2, "pct", largest.symbol),
-      limit("beta", "Beta to S&P 500", ex.beta, 1.0, "ratio", "After the futures hedge"),
+      mandateLimit(
+        "gross",
+        "Gross exposure",
+        book.gross,
+        POLICY.maxGross,
+        "Long plus short notional, futures included",
+      ),
+      mandateLimit(
+        "cash",
+        "Cash (no margin loan)",
+        book.cashRatio,
+        POLICY.minCash,
+        "Cash as a share of NAV; below 0 is a margin loan",
+        true,
+      ),
+      limit("net", "Net exposure", ex.net, POLICY.maxNet, "pct", ""),
+      // as the engine measures it: |net notional| per symbol, shorts and futures included
+      limit("single_name", "Largest position", book.largestWeight, POLICY.maxSingleName, "pct", book.largestName),
+      limit("beta", "Beta to S&P 500", ex.beta, 1.0, "ratio", "Measured on a year of daily returns"),
       limit("vol", "Forecast volatility", forecastVol, 0.12, "pct", "63-day, annualized"),
-      limit("drawdown", "Drawdown from peak", nav / hwm - 1, -0.05, "pct", "Risk halves at −5%"),
-      limit("day_loss", "Day P&L", dayLoss, -0.02, "pct", "Trading halts at −2%"),
+      limit("drawdown", "Drawdown from peak", nav / hwm - 1, -0.05, "pct", "From the NAV high-water mark"),
+      limit("day_loss", "Day P&L", dayPnl / nav, -0.02, "pct", "Today, as a share of NAV"),
       limit("names", "Positions", pos.length, 25, "count", ""),
-    ],
+    ].map((l) => ({ ...l, detail: l.detail ? `${l.detail} · ${enforcement(l.id)}` : enforcement(l.id) })),
     beta: ex.beta,
     forecast_vol: forecastVol,
     target_vol: 0.1,
@@ -576,10 +670,11 @@ function risk(): S["RiskReport"] {
     scenarios: SCENARIOS.map((sc) => {
       let pnl = 0;
       for (const p of pos) {
-        const inst = INSTRUMENTS.get(p.symbol)!;
-        let r = 0;
-        for (const [f, shock] of Object.entries(sc.shock)) r += (inst.loadings[f as keyof Shock] ?? 0) * shock;
-        pnl += p.market_value * r;
+        const mv = p.market_value;
+        pnl += mv * p.beta * (sc.shock.mkt ?? 0);
+        pnl -= (mv * (DURATION[p.symbol] ?? 0) * (sc.shock.rates_bp ?? 0)) / 10_000;
+        if (p.asset_class === "commodity") pnl += mv * (sc.shock.cmdty ?? 0);
+        if (p.asset_class === "crypto") pnl += mv * (sc.shock.crypto ?? 0);
       }
       return { id: sc.id, label: sc.label, pnl, pnl_pct: pnl / nav };
     }),
@@ -591,8 +686,8 @@ function risk(): S["RiskReport"] {
 const REASONS: Record<Trade["reason"], string> = {
   rebalance: "Monthly rebalance",
   drift: "Drift outside 3% band",
-  cash: "Cash below buffer",
-  hedge: "Hedge to −20% of NAV",
+  mandate: "Gross back to target: over 98% of NAV",
+  hedge: `Hedge to −${pct0(HEDGE_RATIO)} of NAV`,
 };
 
 function orders(): S["OrdersResponse"] {
@@ -603,7 +698,6 @@ function orders(): S["OrdersResponse"] {
   const hist = history(date);
   const rec = hist.book[hist.bookIndex.get(date)!]!;
   const idx = hist.dates.length - 1;
-  const minuteOf = (t: Date) => Math.round((t.getTime() - etTime(date, "09:30").getTime()) / 60_000);
   const list: S["Order"][] = [];
   if (at >= submitAt) {
     const done = at >= closeAt;
@@ -611,7 +705,7 @@ function orders(): S["OrdersResponse"] {
       const id = `${date}-${t.symbol}`;
       const prev = hist.close.get(t.symbol)![idx - 1]!;
       const path = intradayPath(t.symbol, date, Math.log(t.price / prev));
-      const arrival = prev * Math.exp(path[minuteOf(submitAt)]!);
+      const arrival = prev * Math.exp(pathAt(path, sessionStep(date, submitAt)));
       const fill = t.price * (1 + Math.sign(t.qty) * 0.0002);
       const cancelled = state.cancelled.has(id);
       const status: S["OrderStatus"] = cancelled ? "cancelled" : done ? "filled" : "submitted";
@@ -661,43 +755,136 @@ function executionDate(at: Date): string {
   return nextTradingDay(today);
 }
 
-function preview(): S["RebalancePreview"] {
-  const { at, snap } = current();
+/**
+ * The engine's no-leverage check (engine/src/risk.cpp, ported in mandate.ts) on
+ * the whole demo book after the basket, reported as the real API's preview
+ * reports it (services/api dv02_api/rebalance.py leverage_check): every
+ * holding counts, the futures hedge at notional, cash after the orders.
+ */
+function leverageCheck(book: Book, orders: BookOrder[]): S["PreTradeCheck"] {
+  const label = "No leverage";
+  const res = check(book, orders);
+  if (!res.ok)
+    return {
+      id: "leverage",
+      label,
+      status: "fail",
+      detail: res.breaches
+        .filter((b) => b.blocking)
+        .map((b) => b.message)
+        .join("; "),
+    };
+  if (res.breaches.length)
+    return { id: "leverage", label, status: "warn", detail: res.breaches.map((b) => b.message).join("; ") };
+  return {
+    id: "leverage",
+    label,
+    status: "pass",
+    detail: `gross ${pct1(res.before.gross)} → ${pct1(res.after.gross)} of NAV, cash ${apiMoney(res.after.cash)} after; every holding counted`,
+  };
+}
+
+/**
+ * rebalance.py's _money() and the gate's "${:,.0f}": Python rounds an exact half
+ * to even, where the engine's money() rounds it away from zero.
+ */
+export function apiMoney(v: number): string {
+  const a = Math.abs(v);
+  const f = Math.floor(a);
+  const r = a - f > 0.5 || (a - f === 0.5 && f % 2 === 1) ? f + 1 : f;
+  return `${v < 0 ? "-$" : "$"}${r.toLocaleString("en-US")}`;
+}
+
+/**
+ * The daily runner's basket gate on the model's own targets (trading-engine
+ * portfolio/risk/exposure_limits.py defaults), as the real API reports it.
+ */
+function gateChecks(targets: Map<string, number>, rows: S["RebalancePreview"]["rows"], nav: number) {
+  const label = "Engine pre-trade gate";
+  const weights = [...targets];
+  const gross = weights.reduce((a, [, w]) => a + Math.abs(w), 0);
+  const net = weights.reduce((a, [, w]) => a + w, 0);
+  const held = weights.filter(([, w]) => Math.abs(w) > 1e-6).length;
+  const [maxSym, maxPos] = weights.reduce((m, x) => (Math.abs(x[1]) > Math.abs(m[1]) ? x : m), ["—", 0]);
+  const fails: string[] = [];
+  const warns: string[] = [];
+  if (Math.abs(maxPos) > 0.25 + 1e-9)
+    fails.push(`max_single_position: ${maxSym} = ${pct1(Math.abs(maxPos))} > limit 25.0%`);
+  if (gross > 1 + 1e-6) fails.push(`max_gross_exposure: gross ${pct1(gross)} > limit 100.0%`);
+  if (net < 0.5 - 1e-6) fails.push(`min_net_exposure: net ${pct1(net)} < floor 50.0%`);
+  if (net > 1 + 1e-6) fails.push(`max_net_exposure: net ${pct1(net)} > cap 100.0%`);
+  if (held < 5) fails.push(`min_holdings: only ${held} holdings (min 5)`);
+  const biggest = rows.reduce(
+    (m, r) => (Math.abs(r.est_notional) > m.dollars ? { symbol: r.symbol, dollars: Math.abs(r.est_notional) } : m),
+    {
+      symbol: "",
+      dollars: 0,
+    },
+  );
+  if (biggest.dollars / nav > 0.3 + 1e-9)
+    warns.push(
+      `max_single_trade: ${biggest.symbol} trade ${apiMoney(biggest.dollars)} = ${pct1(biggest.dollars / nav)} of NAV > limit 30.0%`,
+    );
+  const out: S["PreTradeCheck"][] = [
+    ...fails.map((f) => ({ id: "gate", label, status: "fail" as const, detail: `exposure: ${f}` })),
+    ...warns.map((w) => ({ id: "gate_warn", label, status: "warn" as const, detail: `exposure: ${w}` })),
+  ];
+  if (!fails.length)
+    out.push({
+      id: "gate",
+      label,
+      status: "pass",
+      detail: `exposure limits, price file and NAV pass (gross after trades ${pct1(gross)})`,
+    });
+  return out;
+}
+
+/**
+ * The rebalance preview for the book in `snap` at `at`, with the real API's
+ * checks. Holdings the model doesn't target are sold at this rebalance
+ * (target 0), the fund's rule since October 12; they count toward the
+ * no-leverage check either way. The futures hedge is its own sleeve's and is
+ * not in the basket.
+ */
+export function previewOf(at: Date, snap: Snapshot): S["RebalancePreview"] {
   const nav = navAt(snap);
   const hist = snap.hist;
   const closeIdx = snap.live ? hist.dates.length - 2 : hist.dates.length - 1;
   const targets = momentumTargets(hist.close, closeIdx);
   const holdings = snap.record.holdings;
-  const rows = ETFS.map((inst) => {
-    const s = inst.symbol;
+  const untargeted = [...holdings.keys()].filter((s) => !targets.has(s) && INSTRUMENTS.get(s)!.secType !== "FUT");
+  const row = (s: string): S["RebalancePreview"]["rows"][number] => {
     const px = snap.price(s);
     const qty = holdings.get(s)?.qty ?? 0;
     const target = targets.get(s) ?? 0;
     const targetQty = Math.floor((target * nav) / px);
     const tradeQty = targetQty - qty;
     const notional = tradeQty * px;
+    // a weight change trades from $1,000 (the basket builder's minimum); a holding outside the model goes whole
+    const trades = tradeQty !== 0 && (Math.abs(notional) >= 1000 || !targets.has(s));
     return {
       symbol: s,
       current_weight: (qty * px) / nav,
       target_weight: target,
       current_qty: qty,
       target_qty: targetQty,
-      trade_qty: Math.abs(notional) >= 1000 ? tradeQty : 0,
-      est_notional: Math.abs(notional) >= 1000 ? notional : 0,
-      est_cost: Math.abs(notional) >= 1000 ? Math.max(1, Math.abs(tradeQty) * 0.005) + Math.abs(notional) * 0.0002 : 0,
+      trade_qty: trades ? tradeQty : 0,
+      est_notional: trades ? notional : 0,
+      est_cost: trades ? tradeCosts(INSTRUMENTS.get(s)!, tradeQty, px) : 0,
     };
-  });
+  };
+  const rows = [...ETFS.map((inst) => row(inst.symbol)), ...untargeted.map(row)];
   const trading = rows.filter((r) => r.trade_qty !== 0);
   const buy = trading.filter((r) => r.est_notional > 0).reduce((a, r) => a + r.est_notional, 0);
   const sell = -trading.filter((r) => r.est_notional < 0).reduce((a, r) => a + r.est_notional, 0);
   const cost = trading.reduce((a, r) => a + r.est_cost, 0);
   const execDate = executionDate(at);
-  const after = rows.map((r) => ((r.current_qty + r.trade_qty) * snap.price(r.symbol)) / nav);
-  const maxW = Math.max(...after);
-  const names = after.filter((w) => w > 0.001).length;
-  const grossAfter = after.reduce((a, w) => a + Math.abs(w), 0) + 0.2;
   const turnover = (buy + sell) / nav;
-  const dup = state.submittedFor.has(execDate);
+  const dup = state.submittedFor.get(execDate);
+  const orders = trading.map((r) => ({
+    ...orderOf({ symbol: r.symbol, qty: r.trade_qty }, snap.price),
+    commission: r.est_cost,
+  }));
   const checks: S["PreTradeCheck"][] = [
     state.killSwitch.armed
       ? {
@@ -707,33 +894,44 @@ function preview(): S["RebalancePreview"] {
           detail: `Armed: ${state.killSwitch.reason ?? "no reason given"}`,
         }
       : { id: "kill_switch", label: "Kill switch", status: "pass", detail: "Clear" },
-    { id: "data", label: "Price data", status: "pass", detail: `Closes through ${hist.dates[closeIdx]}` },
     {
-      id: "gross",
-      label: "Gross exposure after trades",
-      status: grossAfter <= 1.5 ? "pass" : "fail",
-      detail: `${(grossAfter * 100).toFixed(1)}% (limit 150%)`,
+      id: "data",
+      label: "Targets and prices",
+      status: "pass",
+      detail: `targets from the ${hist.dates[closeIdx]} close`,
     },
-    {
-      id: "single_name",
-      label: "Largest position after trades",
-      status: maxW <= 0.2 ? "pass" : "fail",
-      detail: `${(maxW * 100).toFixed(1)}% (limit 20%)`,
-    },
-    {
-      id: "names",
-      label: "Holdings after trades",
-      status: names >= 5 ? "pass" : "fail",
-      detail: `${names} (minimum 5)`,
-    },
-    {
-      id: "turnover",
-      label: "Turnover",
-      status: turnover <= 0.5 ? (turnover <= 0.3 ? "pass" : "warn") : "fail",
-      detail: `${(turnover * 100).toFixed(1)}% of NAV (limit 50%)`,
-    },
+    ...(untargeted.length
+      ? [
+          {
+            id: "untargeted",
+            label: "Holdings outside the targets",
+            status: "warn" as const,
+            detail: `${untargeted.join(", ")}: not in the model, so this rebalance sells them`,
+          },
+        ]
+      : []),
+    ...gateChecks(targets, rows, nav),
+    leverageCheck(bookNow(snap, nav), orders),
+    trading.length
+      ? {
+          id: "orders",
+          label: "Orders to send",
+          status: "pass",
+          detail: `${trading.length} orders, turnover ${pct1(turnover)} of NAV`,
+        }
+      : {
+          id: "orders",
+          label: "Orders to send",
+          status: "warn",
+          detail: "nothing to trade: every difference is under $1,000",
+        },
     dup
-      ? { id: "duplicate", label: "Duplicate guard", status: "fail", detail: "Already submitted for this session" }
+      ? {
+          id: "duplicate",
+          label: "Duplicate guard",
+          status: "fail",
+          detail: `Already submitted for this session (${dup} run)`,
+        }
       : { id: "duplicate", label: "Duplicate guard", status: "pass", detail: "No submission for this session yet" },
   ];
   const cutoff = closeTime(execDate) === "13:00" ? "12:50" : MOC_CUTOFF;
@@ -742,11 +940,17 @@ function preview(): S["RebalancePreview"] {
     sleeve: SLEEVE_MOMENTUM,
     targets_date: hist.dates[closeIdx]!,
     execution: `MOC ${execDate === etDate(at) ? "today, " : ""}${dayLabel(execDate)} (cutoff ${cutoff} ET)`,
-    rows,
+    // the real API's order: the biggest trades first
+    rows: [...rows].sort((a, b) => Math.abs(b.est_notional) - Math.abs(a.est_notional)),
     totals: { buy_notional: buy, sell_notional: sell, turnover, est_cost: cost, orders: trading.length },
     checks,
     can_submit: trading.length > 0 && checks.every((c) => c.status !== "fail"),
   };
+}
+
+function preview(): S["RebalancePreview"] {
+  const { at, snap } = current();
+  return previewOf(at, snap);
 }
 
 function submit(): { ok: true; body: S["RebalanceResult"] } | { ok: false; body: S["Problem"] } {
@@ -776,7 +980,7 @@ function submit(): { ok: true; body: S["RebalanceResult"] } | { ok: false; body:
       reason: "Manual rebalance",
     }));
   state.submitted.push(...created);
-  state.submittedFor.add(execDate);
+  state.submittedFor.set(execDate, shortET(iso(at)));
   return {
     ok: true,
     body: {
@@ -851,7 +1055,7 @@ function runs(): S["RunsResponse"] {
       steps: failed
         ? [{ name: "append_daily", ok: false, detail: "ConnectionRefusedError: [Errno 61] Connect call failed" }]
         : [
-            { name: "append_daily", ok: true, detail: "22 symbols, 1 new row each" },
+            { name: "append_daily", ok: true, detail: `${ETFS.length} symbols, 1 new row each` },
             { name: "generate_targets", ok: true, detail: "momentum_tilted" },
             { name: "rebalance_decision", ok: true, detail: trades.length > 0 ? "Rebalance" : "Within bands" },
             ...(trades.length > 0

@@ -2,10 +2,10 @@ name: api
 
 on:
   pull_request:
-    paths: ["services/api/**", "schemas/**", "trading-engine/src/**", ".github/workflows/api.yml"]
+    paths: ["services/api/**", "schemas/**", "trading-engine/src/**", "engine/**", ".github/workflows/api.yml"]
   push:
     branches: [main]
-    paths: ["services/api/**", "schemas/**", "trading-engine/src/**", ".github/workflows/api.yml"]
+    paths: ["services/api/**", "schemas/**", "trading-engine/src/**", "engine/**", ".github/workflows/api.yml"]
 
 jobs:
   check:
@@ -21,6 +21,8 @@ jobs:
           cache: pip
           cache-dependency-path: services/api/requirements.txt
       - run: pip install -r requirements.txt pytest jsonschema httpx ruff==0.8.6
+      - name: The C++ engine (the no-leverage check every order goes through)
+        run: pip install ../../engine
       - run: ruff check dv02_api tests
       - run: ruff format --check dv02_api tests
       - name: Contract and unit tests (fake broker, no gateway)

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # tradeit: run the DV02 Fund stack on this machine.
 #
-#   tradeit setup     one-time: Python env (.venv), dashboard packages, .env
+#   tradeit setup     one-time: Python env (.venv), the C++ engine, dashboard packages, .env
+#   tradeit engine    rebuild and reinstall the C++ engine after a pull (and its C++ tests, with cmake)
 #   tradeit login     save the IB Gateway login on this Mac (for automatic login)
 #   tradeit gateway   start | stop | status | logs  the auto-login IB Gateway (Docker)
 #   tradeit flex      connect IBKR Flex: daily NAV since the account opened
@@ -42,6 +43,13 @@ ask() { # ask VAR "Prompt" [hidden]
   printf -v "$1" '%s' "$__v"
 }
 
+# Yes or no; anything but y/yes (or no answer at all) is no.
+confirm() { # confirm "Question"
+  local __a=""
+  read -r -p "$1 [y/N]: " __a || true
+  case "$__a" in y|Y|yes|Yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
 pick_python() {
   for c in python3.12 python3.11 python3.13 python3; do
     if command -v "$c" >/dev/null 2>&1; then
@@ -54,6 +62,60 @@ pick_python() {
 
 need_venv() {
   [ -x "$PY" ] || die "no Python environment yet; run: bin/tradeit setup"
+}
+
+# The C++ engine (engine/) builds into the Python module dv02_engine. The API and
+# the daily runner import it for the no-leverage check, and block every order
+# without it.
+need_cxx() {
+  local cxx="${CXX:-c++}"
+  if command -v "$cxx" >/dev/null 2>&1 &&
+    printf '#include <concepts>\nint main() {}\n' | "$cxx" -std=c++20 -fsyntax-only -x c++ - 2>/dev/null; then
+    return 0
+  fi
+  if [ "$(uname)" = Darwin ]; then
+    die "the C++ engine needs a C++20 compiler. Install Apple's Command Line Tools with: xcode-select --install
+  (a dialog opens; it takes a few minutes), then run this again"
+  fi
+  die "the C++ engine needs a C++20 compiler (GCC 11+ or Clang 14+); install one, then run this again"
+}
+
+install_engine() { # install_engine PYTHON [pip options]
+  local py="$1"
+  shift
+  say "Building the C++ engine for $py (a few minutes the first time)"
+  "$py" -m pip install --quiet "$@" "$ROOT/engine" || die "the engine didn't build (reason above)"
+  "$py" -c 'import dv02_engine.risk' || die "the engine installed, but $py can't import it"
+}
+
+# The Python the daily runner uses: DV02_ENGINE_PYTHON, else the LaunchAgent's
+# (as runner_command in services/api/dv02_api/runs.py picks it). Empty if neither.
+runner_python() {
+  (cd "$ROOT/services/api" && "$PY" -c '
+import os
+from dv02_api import runs
+args = (runs.launch_agent() or {}).get("ProgramArguments") or []
+print(os.environ.get("DV02_ENGINE_PYTHON") or (args[0] if args else ""))
+') 2>/dev/null || true
+}
+
+prefix_of() { "$1" -c 'import sys; print(sys.prefix)' 2>/dev/null; }
+
+# The runner needs the engine too. When it runs under another Python than .venv's,
+# ask before building into that one; otherwise print the command to run later.
+engine_for_runner() { # engine_for_runner [pip options]
+  local rp
+  rp="$(runner_python)"
+  [ -n "$rp" ] || return 0
+  [ -x "$rp" ] && [ "$(prefix_of "$rp")" = "$(prefix_of "$PY")" ] && return 0
+  echo "The daily runner runs under another Python: $rp"
+  echo "Without the engine there, the runner blocks every order (it can't check leverage)."
+  if [ -x "$rp" ] && confirm "Build and install the engine into that Python too?"; then
+    install_engine "$rp" "$@"
+  else
+    echo "Not installed there. To do it yourself:"
+    printf '  %q -m pip install %q\n' "$rp" "$ROOT/engine"
+  fi
 }
 
 GW_ENV="$ROOT/ibgw/.env"
@@ -82,6 +144,9 @@ cmd_setup() {
   say "Installing Python packages"
   "$PY" -m pip install --quiet --upgrade pip
   "$PY" -m pip install --quiet -r "$ROOT/services/api/requirements.txt"
+  need_cxx
+  install_engine "$PY"
+  engine_for_runner
   if [ ! -f "$ROOT/.env" ]; then
     cp "$ROOT/.env.example" "$ROOT/.env"
     say "Created .env from .env.example (IBKR ports, optional Flex token)"
@@ -90,6 +155,24 @@ cmd_setup() {
   say "Installing dashboard packages"
   (cd "$ROOT/apps/web" && npm install --no-fund --no-audit --loglevel=error)
   say "Done. Next: start IB Gateway (paper, 4002), then bin/tradeit doctor and bin/tradeit up"
+}
+
+cmd_engine() {
+  need_venv
+  need_cxx
+  # a fresh install, also when the version number hasn't changed
+  install_engine "$PY" --force-reinstall --no-deps
+  engine_for_runner --force-reinstall --no-deps
+  if command -v cmake >/dev/null 2>&1; then
+    local build="$ROOT/engine/build/tests"
+    say "Building and running the C++ tests"
+    cmake -S "$ROOT/engine" -B "$build" -DCMAKE_BUILD_TYPE=Debug >/dev/null || die "cmake couldn't configure the tests (reason above)"
+    cmake --build "$build" --parallel >/dev/null || die "the C++ tests didn't build (reason above)"
+    ctest --test-dir "$build" --output-on-failure || die "the C++ tests failed (output above)"
+  else
+    echo "cmake isn't installed, so the C++ tests were skipped (brew install cmake to run them)."
+  fi
+  say "Done. Restart the API (bin/tradeit up) so it loads the new engine."
 }
 
 cmd_login() {
@@ -197,6 +280,9 @@ cmd_refresh() {
   local cid port
   cid="$("$PY" -c 'from src.broker.ibkr import settings; print(settings.client_id_for("backfill", "paper"))')"
   port="$("$PY" -c 'from src.broker.ibkr import settings; print(settings.resolve_endpoint("paper").port)')"
+  say "Checking the price history for mixed price bases (splits) and refetching any bad symbol from IBKR"
+  "$PY" -m src.production.backfill_gaps --repair-basis --profile paper --port "$port" --client-id "$cid" \
+    || die "price basis repair failed (reason above); is IB Gateway running?"
   say "Filling any holes in the price history (the engine's backfill_gaps --auto)"
   "$PY" -m src.production.backfill_gaps --auto --profile paper --port "$port" --client-id "$cid" \
     || die "backfill failed (reason above); is IB Gateway running?"
@@ -246,6 +332,7 @@ cmd_demo() {
 
 case "${1:-help}" in
   setup) shift; cmd_setup "$@" ;;
+  engine) shift; cmd_engine "$@" ;;
   login) shift; cmd_login "$@" ;;
   flex) shift; cmd_flex "$@" ;;
   refresh) shift; cmd_refresh "$@" ;;
@@ -254,5 +341,5 @@ case "${1:-help}" in
   up) shift; cmd_up "$@" ;;
   api) shift; cmd_api "$@" ;;
   demo) shift; cmd_demo "$@" ;;
-  *) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac

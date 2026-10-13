@@ -1,5 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { BrowserRouter, Route, Routes } from "react-router";
+import { applyFrame } from "./api/hooks";
+import { startStream } from "./api/stream";
 import { ToastProvider } from "./components/Toasts";
 import { ServerClockProvider } from "./lib/serverClock";
 import { Operations } from "./pages/Operations";
@@ -20,6 +23,9 @@ const queryClient = new QueryClient({
 });
 
 export function App() {
+  // one WebSocket for the whole dashboard; its frames land in the cache the hooks read
+  useEffect(() => startStream((frame) => applyFrame(queryClient, frame)), []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
