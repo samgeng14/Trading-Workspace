@@ -20,7 +20,7 @@ rules; this file has the state. Keep both current as you work.
    `web / staging-e2e` failed on 0a0eee77 and f663141d (the Command Center's
    Today's P&L y labels ran a pixel past the panel in the Journal theme), and
    7fe9553b fixes it. If anything is red on the latest commit, fix that first.
-3. Compare `git log --oneline -15` with "Done" and "In flight" below.
+3. Compare `git log --oneline -15` with "Done" and "Unfinished work" below.
 4. Run the checks in `CLAUDE.md` once, so you start from green.
 
 ## Done (pushed)
@@ -46,23 +46,34 @@ rules; this file has the state. Keep both current as you work.
   early closes in the clock, price-basis checks on the price master, dead
   code deleted, trading-engine tests in CI (0 failures, from 19).
 
-## In flight when this was written
+## Unfinished work from the previous session
 
-Two background jobs were finishing work that existed **only as uncommitted
-files in the previous session's container**. Each was to land as its own
-commit once its tests passed. Check:
+The previous session's background jobs stopped before finishing. Their work
+was saved as follows.
 
-```bash
-git log --oneline origin/claude/serene-babbage-0204ht -- trading-engine/src/runtime/end_of_day_reconcile.py engine/src/costs.cpp
-```
+- **B, the cost model**, is committed (d783748c). Its C++ is done and
+  tested; the Python tests and a review are left.
+- **A, the Phase 0 gate**, is saved as a patch:
+  [`docs/wip/phase0-gate.patch`](wip/phase0-gate.patch). Committing it as it
+  stood would have broken four tests, so it isn't on the branch. Start from
+  it, not from scratch:
+  ```bash
+  git apply docs/wip/phase0-gate.patch    # applies cleanly to ac7c4893 and later
+  ```
+  The patch changes these files:
+  - `trading-engine/src/runtime/end_of_day_reconcile.py`
+  - `trading-engine/src/portfolio/risk/exposure_limits.py`
+  - `trading-engine/src/runtime/auto_rebalance.py` (docstring)
+  - `trading-engine/config/risk_limits.yaml`
+  - `trading-engine/config/execution.yaml` (comments only: `allow_submit`
+    and `dry_run` keep the committed `false`/`true`; see below)
 
-If a commit for it is there, it landed: review it and move on. If not, none
-of that job's code exists on your machine, and you rebuild it from this
-description.
+  After applying it, finish the steps below, then delete the patch file in
+  the same commit.
 
 ### A. Phase 0 gate: drift gate, EOD reconcile, config
 
-What it adds:
+What the patch has, and what is left (marked **To do**):
 - `trading-engine/src/runtime/end_of_day_reconcile.py`, rewritten to be
   positions-based. `record_submission(profile, run_id=, positions=, orders=,
   execution=, root=)` adds each real submission to an "expected book" JSON
@@ -78,7 +89,9 @@ What it adds:
 - `src/portfolio/risk/exposure_limits.py` reads `config/risk_limits.yaml`
   (`load_exposure_limits`), every key required, unknown keys an error, and no
   value looser than the no-leverage policy (gross 1.0, net 1.0, one name 0.25).
-- `src/production/daily_runner.py`:
+- **To do**, in `src/production/daily_runner.py` (not in the patch; the
+  runner already has `_load_execution_config` and `_submit_disabled`, not yet
+  called):
   - The drift gate (`_needs_rebalance_drift`) compares **today's targets**
     with the account's **current positions** (`_current_positions`: IBKR now,
     else the last snapshot, over NAV). Before, it read the previous run's
@@ -86,7 +99,7 @@ What it adds:
   - The EOD reconcile runs as the first step of each run.
   - `record_submission` is called after each real submission.
   - `config/execution.yaml` is honoured (`_load_execution_config`, `_submit_disabled`).
-- Tests that drive the old reconcile, rewritten to go through
+- **To do**: rewrite the tests that drive the old reconcile to go through
   `record_submission` and a fake client:
   - `tests/integration/test_runtime_e2e.py`: `test_full_cycle_happy_path` and
     the three `test_eod_*` tests (they patch `diff_book_vs_account`)
@@ -95,6 +108,13 @@ What it adds:
     (patches `reconciler._make_readonly_client`)
 
   Plus new tests for each behaviour and for loading `risk_limits.yaml`.
+- Once loaded, `risk_limits.yaml`'s values are enforced for the first time:
+  - one name at most 20% (the policy allows 25%)
+  - net exposure between 50% and 100%
+  - at least 5 holdings
+
+  The model's five ~19.9% positions fit. Show the owner the values before
+  committing.
 
 **Ask the owner before wiring `execution.yaml`.** The committed file says
 `allow_submit: false` and `dry_run: true`. Nothing reads it today, so the
@@ -105,9 +125,9 @@ schedule to send paper orders automatically, so the expected values are
 owner, set it in the same commit, and add a test that a run with that config
 submits.
 
-### B. Phase 3: cost model and walk-forward
+### B. Phase 3: cost model and walk-forward (committed in d783748c)
 
-What it adds:
+Done:
 - `engine/include/dv02/costs.hpp` and `engine/src/costs.cpp`:
   - IBKR Pro Fixed commission ($0.005 a share, $1 minimum, 1% of value maximum)
   - per-contract futures fees
@@ -123,11 +143,19 @@ What it adds:
 - `engine/python/dv02_engine/walkforward.py`: folds (expanding or rolling),
   an embargo gap, an untouched holdout, trades `lag` rows after the decision,
   and the deflated Sharpe ratio (Bailey & López de Prado).
-- Python tests: `engine/tests/python/test_costs.py` and `test_walkforward.py`
-  (look-ahead canary, holdout untouched, deflated Sharpe on hand-computed values).
 
-`walkforward.py` must import nothing beyond what the engine CI's Python job
-installs: numpy, pandas, polars and pytest.
+**To do:**
+- Python tests: `engine/tests/python/test_costs.py` and `test_walkforward.py`
+  - a look-ahead canary
+  - the holdout untouched
+  - deflated Sharpe on hand-computed values, falling as `n_trials` grows
+  - costs off giving the plain backtest bit-for-bit
+- An adversarial review of `costs.cpp` and `walkforward.py`. A smoke run on
+  synthetic prices worked end to end but earned 0 interest while holding
+  about 5% cash: check the default cash rate.
+- Keep `walkforward.py`'s imports to the standard library, numpy and pandas
+  (the engine CI's Python job installs numpy, pandas, polars and pytest).
+  It already uses `statistics.NormalDist`, not scipy.
 
 ## Next, in this order
 
@@ -321,7 +349,7 @@ Docs: https://code.claude.com/docs/en/chrome
 - `bin/tradeit schedule install`, for the new 15:35 ET time, until the VM takes
   over. Don't run `python -m src.production.scheduler`: it installs the old
   16:32 schedule.
-- Decide `config/execution.yaml` (In flight, A): should the scheduled run send
+- Decide `config/execution.yaml` (Unfinished work, A): should the scheduled run send
   paper orders automatically (`allow_submit: true`, `dry_run: false`)?
 - Market data and permissions (`docs/PLAN.md` §7, §15):
   - subscribe the live login to the US Securities Snapshot and Futures Value

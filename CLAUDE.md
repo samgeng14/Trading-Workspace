@@ -49,7 +49,7 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
 
 | Path | What |
 |---|---|
-| `engine/` | C++20 library `dv02` (risk check, backtester; the cost model is in progress, see `docs/HANDOFF.md`) and its Python module `dv02_engine` (nanobind) |
+| `engine/` | C++20 library `dv02` (risk check, backtester, cost model; walk-forward in `dv02_engine.walkforward`) and its Python module `dv02_engine` (nanobind) |
 | `trading-engine/` | Python: the daily runner (`src/production/daily_runner.py`), IBKR plumbing (`src/broker/ibkr/`), data, research |
 | `services/api/` | FastAPI app `dv02_api`: the dashboard's API over IBKR and the engine's files |
 | `apps/web/` | React + TypeScript + Vite dashboard |
