@@ -1094,7 +1094,8 @@ order paths).
   places orders, runs the kill switch and the no-leverage check itself before it
   connects; the unguarded Streamlit submit page is deleted.
 - Three sets of limits disagree: `exposure_limits` defaults, `risk_limits.yaml`
-  (unread), and `order_policy`. Stale data only produces a warning.
+  (unread), and `order_policy`. ~~Stale data only produces a warning.~~ Fixed: a
+  model ETF more than a session behind the last completed close blocks the run.
 - The drift gate reads the previous run's reconciliation file, not today's targets.
 - The EOD reconcile is not scheduled. Its "book" is a sum of order deltas
   rather than positions, so it would false-alarm.

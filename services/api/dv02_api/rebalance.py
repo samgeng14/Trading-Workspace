@@ -203,6 +203,7 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
             basket_df=recon,
             nav=nav,
             prices_path=cfg.targets_path.parent.parent / "prices" / "etf_prices_master.parquet",
+            as_of=last_complete,  # the session the data check wants the targets from
         )
         ks = gate.details.get("kill_switch") or {}
         checks.insert(

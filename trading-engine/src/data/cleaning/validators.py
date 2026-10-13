@@ -15,7 +15,10 @@ Checks performed:
     that reverts the next day (a bad bar). Both are bad data, not market
     moves, unless the owner confirmed that symbol and date as a genuine move
     in config/confirmed_moves.yaml; other large moves stay warnings
-  * staleness — every symbol has at least one row in the last N business days
+  * staleness, against the last completed session (src/common/clock.py): a
+    model ETF more than MODEL_STALE_SESSIONS behind is BLOCKING, since the
+    targets would be built on a close the market has left behind; any other
+    symbol more than STALE_BUSINESS_DAYS behind is a warning
 
 The validator returns a structured result with `errors`, `warnings`, and a
 boolean `ok` flag. Daily runner calls this before signals so a corrupted
@@ -30,7 +33,7 @@ from typing import Any, Iterable
 
 import pandas as pd
 
-from src.common.clock import is_us_business_day, now_et
+from src.common.clock import is_us_business_day, last_completed_session
 from src.data.cleaning.price_basis import find_bad_jumps, resolve_confirmed
 
 
@@ -39,10 +42,14 @@ from src.data.cleaning.price_basis import find_bad_jumps, resolve_confirmed
 # 20-30% but +50% in one bar is implausible for these instruments.
 MAX_DAILY_RETURN_PCT = 0.50
 
-# Symbols are considered stale if their newest bar is older than N business
-# days. The runner pulls daily bars at 16:32 ET, so a 1-business-day lag is
-# normal (we're seeing yesterday's close). 3 business days is the threshold.
+# Staleness is measured against the last completed session (yesterday's until
+# 16:15 ET, then today's): the runner appends bars through it, so a healthy
+# symbol is 0 sessions behind. Any symbol more than STALE_BUSINESS_DAYS behind
+# is a warning. A model ETF (``model_symbols``) more than MODEL_STALE_SESSIONS
+# behind blocks the run: the targets are built on its last close, and the book
+# would trade on a price the market has left behind.
 STALE_BUSINESS_DAYS = 3
+MODEL_STALE_SESSIONS = 1
 
 # Calendar days of history the latest targets read: the longest signal
 # lookback is TSMOM's 252 + 21 trading days (src/strategies/etf/tsmom_ts.py),
@@ -94,18 +101,23 @@ def validate_master_prices(
     df: pd.DataFrame,
     *,
     expected_symbols: tuple[str, ...] | None = None,
+    model_symbols: Iterable[str] | None = None,
     max_daily_return_pct: float = MAX_DAILY_RETURN_PCT,
     stale_business_days: int = STALE_BUSINESS_DAYS,
+    model_stale_sessions: int = MODEL_STALE_SESSIONS,
     signal_window_days: int = SIGNAL_WINDOW_DAYS,
     confirmed: Iterable[tuple[str, Any]] | None = None,
+    as_of: _date | None = None,
 ) -> PriceValidationResult:
     """Validate a master prices DataFrame in long format.
 
     Expected columns: ``date``, ``symbol``, ``close`` (case-insensitive).
     Optional ``expected_symbols`` tuple — if provided, every symbol in this
-    list must have at least one row. ``confirmed`` (symbol, date) pairs are
-    owner-confirmed genuine moves, neither blocked nor warned about; None
-    reads config/confirmed_moves.yaml.
+    list must have at least one row. ``model_symbols`` are the ETFs the model
+    may hold: one more than ``model_stale_sessions`` sessions behind ``as_of``
+    (default: the last completed session now) is a blocking error. ``confirmed``
+    (symbol, date) pairs are owner-confirmed genuine moves, neither blocked nor
+    warned about; None reads config/confirmed_moves.yaml.
     """
     res = PriceValidationResult(ok=True)
     if df is None or df.empty:
@@ -196,19 +208,36 @@ def validate_master_prices(
             )
 
     # ── Staleness ──────────────────────────────────────────────────────────
-    today_et = now_et().date()
+    # Against the last completed session, not today: before 16:15 ET today's
+    # bar can't exist yet, and the run reads yesterday's close on purpose.
+    ref = as_of or last_completed_session()
+    model = {str(s).upper().strip() for s in (model_symbols or ())}
     latest_per_sym = df.groupby("symbol")["date"].max().dt.date
     stale = []
+    stale_model = []
     for sym, latest in latest_per_sym.items():
-        bdays = _business_days_between(latest, today_et)
-        if bdays > stale_business_days:
-            stale.append((sym, str(latest), bdays))
-    res.summary["stale_symbols"] = len(stale)
+        behind = _business_days_between(latest, ref)
+        if sym in model and behind > model_stale_sessions:
+            stale_model.append((sym, str(latest), behind))
+        elif behind > stale_business_days:
+            stale.append((sym, str(latest), behind))
+    res.summary["stale_symbols"] = len(stale) + len(stale_model)
+    if stale_model:
+        shown = ", ".join(f"{sym} (last bar {latest}, {n} sessions behind)" for sym, latest, n in stale_model[:5])
+        res.errors.append(
+            f"{len(stale_model)} model ETFs are more than {model_stale_sessions} session(s) behind the "
+            f"last completed session ({ref}): {shown}. The targets would be built on a close the market "
+            f"has left behind. Run {REPAIR_COMMAND} (it fetches the missing bars from IBKR), then rerun."
+        )
+        res.ok = False
+    missing_model = sorted(model - set(latest_per_sym.index))
+    if missing_model:
+        res.warnings.append(f"{len(missing_model)} model ETFs have no bars at all: {missing_model}")
     if stale:
         sample = stale[:5]
         res.warnings.append(
             f"{len(stale)} symbols are stale (>{stale_business_days} business "
-            f"days behind). e.g. {sample}"
+            f"days behind {ref}). e.g. {sample}"
         )
 
     # ── Coverage of expected universe ──────────────────────────────────────

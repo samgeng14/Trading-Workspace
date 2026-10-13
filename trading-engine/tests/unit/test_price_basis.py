@@ -706,14 +706,14 @@ def test_pre_trade_gate_blocks_on_validator_errors_even_if_ok_says_pass(tmp_path
 
     monkeypatch.setattr(
         validators, "validate_master_prices_file",
-        lambda path: validators.PriceValidationResult(ok=True, errors=["ETHA 2026-02-13: bad"]),
+        lambda path, **_: validators.PriceValidationResult(ok=True, errors=["ETHA 2026-02-13: bad"]),
     )
     res = run_pre_trade_risk_checks(basket_df=_basket(), nav=100_000.0, prices_path=tmp_path / "x.parquet")
     assert res.ok is False and "prices: ETHA 2026-02-13: bad" in res.blocking_reasons
 
 
 def test_runner_stops_before_targets_when_a_merge_is_refused(disk, monkeypatch) -> None:
-    """The 16:32 path end to end (fake IB): a refused merge aborts the run
+    """The 15:35 ET path end to end (fake IB): a refused merge aborts the run
     before targets, baskets and orders, and the run log names the symbol."""
     from src.production import daily_runner
 
