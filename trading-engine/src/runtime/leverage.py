@@ -138,9 +138,12 @@ def check_leverage(
     *,
     root: Path | None = None,
     orders_path: Path | None = None,
+    orders: pd.DataFrame | None = None,
 ) -> LeverageResult:
     """Whether the book after the run's orders stays unlevered. Anything that can't be
-    measured (no engine, no snapshot, no NAV, an unpriced holding) blocks."""
+    measured (no engine, no snapshot, no NAV, an unpriced holding) blocks. ``orders``
+    are the rows about to be sent, when the caller has read and filtered them already;
+    else they are read from ``orders_path``."""
     try:
         from dv02_engine import risk
     except ImportError:
@@ -160,7 +163,7 @@ def check_leverage(
         return _blocked(f"no {profile} account summary in {root / 'data' / 'broker' / 'account'}", files=files)
     if not math.isfinite(nav):
         return _blocked(f"no NetLiquidation in {account_path}", files=files)
-    if not orders_path.exists():
+    if orders is None and not orders_path.exists():
         return _blocked(f"orders file not found: {orders_path}", files=files)
 
     recon, master = _closes(root, profile)
@@ -197,7 +200,7 @@ def check_leverage(
         )
 
     # what submit_paper_orders.load_orders sends: side with |delta_shares| as a whole number
-    planned = _read_table(orders_path)
+    planned = _read_table(orders_path) if orders is None else orders
     planned = planned.loc[planned["side"].isin(["BUY", "SELL"])]
     orders = []
     for row in planned.to_dict("records"):

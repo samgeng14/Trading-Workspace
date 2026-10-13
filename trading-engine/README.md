@@ -300,7 +300,7 @@ Three layers of defense before any order leaves your laptop:
      [50%, 100%], min 5 holdings, max single trade 30% NAV)
    - basket non-empty + NAV > 0
 
-3. **Duplicate-submission guard** (`src/dashboard/services/order_service.py`)
+3. **Duplicate-submission guard** (`src/production/runtime/order_service.py`)
    — basket fingerprint persisted to disk; a second submit of the same
    basket fingerprint is refused.
 

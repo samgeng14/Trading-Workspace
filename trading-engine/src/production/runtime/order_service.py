@@ -1,3 +1,9 @@
+"""The order service: the duplicate-submission guard around submit_paper_orders.
+
+The daily runner's submit step and the dashboard's API go through it. It lived
+in the old Streamlit dashboard's package; the runner shouldn't depend on that,
+so it sits with the runtime now.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -281,15 +287,32 @@ def submit_paper_orders(
 
     result = _runtime_submit(cfg)
 
+    if result.get("blocked"):
+        # the kill switch or the no-leverage check inside submit_paper_orders: nothing went out
+        return {
+            "ok": False,
+            "submitted": False,
+            "blocked": True,
+            "reasons": list(result.get("reasons") or []),
+            "reason": "; ".join(result.get("reasons") or []),
+            "profile": profile,
+            "result": result,
+            "basket_path": str(basket_before) if basket_before else None,
+            "submission_path": str(submit_before) if submit_before else None,
+            "fill_log_path": str(fills_before) if fills_before else None,
+        }
+
     submit_after = latest_submission_path()
     fills_after = latest_fill_log_path()
 
-    if basket_before and submit_after:
+    # the lock marks a basket as sent; a dry run's preview file doesn't send it
+    submitted = bool(result.get("submitted"))
+    if submitted and basket_before and submit_after:
         write_submit_lock(profile=profile, basket_path=basket_before, submission_path=submit_after)
 
     return {
         "ok": True,
-        "submitted": True,
+        "submitted": submitted,
         "profile": profile,
         "result": result,
         "basket_path": str(basket_before) if basket_before else None,

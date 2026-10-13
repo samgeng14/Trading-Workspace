@@ -36,7 +36,7 @@ def get_pipeline_status(profile: str = "paper") -> dict[str, Any]:
 
     # Lazy import to avoid circular deps
     try:
-        from src.dashboard.services.order_service import (
+        from src.production.runtime.order_service import (
             latest_basket_path,
             latest_fill_log_path,
             latest_submission_path,

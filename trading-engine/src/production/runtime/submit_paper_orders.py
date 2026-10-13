@@ -20,9 +20,11 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 from src.broker.ibkr.auction import Execution, execution_for  # noqa: E402
-from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig
-from src.broker.ibkr.settings import resolve_endpoint
-from src.broker.ibkr.orders import IBKROrderManager, OrderRequest
+from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig  # noqa: E402
+from src.broker.ibkr.orders import IBKROrderManager, OrderRequest  # noqa: E402
+from src.broker.ibkr.settings import resolve_endpoint  # noqa: E402
+from src.execution.kill_switch import KillSwitchTripped, require_kill_switch_clear  # noqa: E402
+from src.runtime.leverage import check_leverage  # noqa: E402
 
 
 @dataclass(slots=True)
@@ -38,10 +40,6 @@ class SubmitPaperOrdersConfig:
     wait_for_status: bool = True
     timeout: float = 30.0
     symbols: tuple[str, ...] = ()
-
-
-def _project_root() -> Path:
-    return Path(__file__).resolve().parents[3]
 
 
 def default_config() -> SubmitPaperOrdersConfig:
@@ -143,6 +141,27 @@ def _plan_rows(orders_df: pd.DataFrame, execution: Execution, dry_run: bool) -> 
     return rows
 
 
+PROFILE = "paper"  # the only profile this path sends; the client refuses a live account
+
+
+def pre_trade_blocks(orders_df: pd.DataFrame, orders_path: Path, *, profile: str = PROFILE) -> list[str]:
+    """Why ``orders_df`` must not go out, or [] when it may.
+
+    The kill switch, then the C++ no-leverage check on the whole book after
+    these orders (src/runtime/leverage.py). submit_paper_orders runs this
+    before it connects, so every caller gets it: the CLI's --submit, the order
+    service the dashboard and the daily runner go through, and anything new.
+    The runner runs the same checks earlier, with the exposure limits, and logs
+    the full report; this is the one that can't be skipped.
+    """
+    try:
+        require_kill_switch_clear()
+    except KillSwitchTripped as exc:
+        return [str(exc)]
+    leverage = check_leverage(profile, root=_project_root(), orders_path=orders_path, orders=orders_df)
+    return list(leverage.blocking_reasons)
+
+
 def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
     orders_df = load_orders(config.orders_path, symbols=config.symbols)
     config.submissions_dir.mkdir(parents=True, exist_ok=True)
@@ -151,9 +170,12 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     submission_path = config.submissions_dir / f"paper_orders_submitted_{timestamp}.csv"
     fills_path = config.fills_dir / f"paper_trade_log_{timestamp}.csv"
+    # MOC before the closing-auction deadline, else market-on-open for the next
+    # session (src/broker/ibkr/auction.py). Decided once, as the batch goes out,
+    # so its sells and buys fill in the same auction.
+    execution = execution_for(orders_df["symbol"])
 
     if config.dry_run:
-        execution = execution_for(orders_df["symbol"])
         preview_df = pd.DataFrame(_plan_rows(orders_df, execution, dry_run=True))
         preview_df.to_csv(submission_path, index=False)
         return {
@@ -164,21 +186,29 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
             "execution": execution.as_dict(),
         }
 
+    reasons = pre_trade_blocks(orders_df, config.orders_path)
+    if reasons:
+        return {
+            "submitted": False,
+            "blocked": True,
+            "reasons": reasons,
+            "submission_path": None,
+            "fills_path": None,
+            "rows": 0,
+            "execution": execution.as_dict(),
+        }
+
     client = IBKRClient(
         IBKRConnectionConfig(
             host=config.host,
             port=config.port,
             client_id=config.client_id,
             account=config.account,
-            expected_profile="paper",
+            expected_profile=PROFILE,
         )
     )
     client.connect()
     manager = IBKROrderManager(client)
-    # MOC before the closing-auction deadline, else market-on-open for the next
-    # session (src/broker/ibkr/auction.py). Decided once, as the batch goes out,
-    # so its sells and buys fill in the same auction.
-    execution = execution_for(orders_df["symbol"])
 
     submission_rows: list[dict[str, Any]] = []
     fill_rows: list[dict[str, Any]] = []
@@ -274,6 +304,11 @@ def main() -> None:
     config.dry_run = not args.submit
 
     result = submit_paper_orders(config)
+    if result.get("blocked"):
+        print("Blocked: nothing was sent.")
+        for reason in result["reasons"]:
+            print(" ", reason)
+        sys.exit(1)
     print("Submitted:" if result["submitted"] else "Dry run only:", result["submission_path"])
     if result["fills_path"]:
         print("Fills log:", result["fills_path"])

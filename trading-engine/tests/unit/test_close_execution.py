@@ -193,6 +193,8 @@ def submit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setattr(spo, "IBKRClient", FakeClient)
     monkeypatch.setattr(spo, "IBKROrderManager", FakeManager)
+    # how a batch goes out, not whether it may: the gate has its own tests (test_submit_gate.py)
+    monkeypatch.setattr(spo, "pre_trade_blocks", lambda *_a, **_k: [])
 
     def send(dry_run: bool = False):
         placed.clear()

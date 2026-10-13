@@ -781,7 +781,7 @@ def step_submit_orders(
         return {"ok": True, "action": "submit_orders", "skipped": True, "reason": "dry_run"}
 
     try:
-        from src.dashboard.services.order_service import submit_paper_orders
+        from src.production.runtime.order_service import submit_paper_orders
         result = submit_paper_orders(
             profile=profile,
             host=host,
