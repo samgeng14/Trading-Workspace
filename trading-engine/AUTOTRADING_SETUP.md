@@ -120,7 +120,7 @@ The current model is a **momentum-based ETF rotation**:
 | **Home** | Ops status: broker connection, NAV, positions, data gap alert |
 | **Run Pipeline** | Manual controls: backfill, append, targets, full pipeline |
 | **Basket Review** | Preview what trades would be submitted |
-| **Submit Orders** | Submit paper orders with duplicate guard |
+| **Submit Orders** | Gone: orders go through the daily runner (`bin/tradeit`, or the DV02 dashboard's Submit), which runs every pre-trade check |
 | **Orders & Fills** | View submitted orders and fills |
 | **Positions** | Current IBKR positions |
 | **Risk Monitor** | Pre-flight checks before submitting |
