@@ -64,6 +64,22 @@ a fixed API contract. That way nothing built early gets thrown away.
   built by scikit-build-core, an in-repo test harness, and CI with sanitizers.
   It has the no-leverage check and the backtester port (Section 6).
 
+**October 13:** Phase 0's safety work landed (PR #12). Every order path runs
+the kill switch and the no-leverage check inside the one function that places
+orders. The daily run skips NYSE holidays; reconciles the orders it sent
+against IBKR first (an expected book of positions plus orders at their fills;
+a break of $100 or more arms the kill switch); decides drift from today's
+targets against the positions now; blocks on a model ETF whose prices are
+stale; and takes its limits from `risk_limits.yaml`. `bin/tradeit kill` cancels
+working orders and `resume` needs the doctor and a reconcile pass; the old
+16:32 scheduler is gone. The daily NAV since inception comes from a one-time
+PortfolioAnalyst import (the account's history starts 2026-03-06) plus Flex
+from 2026-04-15, and the API records every close. Infrastructure: everything
+still runs on the Mac (IB Gateway in Docker, the API and dashboard on demand,
+nothing scheduled until `bin/tradeit schedule install`); the Oracle VM move
+(Phase 2) has not started. The doctor passes against the paper gateway; quotes
+are delayed until market data is shared to the paper login.
+
 An audit of the current repo (October 2026) found a working core with a lot
 of scaffolding around it that is partly or entirely disconnected. The full
 list is in Appendix A. The items that matter most:
@@ -852,8 +868,10 @@ tens of GB as Parquet. That fits comfortably on the laptop and on a 200 GB VM.
   - keep raw data private (private bucket, Cloudflare Access on anything that shows it)
   - never redistribute it
   - confirm with the school before anything commercial
-- **Duo MFA.** WRDS uses Duo. If unattended Postgres connections don't work for
-  your account, WRDS syncs run during `tradeit up`, while you're at the laptop.
+- **Decided (October 2026): manual only.** The subscription is limited and
+  every session needs a Duo prompt, so nothing automates WRDS: no scheduled
+  syncs, no unattended Postgres connections. Pull what research needs by hand
+  while at the laptop; the daily run uses IBKR prices and free sources only.
   That's fine, because CRSP, Compustat and IBES update on daily to quarterly cycles anyway.
 - **Data lag.** CRSP lags by months. It is for research and history, not live
   signals. Live signals use IBKR prices plus the fundamentals available as of that day.
@@ -1015,7 +1033,7 @@ Sizes are rough, assuming one person working part-time. Phases 1–3 overlap.
 
 | Phase | Scope | Exit criteria | Size |
 |---|---|---|---|
-| **0. Stabilize** | IBKR plumbing (this PR); MOC timing; adjusted prices; fix drift gate; schedule and fix EOD reconcile; wire `risk_limits.yaml` and kill switch into every submit path; holiday calendar; declare deps (pandas); MOSEK out of git with a free solver fallback (Clarabel/ECOS); backfill price data; **Flex history + NAV since inception**; delete dead code (GCS pipeline, simulations, 0-byte modules) | 10 consecutive trading days with doctor green, the run executing, EOD reconcile matching the broker to the share, and NAV matching the IBKR statement | 2–3 weeks |
+| **0. Stabilize** | IBKR plumbing (this PR); MOC timing; adjusted prices; fix drift gate; schedule and fix EOD reconcile; wire `risk_limits.yaml` and kill switch into every submit path; holiday calendar; declare deps (pandas); MOSEK out of git with a free solver fallback (Clarabel/ECOS); backfill price data; **Flex history + NAV since inception**; delete dead code (GCS pipeline, simulations, 0-byte modules) *Done (Oct 13): MOC timing, the drift gate, the EOD reconcile as the run's first step, `risk_limits.yaml` and the kill switch on every submit path, the holiday calendar, MOSEK out, the backfill, Flex and PortfolioAnalyst history, trading-engine tests in CI. Left: adjusted prices, declared deps.* | 10 consecutive trading days with doctor green, the run executing, EOD reconcile matching the broker to the share, and NAV matching the IBKR statement | 2–3 weeks |
 | **1. Frontend + API v1** (done) | Contract, design system, all 8 sections, control contract with Playwright, simulated broker for CI; delete old static dashboard. *Done: contract, design system, 6 sections, control contract, web CI, real-data API (`services/api`) and `bin/tradeit`, running on the paper account with NAV since inception from Flex, live streaming over a WebSocket, equity curve with a dollar view. Left: Strategies and Data, which wait on Phases 2 and 4, and deleting the old static dashboard.* | Every control in Appendix B is replaced or deliberately dropped; e2e green in CI | 4–6 weeks |
 | **2. Data platform** | Lake + DuckDB, Postgres, security master, point-in-time layer, WRDS jobs, dataset watermarks + `catchup`, Oracle VM setup, tunnel + Access, R2 backups | S2's full history rebuildable from scratch with one command; Data page all green | 4–8 weeks (parallel) |
 | **3. C++ engine** (started) | No-leverage risk gate → backtester → read-only mirror → shadow OMS → engine submits → CRB + auto-hedger → intraday host; nanobind bindings. *Done: risk gate, backtester port from Rust. Next: the backtester's cost model and walk-forward runs.* | Two weeks of shadow orders matching Python; one month engine-only with zero unexplained breaks | 2–4 months |
@@ -1024,7 +1042,7 @@ Sizes are rough, assuming one person working part-time. Phases 1–3 overlap.
 | **6. Futures and options (within the no-leverage mandate)** | Futures sleeves as broad as the 100% gross budget allows; options sleeves once options data exists and the risk gate measures delta-adjusted notional | Each sleeve passes the research gate and 3 months of paper, with the book inside the mandate throughout | After two sleeves are live |
 
 CI, by phase:
-- Phase 0: Python tests and lint for `trading-engine`. *(Not yet.)*
+- Phase 0: Python tests and lint for `trading-engine`. *(Added.)*
 - Phase 1: frontend typecheck, lint and e2e (`web.yml`); API contract tests
   and lint (`api.yml`). *(Added.)*
 - Phase 3: C++ build and tests with sanitizers (`engine.yml`). *(Added.)*
@@ -1066,7 +1084,8 @@ CI, by phase:
    gateway and Postgres there?
 3. **IBKR permissions.** Re-request futures and options after updating the
    profile (Section 7). Confirm the account is a margin account (needed for shorts).
-4. **WRDS:** which FactSet modules are active. Do unattended connections pass Duo?
+4. **WRDS:** ~~which FactSet modules are active. Do unattended connections pass Duo?~~
+   Decided: manual only (Section 11); nothing in production depends on it.
 5. **Collaborators:** Rithwik (original engine), the News Engine project with
    Prof. Singh. One monorepo, or separate repos with shared `schemas/`?
 6. **Benchmark default** for the Performance page: S&P 500 total return (current default)?
