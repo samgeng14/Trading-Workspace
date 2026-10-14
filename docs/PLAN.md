@@ -1138,7 +1138,9 @@ order paths).
 - The price master in git ends on 2026-05-06 (`tradeit refresh` refills it locally).
 - Futures, indices and rates masters are referenced but absent.
 - `src/storage/` is gitignored, so the storage package was never committed and its tests fail.
-- `db/migrations` table names don't match `db.yaml`.
+- ~~`db/migrations` table names don't match `db.yaml`.~~ Fixed: `db.yaml` lists the
+  migrations' tables (a test keeps them in step), `006_nav.sql` adds daily NAV, and
+  credentials come from the VM's `.env` (`DV02_DB_USER`, `DV02_DB_PASSWORD`).
 
 **Code health (Phase 0):**
 - `pandas` and `apscheduler` are used but not declared in `pyproject.toml`.

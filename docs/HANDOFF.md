@@ -170,10 +170,11 @@ Then build it as files in the repo (a new `deploy/` folder), each step tested:
   its pre-Flex history. Do one dry run on the VM and compare its targets with
   the Mac's before enabling the timer.
 - **Postgres** for orders, fills, positions and NAV.
-  - `trading-engine/config/db.yaml` and `trading-engine/db/migrations` disagree
-    (`market_data` vs `market_bars`). Neither has a NAV table, and the
-    credentials are placeholders. Make them agree, add NAV, and take
-    credentials from the VM's `.env`.
+  - `trading-engine/config/db.yaml` now lists the tables `db/migrations`
+    creates (a test keeps them in step), `006_nav.sql` adds daily NAV, and the
+    credentials come from `DV02_DB_USER` and `DV02_DB_PASSWORD` in the VM's
+    `.env`. Nothing reads the config yet: wire it (a small `src/storage`
+    module; the old one was never committed) and load the engine's files into it.
   - Add the Trades section to the Flex query and load Flex trades into
     `fills`, so the blotter and the reconcile have history beyond today.
 - **Phone access.** Cloudflare Tunnel + Cloudflare Access in front of the
