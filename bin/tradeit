@@ -101,10 +101,15 @@ need_cxx() {
 }
 
 install_engine() { # install_engine PYTHON [pip options]
-  local py="$1"
+  local py="$1" arch
   shift
   say "Building the C++ engine for $py (a few minutes the first time)"
-  "$py" -m pip install --quiet "$@" "$ROOT/engine" || die "the engine didn't build (reason above)"
+  # Build for this Mac's CPU. An Intel cmake under /usr/local/bin (left by an
+  # older install) otherwise builds an x86_64 module an arm64 Python can't load,
+  # and the runner then blocks every order because it can't check leverage.
+  arch="$(uname -m)"
+  CMAKE_ARGS="-DCMAKE_OSX_ARCHITECTURES=$arch" ARCHFLAGS="-arch $arch" \
+    "$py" -m pip install --quiet "$@" "$ROOT/engine" || die "the engine didn't build (reason above)"
   "$py" -c 'import dv02_engine.risk' || die "the engine installed, but $py can't import it"
 }
 

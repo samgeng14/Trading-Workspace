@@ -82,14 +82,18 @@ rules; this file has the state. Keep both current as you work.
 
 ## Unfinished work
 
-- **B, the cost model's Python tests and review.** A background agent was
-  finishing `engine/tests/python/test_costs.py` and `test_walkforward.py`, an
-  adversarial review of `costs.cpp` and `walkforward.py`, and the known bug
-  that a cash-only book earned no interest (check the default cash rate and
-  the interest path end to end). If it landed, there is a commit after
-  3cc7966c touching only `engine/`; if not, that list is what to do, with the
-  engine CI commands in `CLAUDE.md`. `walkforward.py` may import only the
-  standard library, numpy and pandas.
+- **B, the cost model, is finished** (3a84e933): `engine/tests/python/test_costs.py`
+  and `test_walkforward.py` (30 tests: commission tiers, half-spread,
+  square-root impact, actual/360 accrual over a weekend, costs off bit-for-bit
+  equal to the plain backtest, a look-ahead canary, the holdout untouched,
+  the embargo, the deflated Sharpe on hand-computed values). The review fixed
+  NaN and negative-day-count handling in `costs.cpp` and a wiped-out book's
+  return in `walkforward.py`. The zero-interest smoke run was the default
+  cash rate, 0 (off); it is 338 bps now, IBKR Pro's USD rate on 2026-10-13
+  (benchmark less 0.5%, on balances over $10k), to be refreshed as the Fed
+  moves. On the owner's Mac, `cmake` and `ninja` under /usr/local/bin are
+  x86_64 binaries: a build whose Python module won't load needs
+  `-DCMAKE_OSX_ARCHITECTURES=arm64` (CI is unaffected).
 - **`config/execution.yaml` is still not read.** `allow_submit` and `dry_run`
   are documented there and the runner has `_load_execution_config` and
   `_submit_disabled`, not yet called. The committed values are `false`/`true`,

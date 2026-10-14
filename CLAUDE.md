@@ -87,7 +87,10 @@ real API over the made-up staging account.
 
 `bin/tradeit setup` builds `.venv` (Python 3.12, else 3.11 or 3.13) with the
 runtime packages, the C++ engine and the dashboard's npm packages. The checks
-also need `.venv/bin/pip install pytest jsonschema httpx ruff==0.8.6`.
+also need `.venv/bin/pip install pytest jsonschema httpx ruff==0.8.6`. On the
+owner's Mac, `/usr/local/bin/cmake` is an Intel binary: build the engine with
+`CMAKE_ARGS=-DCMAKE_OSX_ARCHITECTURES=arm64 ARCHFLAGS="-arch arm64"` (as
+`bin/tradeit engine` does), or the module won't load in the arm64 Python.
 
 ## Style
 
