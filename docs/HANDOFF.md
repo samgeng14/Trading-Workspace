@@ -107,9 +107,17 @@ rules; this file has the state. Keep both current as you work.
 ### 1. Check the first real runs (with the owner)
 
 Nothing is scheduled on the Mac right now (`bin/tradeit schedule status`), and
-the market-on-close change has never run against IBKR. The first real run after
-the owner installs the schedule also sells the holdings outside the model and
-TQQQ, and clears the margin loan. On that day, check the run log
+the market-on-close change has never sent an order. On 2026-10-13 at 20:10 CT
+`bin/tradeit refresh` (the whole pipeline as a dry run, against the real paper
+gateway) passed every gate: step 0 said "no expected book yet"; bars through
+Oct 13; targets rebuilt; the drift gate cold-started (no prior basket state);
+the basket had 36 orders, selling the 16 holdings outside the model (DBC, EMB,
+EWJ, EWY, FXI, GDX, HYG, LQD, SMH, SOXX, TIP, TNA, TQQQ, XLE, XLP, XLU);
+pre-trade risk PASS under the 20% single-name limit; no-leverage PASS, gross
+103.5% → 99.4% of NAV and cash −$26,041 → +$6,199. `bin/tradeit doctor` passes
+(the order preview is accepted; quotes are delayed 15 min until market data is
+shared to the paper login). So the first real run after the owner installs the
+schedule sends that basket market-on-close. On that day, check the run log
 (`artifacts/runs/daily_run_*.json`) and the dashboard's blotter:
 - step 0 (reconcile) says "no expected book yet", then the next day's says the
   book matches to the share
@@ -183,14 +191,15 @@ Then build it as files in the repo (a new `deploy/` folder), each step tested:
 - **Secrets** live only on the VM (`ibgw/.env`, `.env`), entered by the owner
   over SSH, never in git or chat.
 
-### 3. Design pass on every page
+### 3. Design pass on every page (done 2026-10-13)
 
-Use the staging harness (`bin/tradeit staging`, `npm run e2e:staging`):
-- audit each page at 1440 and 390 px in both themes
-- fix what reads badly
-- verify the fixes
-
-Add a staging test for anything you fix, as for the y-label gutter.
+Every page was captured at 1440 and 390 px in both themes on the staging
+harness. Fixed: the Risk page's Sleeves table ran past its panel (the mandate
+wraps now, with a staging test); the stale-prices block was a wall of text
+(one line now); Operations said "0 passed · ran …" for a doctor that never ran.
+Phone-width tables scroll sideways inside their panels, which is by design.
+If the owner wants more, do another pass the same way (`e2e/staging/layout.spec.ts`
+has the page list, the theme switch and the overflow check).
 
 ### 4. Smaller items
 
