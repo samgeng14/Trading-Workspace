@@ -44,8 +44,10 @@ std::map<std::string, FuturesRoot, std::less<>> default_futures() {
 // ── one trade ─────────────────────────────────────────────────────────
 
 double ibkr_pro_fixed(double trade_value, double price) {
-    // the backtester's original arithmetic, operation for operation
-    if (trade_value <= 0.0 || price <= 0.0) return 0.0;
+    // The backtester's original arithmetic, operation for operation. The test
+    // is "not positive" rather than "<= 0" so that a NaN trade is free: fmax
+    // and fmin drop a NaN, which made it the $1.00 minimum.
+    if (!(trade_value > 0.0) || !(price > 0.0)) return 0.0;
     constexpr double kPerShare = 0.005, kMinPerOrder = 1.0, kMaxPerOrderFraction = 0.01;
     const double commission = std::fmax((trade_value / price) * kPerShare, kMinPerOrder);
     return std::fmin(commission, trade_value * kMaxPerOrderFraction);
@@ -56,7 +58,11 @@ double futures_commission(double trade_value, double price, double multiplier, d
     return trade_value / (price * multiplier) * per_contract;
 }
 
-double spread_cost(double trade_value, double half_spread_bps) { return trade_value * half_spread_bps / kBps; }
+double spread_cost(double trade_value, double half_spread_bps) {
+    // the dollars traded are unsigned: a negative or NaN value is no trade, not a refund
+    if (!(trade_value > 0.0)) return 0.0;
+    return trade_value * half_spread_bps / kBps;
+}
 
 double impact_bps(double trade_value, double daily_vol, double adv_value, double k) {
     if (!(trade_value > 0.0)) return 0.0;
@@ -65,15 +71,24 @@ double impact_bps(double trade_value, double daily_vol, double adv_value, double
 }
 
 double impact_cost(double trade_value, double daily_vol, double adv_value, double k) {
+    // no trade is free before the multiplication, so a NaN trade value is 0, not NaN
+    if (!(trade_value > 0.0)) return 0.0;
     return trade_value * impact_bps(trade_value, daily_vol, adv_value, k) / kBps;
 }
 
 double borrow_cost(double short_value, double annual_bps, double days) {
-    return std::fabs(short_value) * annual_bps / kBps * days / kDayCountBasis;
+    // no short, or a day count that isn't positive (a NaN isn't), is no carry: a
+    // fee is never refunded
+    const double size = std::fabs(short_value);
+    if (!(size > 0.0) || !(days > 0.0)) return 0.0;
+    return size * annual_bps / kBps * days / kDayCountBasis;
 }
 
 double cash_interest(double cash, double annual_bps, double days) {
-    return std::fmax(cash, 0.0) * annual_bps / kBps * days / kDayCountBasis;
+    // cash that isn't positive (a NaN isn't) earns nothing, and pays nothing
+    // here; nor does a day count that isn't positive
+    if (!(cash > 0.0) || !(days > 0.0)) return 0.0;
+    return cash * annual_bps / kBps * days / kDayCountBasis;
 }
 
 double roll_cost(double notional, double price, double multiplier, double roll_bps, double per_contract) {

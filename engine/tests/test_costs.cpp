@@ -39,6 +39,17 @@ TEST(costs_ibkr_pro_fixed_schedule) {
     CHECK(ibkr_pro_fixed(100, 0) == 0.0);
 }
 
+TEST(costs_trade_functions_treat_nan_and_negatives_as_no_trade) {
+    // an unmeasured or negative trade is free: never the $1.00 minimum, never a refund
+    CHECK(ibkr_pro_fixed(kNaN, 50) == 0.0);
+    CHECK(ibkr_pro_fixed(50'000, kNaN) == 0.0);
+    CHECK(ibkr_pro_fixed(-50'000, 50) == 0.0);
+    CHECK(spread_cost(-100'000, 2.0) == 0.0);
+    CHECK(spread_cost(kNaN, 2.0) == 0.0);
+    CHECK(impact_cost(-1e6, 0.02, 1e8, 0.5) == 0.0);
+    CHECK(impact_cost(kNaN, 0.02, 1e8, 0.5) == 0.0);
+}
+
 TEST(costs_ibkr_pro_fixed_is_the_backtesters_fee_model) {
     // the backtester's fee_model charges exactly this, bit for bit
     for (const double value : {0.5, 13.0, 999.99, 1e4, 123'456.789, 5e7})
@@ -138,6 +149,10 @@ TEST(costs_borrow_accrues_actual_360) {
     // a hard-to-borrow name at 10% for one day
     CHECK_NEAR(borrow_cost(-36'000, 1'000.0, 1.0), 10.0, 1e-12);
     CHECK(borrow_cost(-100'000, 25.0, 0.0) == 0.0);
+    // a day count never runs backwards, and an unmeasured short or count charges nothing
+    CHECK(borrow_cost(-100'000, 25.0, -1.0) == 0.0);
+    CHECK(borrow_cost(kNaN, 25.0, 1.0) == 0.0);
+    CHECK(borrow_cost(-100'000, 25.0, kNaN) == 0.0);
 }
 
 TEST(costs_cash_interest_on_positive_cash_only) {
@@ -146,6 +161,11 @@ TEST(costs_cash_interest_on_positive_cash_only) {
     CHECK_NEAR(cash_interest(360'000, 400.0, 3.0), 120.0, 1e-9);
     CHECK(cash_interest(-360'000, 400.0, 1.0) == 0.0);  // negative cash pays nothing here
     CHECK(cash_interest(360'000, 0.0, 1.0) == 0.0);
+    // nor does a day count that isn't positive, or cash that isn't a number
+    CHECK(cash_interest(360'000, 400.0, 0.0) == 0.0);
+    CHECK(cash_interest(360'000, 400.0, -1.0) == 0.0);
+    CHECK(cash_interest(kNaN, 400.0, 1.0) == 0.0);
+    CHECK(cash_interest(360'000, 400.0, kNaN) == 0.0);
 }
 
 // ── futures rolls ─────────────────────────────────────────────────────

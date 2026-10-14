@@ -87,7 +87,8 @@ std::map<std::string, FuturesRoot, std::less<>> default_futures();
 // IBKR Pro Fixed for US stocks and ETFs: $0.005 a share, at least $1.00 an
 // order, at most 1% of the trade's value (exchange and regulatory fees
 // included; the SEC and FINRA fees on sales are not modelled). 0 when the
-// trade value or the price isn't positive. Shares may be fractional.
+// trade value or the price isn't positive (a NaN isn't). Shares may be
+// fractional.
 double ibkr_pro_fixed(double trade_value, double price);
 
 // Futures: contracts * per_contract, where contracts = trade_value / (price *
@@ -95,7 +96,8 @@ double ibkr_pro_fixed(double trade_value, double price);
 // contracts). 0 when any input isn't positive.
 double futures_commission(double trade_value, double price, double multiplier, double per_contract);
 
-// trade_value * half_spread_bps / 10,000.
+// trade_value * half_spread_bps / 10,000, on the dollars traded, unsigned. 0
+// when the trade value isn't positive (a NaN isn't).
 double spread_cost(double trade_value, double half_spread_bps);
 
 // Square-root market impact in bps of the dollars traded:
@@ -106,16 +108,18 @@ double spread_cost(double trade_value, double half_spread_bps);
 // ADV is 0, so the caller can tell an unmeasured trade from a free one.
 double impact_bps(double trade_value, double daily_vol, double adv_value, double k);
 
-// trade_value * impact_bps(...) / 10,000, with the same NaN.
+// trade_value * impact_bps(...) / 10,000, with the same 0 and the same NaN.
 double impact_cost(double trade_value, double daily_vol, double adv_value, double k);
 
 // The borrow fee on a short of |short_value| dollars held for `days` calendar
-// days at annual_bps: |short_value| * annual_bps / 10,000 * days / 360.
+// days at annual_bps: |short_value| * annual_bps / 10,000 * days / 360. 0,
+// never a refund, when the short value or the day count isn't positive (a NaN
+// isn't).
 double borrow_cost(double short_value, double annual_bps, double days);
 
 // Interest on cash held for `days` calendar days at annual_bps:
-// max(cash, 0) * annual_bps / 10,000 * days / 360. Negative cash earns and
-// pays nothing here.
+// cash * annual_bps / 10,000 * days / 360. 0 when the cash or the day count
+// isn't positive (a NaN isn't): negative cash earns and pays nothing here.
 double cash_interest(double cash, double annual_bps, double days);
 
 // Rolling a futures position of `notional` dollars (either sign) at `price`:
@@ -171,10 +175,15 @@ struct CostModel {
     double borrow_bps = 25.0;
     SymbolMap borrow_bps_by_symbol{};
 
-    // Annual interest earned on positive cash, bps (paper accounts earn it).
-    // 0 is off. Cash here excludes short-sale proceeds (conservative) and
-    // includes the notional of futures, which move no cash.
-    double cash_interest_bps = 0.0;
+    // Annual interest earned on positive cash, bps; 0 is off. The default is
+    // what IBKR Pro pays on USD above USD 10,000: its benchmark rate less
+    // 0.5%, 3.38% on IBKR's interest page in October 2026 (paper accounts
+    // earn it too). Not modelled: the first USD 10,000 earns nothing, and a
+    // NAV under USD 100,000 earns proportionally less. The rate moves with
+    // the Fed: set the rate of the period backtested, or check the page.
+    // Cash here excludes short-sale proceeds (conservative) and includes the
+    // notional of futures, which move no cash.
+    double cash_interest_bps = 338.0;
 
     // Futures costs by root.
     std::map<std::string, FuturesRoot, std::less<>> futures = default_futures();

@@ -19,9 +19,11 @@ How it runs:
 1. The panel's rows are split into folds: a training window, then a test block
    of `test` rows. Blocks follow one another without overlap; the training
    window grows from the first row ("expanding") or keeps `train` rows
-   ("rolling"). `gap` rows between them are used by neither (an embargo), and
-   the last `holdout` rows are never touched: no decision, no trade, no
-   statistic.
+   ("rolling"). The `gap` rows between them are an embargo: `fit` never sees
+   them and no decision is made on them (the strategy's history still runs
+   through them, as past data). The last `holdout` rows are never touched: no
+   decision, no trade, no statistic, and their prices and volumes never reach
+   the backtester.
 2. In each fold, `fit(train_history)` (optional) runs once on the training
    rows only, and `strategy(history)` (or `strategy(history, params)`) runs on
    every `rebalance_every`-th row of the test block, with `history` holding
@@ -107,6 +109,12 @@ class Fold:
     test_end: str
 
 
+def _count(name: str, value: Any, least: int) -> None:
+    """ValueError unless value is an integer (not a bool) of at least `least`."""
+    if not isinstance(value, (int, np.integer)) or isinstance(value, bool) or value < least:
+        raise ValueError(f"{name} must be an integer >= {least}, not {value!r}")
+
+
 def make_folds(
     dates: Sequence[Any], *, train: int, test: int, mode: str = "expanding", gap: int = 0, holdout: int = 0
 ) -> list[Fold]:
@@ -119,8 +127,7 @@ def make_folds(
     rows are in no fold.
     """
     for name, value, least in (("train", train, 1), ("test", test, 1), ("gap", gap, 0), ("holdout", holdout, 0)):
-        if not isinstance(value, (int, np.integer)) or isinstance(value, bool) or value < least:
-            raise ValueError(f"{name} must be an integer >= {least}, not {value!r}")
+        _count(name, value, least)
     if mode not in ("expanding", "rolling"):
         raise ValueError(f"mode must be 'expanding' or 'rolling', not {mode!r}")
     end = len(dates) - holdout
@@ -167,8 +174,7 @@ def expected_max_sharpe(n_trials: int, variance: float) -> float:
     (Bailey & Lopez de Prado 2014, the 'False Strategy' bound):
     sqrt(V) x ((1 - g) Phi^-1(1 - 1/N) + g Phi^-1(1 - 1/(N e))), g Euler's constant.
     0 for a single trial: nothing was selected."""
-    if not isinstance(n_trials, (int, np.integer)) or isinstance(n_trials, bool) or n_trials < 1:
-        raise ValueError(f"n_trials must be an integer >= 1, not {n_trials!r}")
+    _count("n_trials", n_trials, 1)
     if not (variance >= 0):
         raise ValueError(f"the trials' Sharpe variance must be >= 0, not {variance!r}")
     if n_trials == 1:
@@ -236,21 +242,27 @@ def _stats(block: pd.DataFrame, has_costs: bool, has_mandate: bool) -> dict[str,
     peak = np.maximum.accumulate(np.concatenate(([1.0], growth)))[1:]
     value = block["portfolio_value"].to_numpy(dtype=np.float64)
     average_value = float(value.mean()) if days else math.nan
+    final = float(growth[-1]) if days else math.nan
+    # A book that lost everything, or more (a levered book the mandate check
+    # flags), is -100% a year, not a complex number; its turnover and cost
+    # drag, which divide by its average value, are NaN rather than nonsense.
     stats = {
         "days": float(days),
         "sharpe": sharpe,
         "sharpe_se": sharpe_standard_error(sharpe, years),
-        "annual_return": float(growth[-1]) ** (1 / years) - 1 if days else math.nan,
+        "annual_return": final ** (1 / years) - 1 if final > 0 else (-1.0 if days else math.nan),
         "annual_volatility": std * math.sqrt(TRADING_DAYS),
         "max_drawdown": float(np.min(growth / peak - 1)) if days else math.nan,
-        "turnover": float(block["volume_traded"].sum()) / years / (2 * average_value) if days else math.nan,
+        "turnover": float(block["volume_traded"].sum()) / years / (2 * average_value)
+        if average_value > 0
+        else math.nan,
     }
     if has_costs:
         for part in COST_PARTS:
             stats[f"{part}_cost"] = float(block[f"daily_{part}_cost"].sum())
         stats["interest_income"] = float(block["daily_interest_income"].sum())
         stats["total_cost"] = float(block["daily_total_cost"].sum())
-        stats["cost_drag"] = stats["total_cost"] / years / average_value if days else math.nan
+        stats["cost_drag"] = stats["total_cost"] / years / average_value if average_value > 0 else math.nan
     if has_mandate:
         stats["mandate_breach_days"] = float(block["mandate_breach"].sum())
         stats["max_gross_exposure"] = float(block["gross_exposure"].max())
@@ -302,10 +314,10 @@ def walk_forward(
     strategy(history) returns the whole target book as {asset: weight} (or a Series); an asset
     left out is sold; None keeps the book as it is (no trade). With fit, strategy(history,
     params) gets fit's result for the fold. costs: a CostModel, or None to run without costs
-    (the research gate requires them). n_trials: how many variants were tried, for the deflated
-    Sharpe ratio; trial_sharpes: their annualized Sharpe ratios, if known. volumes: shares (or
-    contracts) a day, laid out like prices, for the cost model's impact. mandate flags the days
-    outside the no-leverage mandate (True: the default limits).
+    (the research gate requires them). n_trials: how many variants were tried (an integer >= 1),
+    for the deflated Sharpe ratio; trial_sharpes: their annualized Sharpe ratios, if known.
+    volumes: shares (or contracts) a day, laid out like prices, for the cost model's impact.
+    mandate flags the days outside the no-leverage mandate (True: the default limits).
 
     Raises ValueError for a panel it can't read, folds that don't fit, or weights it can't
     trade: an asset not in the panel, a weight that isn't finite, or a non-zero weight on an
@@ -314,9 +326,8 @@ def walk_forward(
     started = time.perf_counter()
     if costs is not None and not isinstance(costs, CostModel):
         raise TypeError(f"costs must be a dv02_engine.costs.CostModel or None, not {type(costs).__name__}")
-    for name, value, least in (("rebalance_every", rebalance_every, 1), ("lag", lag, 0)):
-        if not isinstance(value, (int, np.integer)) or isinstance(value, bool) or value < least:
-            raise ValueError(f"{name} must be an integer >= {least}, not {value!r}")
+    for name, value, least in (("rebalance_every", rebalance_every, 1), ("lag", lag, 0), ("n_trials", n_trials, 1)):
+        _count(name, value, least)  # n_trials is only read after the run: check it before
     panel = _panel(prices, "prices")
     folds = make_folds(panel.index, train=train, test=test, mode=mode, gap=gap, holdout=holdout)
     end = len(panel) - holdout  # rows from here on are held out
@@ -365,6 +376,8 @@ def walk_forward(
         if costs is None:
             raise ValueError("volumes are read only by a cost model: pass costs=CostModel(...)")
         volume_panel = _panel(volumes, "volumes")
+        # the held-out rows never reach the backtester, as the prices' don't
+        volume_panel = volume_panel.loc[volume_panel.index <= panel.index[end - 1]]
         volume_arrays = (
             _days(volume_panel.index),
             np.ascontiguousarray(volume_panel.to_numpy(dtype=np.float64)),

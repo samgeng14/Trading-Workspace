@@ -270,6 +270,27 @@ TEST(btc_interest_on_positive_cash) {
     CHECK_NEAR(r.metrics.cumulative_interest_income, 25.0, 1e-9);
 }
 
+TEST(btc_default_model_earns_interest_on_cash) {
+    // The default model is what the live book pays and earns, interest included:
+    // the cash of a 95% book earns IBKR's USD rate over the first weekend. (A
+    // walk-forward smoke run once earned nothing on 5% cash: the default rate
+    // was 0, which is "off".)
+    const Table prices = flat({ymd(2024, 1, 5), ymd(2024, 1, 8), ymd(2024, 1, 9)}, {{"A", 100.0}});
+    const costs::CostModel m;
+    CHECK(m.cash_interest_bps > 0.0);
+    const Result r = run(prices, table({{ymd(2024, 1, 5), {{"A", 0.95}}}}), with(m));
+    // Friday closes with $5,000 less that day's $4.75 commission and $19 spread in cash
+    // (no volumes: no impact); Monday accrues three calendar days on it, Tuesday one
+    const double rate = m.cash_interest_bps / 10'000.0;
+    CHECK_NEAR(r.cash[0], 5'000.0 - 4.75 - 19.0, 1e-9);
+    CHECK(r.daily_interest_income[0] == 0.0);
+    CHECK_NEAR(r.daily_interest_income[1], r.cash[0] * rate * 3.0 / 360.0, 1e-12);
+    CHECK_NEAR(r.daily_interest_income[2], r.cash[1] * rate * 1.0 / 360.0, 1e-12);
+    CHECK(r.daily_interest_income[1] > 1.0);  // about $1.40 at 3.38%
+    CHECK_NEAR(r.metrics.cumulative_interest_income, r.daily_interest_income[1] + r.daily_interest_income[2], 1e-12);
+    CHECK_NEAR(r.portfolio_value[2], 100'000.0 - 4.75 - 19.0 + r.metrics.cumulative_interest_income, 1e-9);
+}
+
 // ── futures rolls ─────────────────────────────────────────────────────
 
 TEST(btc_futures_roll_once_a_roll_month) {

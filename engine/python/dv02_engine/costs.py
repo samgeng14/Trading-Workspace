@@ -25,7 +25,9 @@ What each part charges (dollars, out of cash):
 - borrow: borrow_bps a year on short stock and ETF market value, actual/360,
   for the calendar days since the last price date.
 - interest: cash_interest_bps a year earned on positive cash (excluding short
-  proceeds; futures notional counts as cash), actual/360. 0 is off.
+  proceeds; futures notional counts as cash), actual/360. 0 is off; the default
+  is IBKR Pro's USD rate, its benchmark less 0.5% (338 bps in October 2026),
+  which moves with the Fed: set the rate of the period backtested.
 - roll: on each roll date of a held future, roll_bps of its notional plus
   both legs' commission.
 
