@@ -231,9 +231,15 @@ What the tests cover:
   installed, missing, and failing its self-check.
 - **Flex** (`tests/test_flex.py`, against a fake Flex service and clock):
   the year-by-year walk stops where the account opened, at an empty year,
-  or after ten; requests stay under 1 a second and 10 a minute; a refused
-  date range falls back to the query's own period; once loaded, a refresh
-  is one request; errors print one line.
+  or after ten; requests stay under 1 a second and 10 a minute; a statement
+  still generating is polled with a pause and a dropped connection tried
+  once more, every request with a timeout; a refused date range falls back
+  to the query's own period; once loaded, a refresh is one request and
+  gives the same rows as a full walk; the statement's NAV rows are read
+  wherever they sit, trading days only, and a query missing fields or with
+  an ambiguous date format is told what to change; a corrupt cache keeps
+  its good rows and writes are atomic; errors print one line, and the
+  token and query id appear in no output, file or error.
 - **Staging** (`tests/test_staging.py`): both scenarios have the paper
   account's shape, and every endpoint answers in the contract's terms over
   them.
