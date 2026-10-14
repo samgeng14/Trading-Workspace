@@ -28,7 +28,9 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
   (CLARABEL, ECOS, SCS) are the default; see `trading-engine/src/trading_engine/solvers.py`.
 - Safety switches (`trading-engine/config/execution.yaml`'s `allow_submit` and
   `dry_run`, the kill switch, `risk_limits.yaml`) change only when the owner
-  says so.
+  says so. To stop the fund, `bin/tradeit kill "why"` (arms the switch, then
+  cancels every working order); `bin/tradeit resume` only after the doctor and
+  a reconcile pass.
 
 ## Owner decisions already made (don't re-ask)
 
@@ -50,7 +52,7 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
 | Path | What |
 |---|---|
 | `engine/` | C++20 library `dv02` (risk check, backtester, cost model; walk-forward in `dv02_engine.walkforward`) and its Python module `dv02_engine` (nanobind) |
-| `trading-engine/` | Python: the daily runner (`src/production/daily_runner.py`), IBKR plumbing (`src/broker/ibkr/`), data, research |
+| `trading-engine/` | Python: the daily runner (`src/production/daily_runner.py`: reconcile, bars, targets, drift gate, basket, orders), IBKR plumbing (`src/broker/ibkr/`), the expected-book reconcile (`src/runtime/end_of_day_reconcile.py`), the kill (`src/execution/kill.py`), data, research |
 | `services/api/` | FastAPI app `dv02_api`: the dashboard's API over IBKR and the engine's files |
 | `apps/web/` | React + TypeScript + Vite dashboard |
 | `schemas/api/v1.yaml` | The API contract. Edit it first, then `npm run gen:api` in `apps/web` |
