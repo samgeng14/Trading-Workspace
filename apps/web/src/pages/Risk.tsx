@@ -101,7 +101,7 @@ export function Risk() {
                 <thead>
                   <tr>
                     <th>Sleeve</th>
-                    <th>Mandate</th>
+                    <th className="mandate">Mandate</th>
                     <th className="r">Gross</th>
                     <th className="r">Net</th>
                     <th className="r">Day P&amp;L</th>
@@ -111,7 +111,7 @@ export function Risk() {
                   {data?.by_sleeve.map((s) => (
                     <tr key={s.sleeve}>
                       <td className="sym">{s.sleeve}</td>
-                      <td className="secondary">{s.mandate}</td>
+                      <td className="secondary mandate">{s.mandate}</td>
                       <td className="r">{pct(s.gross, 1)}</td>
                       <td className="r">{pct(s.net, 1, true)}</td>
                       <td className="r">

@@ -105,6 +105,17 @@ if (STAGING) {
     expect(await overflow(page)).toEqual([]);
   });
 
+  test("the Risk page's sleeves table fits its panel without scrolling at 1440px", async ({ page }) => {
+    // a sleeve's mandate is a sentence; it wraps instead of pushing the P&L columns out of view
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openPage(page, "/risk", '[aria-label="Limits"] .meter-row');
+    const wrap = page.locator('[aria-label="Sleeves"] .table-wrap');
+    await expect(wrap.locator("td.mandate").first()).toBeVisible();
+    const [scroll, client] = await wrap.evaluate((el) => [el.scrollWidth, el.clientWidth]);
+    expect(scroll).toBeLessThanOrEqual(client);
+    await expect(wrap.locator("th", { hasText: "Day P&L" })).toBeInViewport();
+  });
+
   for (const theme of THEMES) {
     for (const width of WIDTHS) {
       test.describe(`${theme} theme at ${width}px`, () => {

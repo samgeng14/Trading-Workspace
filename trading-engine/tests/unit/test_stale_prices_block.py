@@ -31,7 +31,8 @@ def test_a_model_etf_two_sessions_behind_blocks() -> None:
     v = validate_master_prices(master({"SPY": AS_OF, "TLT": date(2026, 10, 8)}), model_symbols=("SPY", "TLT"), as_of=AS_OF)
     assert not v.ok
     (err,) = v.errors
-    assert "TLT (last bar 2026-10-08, 2 sessions behind)" in err and "bin/tradeit refresh" in err
+    assert err.startswith("1 model ETF is 2 sessions behind the last completed session (2026-10-12): TLT (last bar 2026-10-08).")
+    assert "bin/tradeit refresh" in err
     assert v.summary["stale_symbols"] == 1
 
 
@@ -53,7 +54,18 @@ def test_a_model_etf_with_no_bars_at_all_warns() -> None:
 
 def test_without_a_model_the_old_warning_still_stands() -> None:
     v = validate_master_prices(master({"SPY": AS_OF, "TLT": date(2026, 10, 6)}), as_of=AS_OF)
-    assert v.ok and any("1 symbols are stale" in w for w in v.warnings)
+    assert v.ok and any("1 symbol is stale" in w for w in v.warnings)
+
+
+def test_many_stale_model_etfs_make_one_short_line() -> None:
+    late = {s: date(2026, 10, 6) for s in ("BIL", "ETHA", "GLD", "IBIT", "IEI", "QQQ", "SHY")}
+    v = validate_master_prices(master({"SPY": AS_OF, **late}), model_symbols=("SPY", *late), as_of=AS_OF)
+    (err,) = v.errors
+    assert err.startswith(
+        "7 model ETFs are 4 sessions behind the last completed session (2026-10-12): "
+        "BIL, ETHA, GLD, IBIT, IEI and 2 more (last bar 2026-10-06)."
+    )
+    assert len(err) < 260
 
 
 def test_the_pre_trade_gate_blocks_on_a_stale_model_etf(tmp_path, monkeypatch) -> None:

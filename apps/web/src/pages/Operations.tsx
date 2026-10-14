@@ -118,11 +118,17 @@ function DoctorPanel() {
         .filter(Boolean)
         .join(", ")
     : "";
+  // a report of nothing but SKIP is the API saying the doctor hasn't run here yet
+  const notRun = !!counts && !counts.PASS && !counts.WARN && !counts.FAIL;
   return (
     <Panel
       title="IBKR doctor"
       meta={
-        data ? `${summary} · ran ${weekdayTimeET(data.ran_at)} ET · ${data.profile} on ${data.endpoint}` : undefined
+        data
+          ? notRun
+            ? `not run yet on this machine · ${data.profile} on ${data.endpoint}`
+            : `${summary} · ran ${weekdayTimeET(data.ran_at)} ET · ${data.profile} on ${data.endpoint}`
+          : undefined
       }
       actions={
         <button

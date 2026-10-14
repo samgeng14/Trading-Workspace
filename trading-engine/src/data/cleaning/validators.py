@@ -223,11 +223,17 @@ def validate_master_prices(
             stale.append((sym, str(latest), behind))
     res.summary["stale_symbols"] = len(stale) + len(stale_model)
     if stale_model:
-        shown = ", ".join(f"{sym} (last bar {latest}, {n} sessions behind)" for sym, latest, n in stale_model[:5])
+        # one line, however many: the dashboard shows it in a list of checks
+        n = len(stale_model)
+        names = ", ".join(sym for sym, _, _ in stale_model[:5]) + (f" and {n - 5} more" if n > 5 else "")
+        lags = sorted({behind for _, _, behind in stale_model})
+        bars = sorted({latest for _, latest, _ in stale_model})
+        lag = f"{lags[0]} sessions" if len(lags) == 1 else f"{lags[0]} to {lags[-1]} sessions"
+        last = f"last bar {bars[0]}" if len(bars) == 1 else f"last bars {bars[0]} to {bars[-1]}"
         res.errors.append(
-            f"{len(stale_model)} model ETFs are more than {model_stale_sessions} session(s) behind the "
-            f"last completed session ({ref}): {shown}. The targets would be built on a close the market "
-            f"has left behind. Run {REPAIR_COMMAND} (it fetches the missing bars from IBKR), then rerun."
+            f"{n} model ETF{'s are' if n > 1 else ' is'} {lag} behind the last completed session ({ref}): "
+            f"{names} ({last}). The targets would be built on a close the market has left behind; "
+            f"run {REPAIR_COMMAND}, then rerun."
         )
         res.ok = False
     missing_model = sorted(model - set(latest_per_sym.index))
@@ -236,7 +242,7 @@ def validate_master_prices(
     if stale:
         sample = stale[:5]
         res.warnings.append(
-            f"{len(stale)} symbols are stale (>{stale_business_days} business "
+            f"{len(stale)} symbol{'s are' if len(stale) > 1 else ' is'} stale (>{stale_business_days} business "
             f"days behind {ref}). e.g. {sample}"
         )
 

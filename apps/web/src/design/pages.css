@@ -437,6 +437,15 @@
   color: var(--ink-1);
 }
 
+/* a sleeve's mandate is a sentence: it wraps, so the table fits its panel at any width */
+.table td.mandate {
+  min-width: 14rem;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
 .table.doctor td {
   height: auto;
   padding-top: 6px;
