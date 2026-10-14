@@ -45,6 +45,12 @@ MARKET_DATA_TYPES = {
     4: "delayed-frozen",
 }
 
+# IBKR messages that accompany an accepted order rather than reject it: 10349
+# ("Order TIF was set to DAY based on order preset") and the 21xx warnings.
+# ib_async ends a whatIf request on the first of them, so the preview's margin
+# figures don't come back, but the order was not refused.
+INFORMATIONAL_CODES = {10349} | set(range(2100, 2200))
+
 _UNIVERSE_PATH = Path(__file__).resolve().parents[3] / "config" / "universes" / "etfs.yaml"
 
 
@@ -383,10 +389,18 @@ def check_order_preview(ctx: _Ctx) -> list[CheckResult]:
         mark = len(ctx.errors)
         raised = ""
         try:
-            state = ctx.ib.whatIfOrder(contract, MarketOrder(action, 1))
+            # tif set as the engine sets it on every order, so the preview isn't
+            # answered with the "set to DAY based on order preset" note
+            state = ctx.ib.whatIfOrder(contract, MarketOrder(action, 1, tif="DAY"))
         except Exception as exc:  # noqa: BLE001 — a timeout here is diagnostic
             state, raised = None, type(exc).__name__
         errs = ctx.errors_since(mark)
+        if errs and all(c in INFORMATIONAL_CODES for _, c, _ in errs) and not (
+            state and _positive_or_zero(getattr(state, "initMarginChange", None))
+        ):
+            notes = "; ".join(f"{c}: {m}" for _, c, m in errs)
+            results.append(CheckResult(name, PASS, f"{action} 1 {contract.symbol}: accepted (IBKR notes: {notes})"))
+            continue
         if state and _positive_or_zero(getattr(state, "initMarginChange", None)):
             commission = getattr(state, "commission", None)
             detail = (

@@ -45,6 +45,8 @@ class FakeIB:
         self.data_type = kw.get("data_type", 1)
         self.quote = kw.get("quote", 571.25)
         self.read_only = kw.get("read_only", False)
+        self.preset_note = kw.get("preset_note", False)  # IBKR's 10349 note on an accepted order
+        self.previewed = []  # the orders whatIfOrder was asked about
         self.clock_skew = kw.get("clock_skew", 0)
         self.connect_error = kw.get("connect_error")
         self.errorEvent = _Event()
@@ -119,8 +121,13 @@ class FakeIB:
         pass
 
     def whatIfOrder(self, contract, order):
+        self.previewed.append(order)
         if self.read_only:
             self.errorEvent.emit(7, 321, READ_ONLY_MSG, contract)
+            raise TimeoutError()
+        if self.preset_note:
+            # ib_async ends the request on the note, so no OrderState comes back
+            self.errorEvent.emit(7, 10349, "Order TIF was set to DAY based on order preset.", contract)
             raise TimeoutError()
         return SimpleNamespace(initMarginChange="57125.0", commission=1.0, warningText="")
 
@@ -209,6 +216,15 @@ def test_read_only_api_is_diagnosed():
     results, _ = _run(FakeIB(read_only=True))
     assert results["order preview"].status == doctor.FAIL
     assert "Read-Only API" in results["order preview"].fix
+
+
+def test_ibkrs_preset_note_is_not_a_rejection():
+    # 10349 accompanies an accepted order; the live gateway answered the preview with it
+    results, fake = _run(FakeIB(preset_note=True))
+    preview = results["order preview"]
+    assert preview.status == doctor.PASS and "accepted (IBKR notes: 10349:" in preview.detail
+    # and the preview sends the time in force the engine sends, so the note shouldn't arise
+    assert {o.tif for o in fake.previewed} == {"DAY"}
 
 
 def test_short_preview_skipped_when_long_reference():
