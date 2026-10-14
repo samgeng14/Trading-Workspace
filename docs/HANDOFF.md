@@ -210,7 +210,14 @@ has the page list, the theme switch and the overflow check).
   total-return factor in `generate_targets`, or move to IBKR ADJUSTED_LAST
   with `price_basis.py`'s full refetch. Compare the bond ETFs' momentum before
   and after.
-- Review `services/api/dv02_api/flex.py` once more (its review was cut off).
+- ~~Review `services/api/dv02_api/flex.py` once more.~~ Done (07577133): a
+  non-Flex reply (IBKR's maintenance page) no longer raises an empty error, the
+  token can't reach a log, a traceback, the cache or the printed line, a dropped
+  connection is retried, a corrupt cache keeps its readable rows, and the
+  parser handles the other date formats and multi-account statements. Left:
+  `app.py`'s maintenance loop awaits `flex.refresh` inline, so a slow full walk
+  (tens of minutes under retries) delays the close-NAV record; move the walk to
+  its own task.
 - `trading-engine/pyproject.toml` still lists `mosek`. Make it optional (needs
   `poetry lock`) or leave it: without a license the free solvers run.
 - `docs/PLAN.md`: the Phase 0 known issues that are fixed are struck through
