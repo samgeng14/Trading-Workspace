@@ -163,8 +163,9 @@ Once installed, the system runs itself:
 | Pull bars + rebalance + submit orders | LaunchAgent | Mon-Fri 15:35 ET |
 | Watch what's happening | Dashboard at `localhost:8501` | Whenever |
 | Force a refresh manually | Sidebar **Refresh ETF Data** button | Anytime |
-| Halt all trading | `python -m src.execution.kill_switch arm "reason"` | Emergency |
-| Resume trading | `python -m src.execution.kill_switch disarm` | After fix |
+| Halt all trading | `bin/tradeit kill "reason"` (arms the kill switch, then cancels every working order) | Emergency |
+| Resume trading | `bin/tradeit resume` (only after the doctor and a reconcile pass) | After fix |
+| Where things stand | `bin/tradeit status` (the switch, IBKR's working orders, the last reconcile) | Anytime |
 
 If you want to manually fire the runner without waiting for the LaunchAgent:
 

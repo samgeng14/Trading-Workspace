@@ -10,6 +10,9 @@
 #   tradeit schedule  install | remove | status  the weekday 15:35 ET daily run (macOS LaunchAgent)
 #   tradeit refresh   fill price-history holes, update bars and targets (dry run: no orders)
 #   tradeit doctor    check the IBKR connection end to end
+#   tradeit kill      "why": stop the fund: arm the kill switch, cancel every working order
+#   tradeit resume    start it again, once the doctor and a reconcile pass
+#   tradeit status    the kill switch, IBKR's working orders, the last reconcile
 #   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
 #   tradeit api       just the API
 #   tradeit demo      dashboard on simulated data, no IBKR needed
@@ -648,6 +651,25 @@ cmd_doctor() {
   cd "$ROOT/trading-engine" && exec "$PY" -m src.broker.ibkr.doctor "$@"
 }
 
+# The fund's stop button (src/execution/kill.py). kill arms the switch before it
+# touches IBKR, so nothing new goes out even if the cancels fail; resume refuses
+# while the doctor fails or the book doesn't match IBKR.
+cmd_kill() {
+  need_venv
+  [ -n "${1:-}" ] || die 'usage: tradeit kill "why trading stops"'
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.execution.kill kill "$@"
+}
+
+cmd_resume() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.execution.kill resume "$@"
+}
+
+cmd_status() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.execution.kill status "$@"
+}
+
 cmd_api() {
   need_venv
   cd "$ROOT/services/api" && exec "$PY" -m dv02_api --port "$API_PORT" "$@"
@@ -723,9 +745,12 @@ case "${1:-help}" in
   refresh) shift; cmd_refresh "$@" ;;
   gateway) shift; cmd_gateway "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
+  kill) shift; cmd_kill "$@" ;;
+  resume) shift; cmd_resume "$@" ;;
+  status) shift; cmd_status "$@" ;;
   up) shift; cmd_up "$@" ;;
   api) shift; cmd_api "$@" ;;
   demo) shift; cmd_demo "$@" ;;
   staging) shift; cmd_staging "$@" ;;
-  *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
