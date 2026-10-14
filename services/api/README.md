@@ -73,7 +73,7 @@ own Host and Origin (`localhost:5173`) reach the API unchanged and pass.
 | Submit | Starts the engine's daily runner with `--force-rebalance`, using the LaunchAgent's Python and environment. One order path, the engine's risk gate and kill switch, and the 15:35 ET run then skips the day |
 | Orders | IBKR, all clients, this session. Offline, the engine's last submission files |
 | Cancel | IBKR only lets the placing client cancel, so the API reconnects briefly as that client (the runner's 300) |
-| Kill switch | The engine's file, `artifacts/runs/kill_switch.json`. Arming here stops the runner too, but doesn't cancel orders already at IBKR: `bin/tradeit kill "why"` does both. The POST takes `{"armed": true, "reason": "..."}` or `{"armed": false}`; anything else, `{}` included, is a 400 and changes nothing |
+| Kill switch | The engine's file, `artifacts/runs/kill_switch.json`. Arming here stops the runner and cancels the orders still working at IBKR (best effort, as `bin/tradeit kill "why"` does). The POST takes `{"armed": true, "reason": "..."}` or `{"armed": false}`; anything else, `{}` included, is a 400 and changes nothing |
 | Runs, schedule | `artifacts/runs/daily_run_*.json`; the LaunchAgent's time (15:35 ET, written in the Mac's zone) |
 | Doctor | `src/broker/ibkr/doctor.py`, on client ID 309. It runs at startup and from the Run doctor button |
 

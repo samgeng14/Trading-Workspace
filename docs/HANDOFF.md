@@ -66,8 +66,8 @@ rules; this file has the state. Keep both current as you work.
   as the client that placed the orders and cancels every working one;
   `bin/tradeit resume` disarms only after the doctor and a reconcile pass;
   `bin/tradeit status` shows the switch, IBKR's working orders and the last
-  reconcile (`src/execution/kill.py`). The dashboard's kill switch toggle still
-  only blocks new orders.
+  reconcile (`src/execution/kill.py`). The dashboard's halt arms the switch
+  and cancels the working orders too (`POST /ops/kill-switch`).
 - **One schedule.** The old `src/production/scheduler.py` (16:32, RunAtLoad)
   and `src/runtime/schedule.py` are deleted; every doc says 15:35 ET and
   `bin/tradeit schedule`.
@@ -97,10 +97,6 @@ rules; this file has the state. Keep both current as you work.
   has not said yet whether the scheduled run should send paper orders by
   itself; ask, set the values in the same commit as the wiring, and add a test
   that a run with that config submits (and one that a run without it doesn't).
-- **The dashboard's kill switch toggle** arms without cancelling working orders.
-  Making `POST /ops/kill-switch` cancel them through `Broker.cancel` (it already
-  reconnects as the placing client) would match `bin/tradeit kill`; keep the
-  response shape, which the contract pins.
 
 ## Next, in this order
 

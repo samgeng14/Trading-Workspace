@@ -175,6 +175,15 @@ def test_kill_switch_round_trip_blocks_the_rebalance(client: TestClient) -> None
     assert client.post("/api/v1/ops/kill-switch", json={"armed": False}).json()["armed"] is False
 
 
+def test_arming_from_the_dashboard_cancels_working_orders(client: TestClient, fake_broker) -> None:
+    # the fake broker holds a filled SPY order and a working TLT one: arming cancels the working one only
+    res = client.post("/api/v1/ops/kill-switch", json={"armed": True, "reason": "stop"})
+    assert res.status_code == 200 and res.json()["armed"] is True
+    assert fake_broker.cancelled == ["1002"]
+    client.post("/api/v1/ops/kill-switch", json={"armed": False})
+    assert fake_broker.cancelled == ["1002"]  # disarming cancels nothing more
+
+
 def test_kill_switch_test_never_touches_the_real_file(engine_tree) -> None:
     from src.execution import kill_switch
 

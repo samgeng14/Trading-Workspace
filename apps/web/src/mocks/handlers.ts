@@ -1121,6 +1121,10 @@ export const handlers = [
     const body = (await request.json()) as S["KillSwitchRequest"];
     if (body.armed && !body.reason?.trim())
       return HttpResponse.json({ title: "A reason is required to arm the kill switch" }, { status: 400 });
+    // as the real API: arming also cancels every order still working
+    if (body.armed)
+      for (const o of orders().orders)
+        if (["pending", "submitted", "partial"].includes(o.status)) state.cancelled.add(o.id);
     state.killSwitch = {
       armed: body.armed,
       reason: body.armed ? body.reason!.trim() : undefined,

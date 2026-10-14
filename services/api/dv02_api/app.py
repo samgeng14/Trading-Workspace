@@ -687,7 +687,20 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
         reason = (reason or "").strip()
         if armed and not reason:
             raise Problem(400, "A reason is required to arm the kill switch")
-        return ops.set_kill_switch(armed, reason, by=f"dashboard ({getpass.getuser()})")
+        state = ops.set_kill_switch(armed, reason, by=f"dashboard ({getpass.getuser()})")
+        if armed:
+            # The switch blocks new orders; the ones already at IBKR would still fill, so
+            # they are cancelled too, as bin/tradeit kill does. Best effort: the switch is
+            # armed whatever happens here, and a failed cancel is logged.
+            b = ctx.broker
+            for trade in b.trades() if b.connected else []:
+                if orders.from_trade(trade, sleeve(ctx))["status"] in ("filled", "cancelled", "rejected"):
+                    continue
+                try:
+                    await b.cancel(trade)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("kill switch armed, but cancelling %s failed: %s", orders.order_id(trade), exc)
+        return state
 
     @app.get(f"{v1}/ops/runs")
     async def get_runs() -> dict[str, Any]:

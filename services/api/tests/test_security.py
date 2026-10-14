@@ -236,11 +236,11 @@ def test_scripts_send_no_origin_and_may_do_everything(client, fake_broker, start
     # curl, Python, bin/tradeit
     with client.websocket_connect(STREAM) as ws:
         assert ws.receive_json()["topic"]
+    assert client.post("/api/v1/trading/orders/1002/cancel").status_code == 200  # before the arm cancels it
     assert client.post("/api/v1/ops/kill-switch", json={"armed": True, "reason": "drill"}).status_code == 200
     assert client.post("/api/v1/ops/kill-switch", json={"armed": False}).status_code == 200
     assert client.post("/api/v1/trading/rebalance", json={"confirm": "SUBMIT"}).status_code == 200
     assert client.post("/api/v1/ops/doctor/run").status_code == 200
-    assert client.post("/api/v1/trading/orders/1002/cancel").status_code == 200
     assert started == ["paper"] and doctor_runs == ["paper"] and fake_broker.cancelled == ["1002"]
 
 
@@ -273,15 +273,15 @@ def test_the_dashboards_requests_through_the_vite_proxy_are_accepted(client, app
     with client.websocket_connect(STREAM, headers=VITE_STREAM) as ws:
         assert ws.receive_json()["topic"]
         assert len(app.state.stream.clients) == 1
-    res = client.post("/api/v1/ops/kill-switch", headers=VITE_POST | JSON, json={"armed": True, "reason": "drill"})
-    assert res.status_code == 200, res.text
-    assert_schema(res.json(), response_schema("/ops/kill-switch", "post"))
     # no body: content-length 0 and no Content-Type, as the browser sent them
     res = client.post("/api/v1/ops/doctor/run", headers=VITE_POST)
     assert res.request.headers["content-length"] == "0" and "content-type" not in res.request.headers
     assert res.status_code == 200, res.text
     res = client.post("/api/v1/trading/orders/1002/cancel", headers=VITE_POST)
     assert res.status_code == 200, res.text
+    res = client.post("/api/v1/ops/kill-switch", headers=VITE_POST | JSON, json={"armed": True, "reason": "drill"})
+    assert res.status_code == 200, res.text
+    assert_schema(res.json(), response_schema("/ops/kill-switch", "post"))
     assert doctor_runs == ["paper"] and fake_broker.cancelled == ["1002"]
 
 

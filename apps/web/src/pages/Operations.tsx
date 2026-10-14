@@ -79,7 +79,8 @@ function KillSwitchPanel() {
             <>
               <StatusBadge status="ok" label="Clear: trading enabled" />
               <p className="secondary">
-                Arming blocks every new order from the scheduler, the dashboard and the CLI until someone resumes.
+                Arming blocks every new order from the scheduler, the dashboard and the CLI until someone resumes, and
+                cancels the orders still working at IBKR.
                 {ks.changed_at
                   ? ` Last change ${dateShort(ks.changed_at.slice(0, 10))} by ${ks.changed_by ?? "unknown"}.`
                   : ""}
