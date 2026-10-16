@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dv02_api import app as app_mod
-from dv02_api import nyse, orders, runs, today
+from dv02_api import orders, runs, today
 from dv02_api.app import create_app
 from dv02_api.broker import Broker
 
@@ -88,10 +88,11 @@ def write_reconcile(root: Path, filled: dict[str, float]) -> None:
 
 
 def sent_at() -> str:
-    """How the answer prints the run's start: the run ID is the runner's local time, read the same way."""
+    """How the answer prints the run's start. The run ID is the runner's local time and is read in
+    this machine's zone, so the same ID is 01:35 ET on the Mac (Central) and Thu 20:35 ET in CI (UTC)."""
     at = runs._run_start(RUN_ID)
     assert at is not None
-    return f"{at.astimezone(nyse.ET):%H:%M} ET"
+    return today._hm(at, date(2026, 10, 16))
 
 
 def filled_trade(perm: str, status: str = "Filled") -> Any:
