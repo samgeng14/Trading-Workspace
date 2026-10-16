@@ -647,6 +647,9 @@ cmd_refresh() {
   say "Filling any holes in the price history (the engine's backfill_gaps --auto)"
   "$PY" -m src.production.backfill_gaps --auto --profile paper --port "$port" --client-id "$cid" \
     || die "backfill failed (reason above); is IB Gateway running?"
+  say "Fetching the model ETFs' dividend-adjusted closes from IBKR (the signals' total-return prices)"
+  "$PY" -m src.production.pipeline.append_total_return --port "$port" --client-id "$cid" \
+    || say "Some ETFs' dividend-adjusted closes didn't refresh (above); their previous ones are used"
   say "Refreshing daily bars and targets through the engine's daily runner (dry run: no orders are sent)"
   exec "$PY" -m src.production.daily_runner --profile paper --dry-run --client-id "$cid" "$@"
 }

@@ -20,3 +20,6 @@ trading-engine/data/logs/
 
 # Office temp files
 ~$*.docx
+
+# refetched from IBKR after every daily run (src/production/pipeline/append_total_return.py)
+trading-engine/data/market/cleaned/prices/etf_total_return_closes.parquet

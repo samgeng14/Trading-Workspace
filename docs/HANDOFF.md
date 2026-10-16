@@ -208,12 +208,23 @@ has the page list, the theme switch and the overflow check).
 
 ### 4. Smaller items
 
-- **Adjusted prices** (Phase 0 scope, not done). The price master is IBKR
-  TRADES bars: split-adjusted, not dividend-adjusted. Momentum on the bond
-  ETFs (TLT, IEI, SHY, BIL) ignores their income. Either add a per-symbol
-  total-return factor in `generate_targets`, or move to IBKR ADJUSTED_LAST
-  with `price_basis.py`'s full refetch. Compare the bond ETFs' momentum before
-  and after.
+- **Adjusted prices: done in code (2026-10-16), not yet run on IBKR.**
+  - Momentum and volatility run on total-return closes:
+    - IBKR's ADJUSTED_LAST bars (split- and dividend-adjusted), kept in
+      `data/market/cleaned/prices/etf_total_return_closes.parquet` (git-ignored)
+    - refreshed after each daily run and by `bin/tradeit refresh`
+      (`src/production/pipeline/append_total_return.py`)
+    - applied by `src/data/cleaning/total_return.py`
+  - The price master and order prices are unchanged.
+  - A symbol whose adjusted bars disagree with the master on a split stays on
+    price, and the run log names it. Until the first refresh, every symbol is
+    on price and the run log says so.
+  - The switch is `etfs.signal_prices` in `config/universes/etfs.yaml`: set it
+    to `price` to go back.
+  - On the Mac, after the first refresh, compare the two with
+    `python -m src.production.pipeline.append_total_return --compare` (run from
+    `trading-engine/`). Expect BIL, SHY, IEI and TLT to gain about their yield
+    over the lookback. Then check that the next targets look sensible.
 - ~~Review `services/api/dv02_api/flex.py` once more.~~ Done (07577133): a
   non-Flex reply (IBKR's maintenance page) no longer raises an empty error, the
   token can't reach a log, a traceback, the cache or the printed line, a dropped

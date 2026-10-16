@@ -794,14 +794,37 @@ def step_generate_targets(profile: str) -> dict[str, Any]:
 
     if result.get("ok"):
         log.info(
-            "✓ Targets written. Rebalance dates: %s. Latest: %s (prices through %s).",
+            "✓ Targets written. Rebalance dates: %s. Latest: %s (prices through %s; signals on %s).",
             result.get("rebalance_dates", 0),
             result.get("latest_rebalance_date"),
             result.get("prices_through"),
+            (result.get("signal_prices") or "price").replace("_", "-"),
         )
+        if result.get("signal_prices_note"):
+            log.warning("Signals: %s", result["signal_prices_note"])
     else:
         log.error("✗ Target generation failed: %s", result.get("error"))
 
+    return result
+
+
+def step_update_total_return(host: str, port: int, client_id: int) -> dict[str, Any]:
+    """After the run: refresh the model's dividend-adjusted closes, which the
+    next run's signals read (src/production/pipeline/append_total_return.py).
+    Runs after the orders, so it never delays the market-on-close cutoff, and a
+    failure here only leaves the previous closes in place."""
+    log.info("── After the run: total-return closes ───────────────────────")
+    try:
+        from src.production.pipeline.append_total_return import append_total_return
+
+        result = append_total_return(host=host, port=port, client_id=client_id)
+    except Exception as exc:  # noqa: BLE001 — never fails the run
+        log.exception("Total-return closes: refresh raised")
+        return {"ok": False, "action": "total_return_closes", "error": f"{type(exc).__name__}: {exc}"}
+    if result.get("ok"):
+        log.info("✓ Total-return closes refreshed for %d ETFs.", len(result.get("refreshed") or []))
+    else:
+        log.warning("Total-return closes: %s", result.get("error") or result.get("errors"))
     return result
 
 
@@ -1215,6 +1238,14 @@ def main() -> None:
         force_rebalance=args.force_rebalance,
         skip_append=args.skip_append,
     )
+
+    # The next run's signals; after this run's orders, and only when it read IBKR.
+    if not result.get("skipped") and not args.skip_append:
+        result.setdefault("steps", {})["total_return_closes"] = step_update_total_return(
+            host=args.host, port=resolved_port, client_id=args.client_id + 6,
+        )
+        if result.get("run_id"):
+            _write_run_log(result["run_id"], result)
 
     if args.json_out:
         print(json.dumps(result, indent=2, default=str))

@@ -35,6 +35,7 @@ STEP_LABELS = {
     "generate_targets": "Targets",
     "build_basket": "Basket",
     "submit_orders": "Submit",
+    "total_return_closes": "Total-return closes",
 }
 
 
@@ -71,7 +72,13 @@ def _step_detail(name: str, step: dict[str, Any]) -> tuple[bool, str]:
         detail = f"{step.get('new_rows_added_to_master', 0)} new rows, latest {step.get('latest_date', '?')}"
         return ok, detail + (f"; {len(errs)} symbol errors" if errs else "")
     if name == "generate_targets":
-        return ok, f"{step.get('optimizer', '?')}, rebalance date {step.get('latest_rebalance_date', '?')}"
+        signals = (step.get("signal_prices") or "price").replace("_", "-")
+        when = step.get("latest_rebalance_date", "?")
+        return ok, f"{step.get('optimizer', '?')} on {signals} prices, rebalance date {when}"
+    if name == "total_return_closes":
+        errs = step.get("errors") or {}
+        detail = f"{len(step.get('refreshed') or [])} ETFs refreshed for the next run's signals"
+        return ok, detail + (f"; not refreshed: {', '.join(sorted(errs))}" if errs else "")
     if name == "build_basket":
         return ok, (
             f"{step.get('orders_rows', 0)} orders on NAV {_money(step.get('portfolio_value'))}: "

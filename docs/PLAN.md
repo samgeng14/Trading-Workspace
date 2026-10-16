@@ -125,8 +125,10 @@ list is in Appendix A. The items that matter most:
   plain market orders (`src/broker/ibkr/auction.py`). So a signal from the close of day
   *t−1* fills at the close of day *t* (Section 7). Not yet checked on the paper account:
   its MOC fills, and that IBKR holds an OPG order sent during the session for the next open.
-- **Prices are unadjusted.** There is no dividend or split adjustment, so
-  momentum on bond ETFs (TLT, IEI, SHY, BIL) is wrong and total return is understated.
+- **Prices are unadjusted (fixed for signals, 2026-10-16).** The master stays IBKR
+  TRADES bars, split-adjusted, for order prices. Momentum and volatility run on
+  IBKR's dividend-adjusted closes (`src/data/cleaning/total_return.py`), so bond
+  ETFs' (TLT, IEI, SHY, BIL) income counts. Not yet run against IBKR.
 - **The drift-rebalance gate reads the previous run's reconciliation file.**
   So "composition changed" never fires, and drift re-fires after every cooldown.
 - **The EOD reconcile is never scheduled.** Its notion of the "book" is a sum of

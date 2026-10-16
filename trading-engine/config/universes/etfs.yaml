@@ -1,4 +1,12 @@
 etfs:
+  # What momentum and volatility are computed on. total_return: IBKR's
+  # dividend-adjusted closes (data/market/cleaned/prices/etf_total_return_closes.parquet,
+  # refreshed after each daily run), so bond and T-bill ETFs' income counts.
+  # price: the price master's closes alone. Orders are sized at real prices
+  # either way. `python -m src.production.pipeline.append_total_return --compare`
+  # shows each ETF's momentum both ways.
+  signal_prices: total_return
+
   # The model universe: target generation (src/production/generate_targets.py)
   # builds weights from these symbols only, and the basket sells any share
   # holding outside it at the next rebalance. TQQQ left on 2026-10-12 (QQQ

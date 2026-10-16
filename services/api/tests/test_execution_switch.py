@@ -66,3 +66,18 @@ def test_a_run_the_switches_made_a_dry_run_is_the_days_run(engine_tree) -> None:
     # 16:00 ET that Thursday: the scheduled run happened, as a dry run; not "no run recorded"
     (job,) = runs.schedule(datetime(2026, 10, 15, 20, 0, tzinfo=timezone.utc))
     assert job["status"] == "done" and "orders are switched off" in job["detail"]
+
+
+def test_the_runs_view_says_what_the_signals_ran_on() -> None:
+    targets = {"ok": True, "optimizer": "momentum_tilted", "latest_rebalance_date": "2026-10-15",
+               "signal_prices": "total_return"}  # fmt: skip
+    assert runs._step_detail("generate_targets", targets) == (
+        True,
+        "momentum_tilted on total-return prices, rebalance date 2026-10-15",
+    )
+    refreshed = {"ok": False, "refreshed": ["BIL", "SPY"], "errors": {"VIXY": "no data"}}
+    assert runs.STEP_LABELS["total_return_closes"] == "Total-return closes"
+    assert runs._step_detail("total_return_closes", refreshed) == (
+        False,
+        "2 ETFs refreshed for the next run's signals; not refreshed: VIXY",
+    )

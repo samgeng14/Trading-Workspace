@@ -72,6 +72,10 @@ class TargetResult:
     universe_missing: list[str] = field(default_factory=list)
     # the last session read; master rows after it (a session not yet over) are not
     prices_through: str | None = None
+    # what momentum and volatility were computed on: "total_return" or "price"
+    signal_prices: str = "price"
+    # the symbols that stayed on price, and why (src/data/cleaning/total_return.py)
+    signal_prices_note: str | None = None
 
 
 def _project_root() -> Path:
@@ -96,6 +100,25 @@ def model_universe(path: Path | None = None) -> tuple[str, ...]:
     if not symbols:
         raise ValueError(f"No model universe: {path} has no etfs.core list")
     return symbols
+
+
+SIGNAL_PRICES = ("total_return", "price")
+# The dividend-adjusted closes, beside the price master (src/production/pipeline/append_total_return.py)
+ADJUSTED_FILE = "etf_total_return_closes.parquet"
+
+
+def signal_prices_setting(path: Path | None = None) -> str:
+    """``etfs.signal_prices`` in config/universes/etfs.yaml: what momentum and
+    volatility are computed on. ``total_return`` (dividends counted) or
+    ``price``; a file without the key is ``price``, as before the setting existed."""
+    import yaml
+
+    path = path or UNIVERSE_PATH
+    with open(path, encoding="utf-8") as f:
+        value = ((yaml.safe_load(f) or {}).get("etfs") or {}).get("signal_prices", "price")
+    if value not in SIGNAL_PRICES:
+        raise ValueError(f"{path}: etfs.signal_prices must be one of {', '.join(SIGNAL_PRICES)}, not {value!r}")
+    return value
 
 
 def _paths() -> dict[str, Path]:
@@ -141,11 +164,14 @@ def _build_features(
     min_history: int,
 ) -> pd.DataFrame:
     df = df.copy()
+    # Signals use the total-return close when there is one (generate_targets
+    # adds it); ``close`` stays the price an order is sized at.
+    signal = "signal_close" if "signal_close" in df.columns else "close"
 
     df["obs_count"] = df.groupby("symbol").cumcount() + 1
-    df["mom"] = df.groupby("symbol")["close"].pct_change(momentum_lookback)
+    df["mom"] = df.groupby("symbol")[signal].pct_change(momentum_lookback)
     df["log_ret"] = (
-        df.groupby("symbol")["close"].apply(lambda s: np.log(s).diff()).reset_index(level=0, drop=True)
+        df.groupby("symbol")[signal].apply(lambda s: np.log(s).diff()).reset_index(level=0, drop=True)
     )
     # Trailing volatility (annualized, in % terms).
     df["vol"] = (
@@ -344,7 +370,8 @@ def _build_targets(
     # Reconstitute a long-format prices DataFrame from the feature panel for
     # the signal ensembles. Keeps the contract clean: ensembles ingest the
     # same panel they'd see standalone.
-    prices_full = df[["date", "symbol", "close"]].copy()
+    signal = "signal_close" if "signal_close" in df.columns else "close"
+    prices_full = df[["date", "symbol", signal]].rename(columns={signal: "close"})
 
     rows: list[pd.DataFrame] = []
     # One rebalance a month, on the panel's last session that month. Each
@@ -455,6 +482,16 @@ def generate_targets(
     if prices.empty:
         raise ValueError(f"The master price file has no rows for the model universe: {', '.join(universe)}")
     in_master = set(prices["symbol"])
+    if signal_prices_setting() == "total_return":
+        from src.data.cleaning.total_return import signal_closes
+        from src.production.pipeline.append_total_return import load_adjusted
+
+        # next to the master, wherever that is (tests point the master elsewhere)
+        tr = signal_closes(prices, load_adjusted(p["prices_parquet"].with_name(ADJUSTED_FILE)))
+        prices = prices.assign(signal_close=tr.closes)
+        signal_basis, signal_note = tr.basis, tr.note()
+    else:
+        signal_basis, signal_note = "price", "etfs.signal_prices is price (config/universes/etfs.yaml)"
     features = _build_features(
         prices,
         momentum_lookback=momentum_lookback,
@@ -491,6 +528,8 @@ def generate_targets(
         universe=list(universe),
         universe_missing=[s for s in universe if s not in in_master],
         prices_through=str(prices["date"].max().date()),
+        signal_prices=signal_basis,
+        signal_prices_note=signal_note,
     )
     return asdict(result)
 
