@@ -152,7 +152,17 @@ these here:
 - the VCN security list's ingress rules
 - anything else already running there (the plan mentions a Kalshi desk)
 
-Then build it as files in the repo (a new `deploy/` folder), each step tested:
+**The files are ready (2026-10-16): [`deploy/README.md`](../deploy/README.md)**
+is the runbook (setup, dry run, cut over, rollback), with:
+- systemd units: the API, which now serves the built dashboard itself
+  (`DV02_WEB_DIST`); the 15:35 America/New_York runner timer; an API check;
+  a daily R2 backup; failure alerts
+- heartbeat, backup and migrate scripts
+- the tunnel config, Postgres and the env template
+
+`deploy/bin/check` verifies them; CI runs it as `deploy / check`. What's left
+needs the VM, and the owner at the console. The notes below are the
+background the runbook follows:
 
 - **IB Gateway.** `ibgw/docker-compose.yml` uses `ghcr.io/gnzsnz/ib-gateway:stable`.
   Check that image supports the VM's CPU architecture first. IBKR allows

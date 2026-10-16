@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Apply trading-engine/db/migrations/*.sql, in order, to the local Postgres
+# (deploy/postgres). Each migration is CREATE ... IF NOT EXISTS, so a re-run
+# changes nothing. Credentials from DV02_DB_USER / DV02_DB_PASSWORD.
+set -euo pipefail
+ROOT="${DV02_ROOT:-/opt/dv02}"
+: "${DV02_DB_PASSWORD:?set DV02_DB_PASSWORD in /etc/dv02/dv02.env}"
+for sql in "$ROOT"/trading-engine/db/migrations/*.sql; do
+  echo "applying $(basename "$sql")"
+  PGPASSWORD="$DV02_DB_PASSWORD" psql -h 127.0.0.1 -U "${DV02_DB_USER:-dv02}" -d trading \
+    -v ON_ERROR_STOP=1 -q -f "$sql"
+done

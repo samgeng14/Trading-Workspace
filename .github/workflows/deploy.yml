@@ -1,0 +1,16 @@
+name: deploy
+
+on:
+  pull_request:
+    paths: ["deploy/**", ".github/workflows/deploy.yml"]
+  push:
+    branches: [main]
+    paths: ["deploy/**", ".github/workflows/deploy.yml"]
+
+jobs:
+  check:
+    name: VM deploy files (scripts, timers, systemd-analyze verify)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: deploy/bin/check

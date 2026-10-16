@@ -1,0 +1,10 @@
+# OnFailure= target of the DV02 units: tells the heartbeat service the unit
+# (%i, e.g. dv02-runner.service) failed, so the alert comes at once rather
+# than when the missing ping times out.
+[Unit]
+Description=DV02: report %i failed
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/dv02/dv02.env
+ExecStart=/opt/dv02/deploy/bin/heartbeat %i fail

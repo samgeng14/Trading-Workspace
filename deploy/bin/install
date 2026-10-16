@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# install: put the DV02 units in /etc/systemd/system and start the API, its
+# check and the backup. The daily run's timer is left off: turn it on last,
+# once the Mac's schedule is removed and the gateway runs here (deploy/README.md,
+# "Cut over"), so nothing trades twice.
+set -euo pipefail
+[ "$(id -u)" = 0 ] || { echo "run as root: sudo $0" >&2; exit 1; }
+here="$(cd "$(dirname "$0")/.." && pwd)"
+[ "$here" = /opt/dv02/deploy ] || { echo "the units expect the checkout at /opt/dv02 (this one is ${here%/deploy})" >&2; exit 1; }
+[ -f /etc/dv02/dv02.env ] || { echo "write /etc/dv02/dv02.env first (from deploy/dv02.env.example)" >&2; exit 1; }
+[ -x /opt/dv02/.venv/bin/python ] || { echo "no /opt/dv02/.venv: run bin/tradeit setup as dv02 first" >&2; exit 1; }
+[ -f /opt/dv02/apps/web/dist/index.html ] || { echo "no dashboard build: (cd /opt/dv02/apps/web && npm run build) first" >&2; exit 1; }
+install -m 644 "$here"/systemd/*.service "$here"/systemd/*.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now dv02-api.service dv02-api-check.timer dv02-backup.timer
+echo "Installed. The API is on 127.0.0.1:8000; check it: systemctl status dv02-api"
+echo "The daily run is NOT scheduled yet. At cutover: sudo systemctl enable --now dv02-runner.timer"

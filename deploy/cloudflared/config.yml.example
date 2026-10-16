@@ -1,0 +1,11 @@
+# /etc/cloudflared/config.yml: one hostname, the API and dashboard on
+# 127.0.0.1:8000 (WebSockets pass through, so the live stream works).
+# Create the tunnel with `cloudflared tunnel create dv02` (it writes the
+# credentials file), route the hostname to it, and put a Cloudflare Access
+# application in front of that hostname that admits only the owner.
+tunnel: <TUNNEL-UUID>
+credentials-file: /etc/cloudflared/<TUNNEL-UUID>.json
+ingress:
+  - hostname: dv02.example.com
+    service: http://127.0.0.1:8000
+  - service: http_status:404

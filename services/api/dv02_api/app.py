@@ -12,11 +12,12 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Query, Request, WebSocket
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.datastructures import Headers
 
 from . import engine, flex, history, mandate, nyse, ops, orders, performance, rebalance, risk, runs, stats, stream
@@ -733,7 +734,32 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
     async def open_stream(ws: WebSocket) -> None:
         await hub.serve(ws)
 
+    dist = os.environ.get("DV02_WEB_DIST")
+    if dist:
+        serve_dashboard(app, Path(dist))
     return app
+
+
+def serve_dashboard(app: FastAPI, dist: Path) -> None:
+    """Serve the built dashboard (apps/web: npm run build, so apps/web/dist) from
+    the API's own port, for a host without the Vite dev server (the VM, behind a
+    Cloudflare tunnel). Same origin as the API, so the Host/Origin guard covers
+    both. Registered after every API route: /api paths never reach it, and an
+    unknown one is still a 404. Any other path that isn't a file in ``dist`` is
+    the app's index.html, so the dashboard's own routes load on refresh."""
+    root = dist.resolve()
+    index = root / "index.html"
+    if not index.is_file():
+        raise FileNotFoundError(f"DV02_WEB_DIST={dist}: no index.html there; build the dashboard (npm run build)")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def dashboard(path: str) -> FileResponse:
+        if path == "api" or path.startswith("api/"):
+            raise Problem(404, "Not found", f"/{path} is not an API route")
+        file = (root / path).resolve()
+        if path and file.is_file() and root in file.parents:
+            return FileResponse(file)
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
 
 
 # ── status components ──────────────────────────────────────────────────

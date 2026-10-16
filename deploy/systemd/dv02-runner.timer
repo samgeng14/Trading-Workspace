@@ -1,0 +1,15 @@
+# 15:35 New York time, Monday to Friday, whatever the VM's own zone: ten
+# minutes before the engine's last market-on-close send (15:45 ET). The
+# runner itself skips NYSE holidays. Persistent: a run missed while the VM was
+# down starts at boot (its orders then go market-on-open, by design).
+[Unit]
+Description=DV02 daily run at 15:35 America/New_York, weekdays
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 15:35:00 America/New_York
+Persistent=true
+AccuracySec=1s
+Unit=dv02-runner.service
+
+[Install]
+WantedBy=timers.target
