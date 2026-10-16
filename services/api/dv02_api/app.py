@@ -819,43 +819,64 @@ def engine_health() -> dict[str, str]:
 # ── background upkeep ──────────────────────────────────────────────────
 
 
+# seconds between upkeep passes
+MAINTENANCE_INTERVAL = 60.0
+
+
+async def _flex_refresh(profile: str) -> None:
+    try:
+        log.info(await asyncio.to_thread(flex.refresh, profile))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Flex refresh failed: %s", exc)
+
+
 async def _maintenance(ctx: Ctx) -> None:
-    """Record closing NAV, keep daily bars and Flex NAV fresh, run the doctor once a day."""
-    last_flex = last_bars = 0.0
+    """Record closing NAV, keep daily bars and Flex NAV fresh, run the doctor once a day.
+
+    The Flex refresh runs as a task of its own, one at a time: a full history
+    walk can take many minutes under IBKR's pacing and retries, and the
+    closing NAV must not wait for it."""
+    # None until the first pass: due at once (monotonic time counts from boot, so a
+    # zero start would wait out the interval on a machine booted less than that ago)
+    last_flex: float | None = None
+    last_bars: float | None = None
     doctor_started = False
-    while True:
-        try:
-            now = _now()
-            b = ctx.broker
-            s = nyse.session_state(now)
-            snap = b.snapshot() if b.connected else None
-            if snap is not None and s.session != "open" and nyse.et_date(now) == s.trading_date:
-                history.record_close_nav(ctx.profile, s.trading_date, snap.nav)
-            if b.connected and time.monotonic() - last_bars > 1800:
-                last_bars = time.monotonic()
-                held = [p.symbol for p in (snap.positions if snap else []) if p.sec_type in ("STK", "ETF")]
-                for sym in dict.fromkeys(BAR_SYMBOLS + held):
-                    if history.bars_stale(sym, now):
-                        try:
-                            history.write_bars(sym, await b.daily_bars(sym))
-                        except Exception as exc:  # noqa: BLE001
-                            log.warning("daily bars for %s failed: %s", sym, exc)
-                        await asyncio.sleep(1)
-            if time.monotonic() - last_flex > 6 * 3600:
-                last_flex = time.monotonic()
-                try:
-                    log.info(await asyncio.to_thread(flex.refresh, ctx.profile))
-                except Exception as exc:  # noqa: BLE001
-                    log.warning("Flex refresh failed: %s", exc)
-            # once per start, connected or not: with the gateway down it fails fast on the
-            # socket check, which says exactly what to fix
-            if not doctor_started and (b.connected or b.status.error != "not connected yet"):
-                doctor_started = True
-                last = ops.last_doctor(ctx.profile)
-                if last is None or datetime.fromisoformat(last["ran_at"]) < now - timedelta(hours=12):
-                    asyncio.create_task(ops.run_doctor(ctx.profile))
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001
-            log.exception("maintenance step failed")
-        await asyncio.sleep(60)
+    flex_task: asyncio.Task | None = None
+    try:
+        while True:
+            try:
+                now = _now()
+                b = ctx.broker
+                s = nyse.session_state(now)
+                snap = b.snapshot() if b.connected else None
+                if snap is not None and s.session != "open" and nyse.et_date(now) == s.trading_date:
+                    history.record_close_nav(ctx.profile, s.trading_date, snap.nav)
+                if b.connected and (last_bars is None or time.monotonic() - last_bars > 1800):
+                    last_bars = time.monotonic()
+                    held = [p.symbol for p in (snap.positions if snap else []) if p.sec_type in ("STK", "ETF")]
+                    for sym in dict.fromkeys(BAR_SYMBOLS + held):
+                        if history.bars_stale(sym, now):
+                            try:
+                                history.write_bars(sym, await b.daily_bars(sym))
+                            except Exception as exc:  # noqa: BLE001
+                                log.warning("daily bars for %s failed: %s", sym, exc)
+                            await asyncio.sleep(1)
+                flex_due = last_flex is None or time.monotonic() - last_flex > 6 * 3600
+                if flex_due and (flex_task is None or flex_task.done()):
+                    last_flex = time.monotonic()
+                    flex_task = asyncio.create_task(_flex_refresh(ctx.profile), name="flex-refresh")
+                # once per start, connected or not: with the gateway down it fails fast on the
+                # socket check, which says exactly what to fix
+                if not doctor_started and (b.connected or b.status.error != "not connected yet"):
+                    doctor_started = True
+                    last = ops.last_doctor(ctx.profile)
+                    if last is None or datetime.fromisoformat(last["ran_at"]) < now - timedelta(hours=12):
+                        asyncio.create_task(ops.run_doctor(ctx.profile))
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                log.exception("maintenance step failed")
+            await asyncio.sleep(MAINTENANCE_INTERVAL)
+    finally:
+        if flex_task is not None and not flex_task.done():
+            flex_task.cancel()

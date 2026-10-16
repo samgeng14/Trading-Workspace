@@ -229,10 +229,10 @@ has the page list, the theme switch and the overflow check).
   non-Flex reply (IBKR's maintenance page) no longer raises an empty error, the
   token can't reach a log, a traceback, the cache or the printed line, a dropped
   connection is retried, a corrupt cache keeps its readable rows, and the
-  parser handles the other date formats and multi-account statements. Left:
-  `app.py`'s maintenance loop awaits `flex.refresh` inline, so a slow full walk
-  (tens of minutes under retries) delays the close-NAV record; move the walk to
-  its own task.
+  parser handles the other date formats and multi-account statements. The
+  API's upkeep loop now runs the Flex walk as its own task, one at a time, so
+  a slow walk can't delay the closing NAV, and its timers no longer wait out
+  their interval after a recent reboot (2026-10-16).
 - `trading-engine/pyproject.toml` still lists `mosek`. Make it optional (needs
   `poetry lock`) or leave it: without a license the free solvers run.
 - `docs/PLAN.md`: the Phase 0 known issues that are fixed are struck through
