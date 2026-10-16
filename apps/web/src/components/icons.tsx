@@ -1,6 +1,5 @@
 // Small inline icons. Status icons differ by shape as well as colour, so
-// state never depends on colour alone; each sets its own colour so the LED
-// glow (components.css, svg.led) takes the status colour.
+// state never depends on colour alone.
 
 import type { ReactNode } from "react";
 
@@ -26,20 +25,20 @@ export function StatusIcon({
             : status;
   if (norm === "ok")
     return (
-      <svg width={s} height={s} viewBox="0 0 10 10" aria-hidden="true" className="led" color="var(--status-good)">
+      <svg width={s} height={s} viewBox="0 0 10 10" aria-hidden="true">
         <circle cx="5" cy="5" r="4.5" fill="var(--status-good)" />
       </svg>
     );
   if (norm === "warning")
     return (
-      <svg width={s} height={s} viewBox="0 0 10 10" aria-hidden="true" className="led" color="var(--status-warning)">
+      <svg width={s} height={s} viewBox="0 0 10 10" aria-hidden="true">
         <path d="M5 0.6 L9.6 9.2 H0.4 Z" fill="var(--status-warning)" strokeLinejoin="round" />
       </svg>
     );
   if (norm === "error")
     return (
-      <svg width={s} height={s} viewBox="0 0 10 10" aria-hidden="true" className="led" color="var(--status-critical)">
-        <rect x="0.5" y="0.5" width="9" height="9" rx="2" fill="var(--status-critical)" />
+      <svg width={s} height={s} viewBox="0 0 10 10" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="9" height="9" rx="1" fill="var(--status-critical)" />
         <path d="M3 3 L7 7 M7 3 L3 7" stroke="#fff" strokeWidth="1.4" strokeLinecap="round" />
       </svg>
     );
@@ -52,7 +51,11 @@ export function StatusIcon({
 
 export function SessionIcon({ session }: { session: "pre" | "open" | "post" | "closed" }) {
   if (session === "open")
-    return <span className="live-dot" style={{ color: "var(--status-good)" }} aria-hidden="true" />;
+    return (
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+        <circle cx="5" cy="5" r="4.5" fill="var(--status-good)" />
+      </svg>
+    );
   if (session === "closed")
     return (
       <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
@@ -60,7 +63,7 @@ export function SessionIcon({ session }: { session: "pre" | "open" | "post" | "c
       </svg>
     );
   return (
-    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="led" color="var(--status-warning)">
+    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
       <circle cx="5" cy="5" r="4" fill="none" stroke="var(--status-warning)" strokeWidth="1.5" />
       <path d="M5 1 A4 4 0 0 1 5 9 Z" fill="var(--status-warning)" />
     </svg>
@@ -149,23 +152,6 @@ export const SearchIcon = () => (
     <path d="m20 20-4.2-4.2" />
   </Line>
 );
-
-/** The DV02 mark: a rising line over a baseline, inside the gradient tile. */
-export function BrandGlyph({ size = 18 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" fill="none">
-      <path d="M3 19.5h18" stroke="rgba(255,255,255,0.45)" strokeWidth="1.6" strokeLinecap="round" />
-      <path
-        d="m3.5 15.5 4.5-5 3.5 3 4-6 4.5 3.5"
-        stroke="#fff"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="20" cy="11" r="1.9" fill="#fff" />
-    </svg>
-  );
-}
 
 export function SunIcon() {
   return (

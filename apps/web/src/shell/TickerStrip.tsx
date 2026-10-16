@@ -1,4 +1,4 @@
-import { type CSSProperties, useMemo } from "react";
+import { useMemo } from "react";
 import type { Schemas } from "../api/client";
 import { useMarketStrip, usePositions } from "../api/hooks";
 import { direction, num, pct, price } from "../lib/format";
@@ -21,12 +21,7 @@ function QuoteItem({ q }: { q: Schemas["Quote"] }) {
   );
 }
 
-/**
- * The tape: headline markets, the book's biggest gainers and losers today, then the other
- * markets, scrolling slowly and pausing under the pointer. It runs as two copies of the same
- * list (the second hidden from assistive tech) so the loop has no seam; with reduced motion
- * it stands still and shows one.
- */
+/** The markets strip under the section bar: headline markets, the book's biggest gainers and losers today, then the other markets. */
 export function TickerStrip() {
   const { data } = useMarketStrip();
   const positions = usePositions().data?.positions;
@@ -41,43 +36,31 @@ export function TickerStrip() {
   }, [positions]);
   const items = data?.items ?? [];
 
-  const list = (hidden: boolean) => (
-    <ul className="ticker-items" aria-hidden={hidden || undefined}>
-      {items.slice(0, LEAD).map((q) => (
-        <QuoteItem key={q.symbol} q={q} />
-      ))}
-      {movers.length > 0 && <li className="ticker-sep" aria-hidden="true" />}
-      {movers.map(({ tag, p }) => {
-        const dir = direction(p.day_return, 5e-7);
-        return (
-          <li key={p.symbol} className="ticker-item">
-            <span className="ticker-tag">{tag}</span>
-            <span className="ticker-sym">{p.symbol}</span>
-            <span className="num">{price(p.last)}</span>
-            <span className={`num ${dir}`}>
-              {ARROW[dir]} {pct(p.day_return, 2, true)}
-            </span>
-          </li>
-        );
-      })}
-      {items.length > LEAD && <li className="ticker-sep" aria-hidden="true" />}
-      {items.slice(LEAD).map((q) => (
-        <QuoteItem key={q.symbol} q={q} />
-      ))}
-    </ul>
-  );
-
-  // about 4 s per item on the tape, so it reads at the same pace however long it is
-  const duration = Math.max(30, (items.length + movers.length) * 4);
-
   return (
     <footer className="ticker" aria-label="Markets and book movers">
-      <div className="ticker-viewport">
-        <div className="ticker-tape" style={{ "--tape-duration": `${duration}s` } as CSSProperties}>
-          {list(false)}
-          {list(true)}
-        </div>
-      </div>
+      <ul className="ticker-items">
+        {items.slice(0, LEAD).map((q) => (
+          <QuoteItem key={q.symbol} q={q} />
+        ))}
+        {movers.length > 0 && <li className="ticker-sep" aria-hidden="true" />}
+        {movers.map(({ tag, p }) => {
+          const dir = direction(p.day_return, 5e-7);
+          return (
+            <li key={p.symbol} className="ticker-item">
+              <span className="ticker-tag">{tag}</span>
+              <span className="ticker-sym">{p.symbol}</span>
+              <span className="num">{price(p.last)}</span>
+              <span className={`num ${dir}`}>
+                {ARROW[dir]} {pct(p.day_return, 2, true)}
+              </span>
+            </li>
+          );
+        })}
+        {items.length > LEAD && <li className="ticker-sep" aria-hidden="true" />}
+        {items.slice(LEAD).map((q) => (
+          <QuoteItem key={q.symbol} q={q} />
+        ))}
+      </ul>
       {data?.delayed && <span className="ticker-note">Delayed 15 min</span>}
     </footer>
   );

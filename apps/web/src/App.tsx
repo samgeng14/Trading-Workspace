@@ -1,5 +1,4 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MotionConfig } from "motion/react";
 import { useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import { applyFrame } from "./api/hooks";
@@ -13,6 +12,7 @@ import { Positions } from "./pages/Positions";
 import { Risk } from "./pages/Risk";
 import { Trading } from "./pages/Trading";
 import { KillBanner } from "./shell/KillBanner";
+import { Masthead } from "./shell/Masthead";
 import { SideNav } from "./shell/SideNav";
 import { TickerStrip } from "./shell/TickerStrip";
 import { TopBar } from "./shell/TopBar";
@@ -25,16 +25,17 @@ const queryClient = new QueryClient({
 
 function Shell() {
   const { pathname } = useLocation();
-  // a new section starts at the top, whichever box scrolls (the main column, or the page on a phone)
+  // a new section starts at the top of the page
   useEffect(() => {
-    document.querySelector(".main")?.scrollTo({ top: 0 });
     window.scrollTo({ top: 0 });
   }, [pathname]);
 
   return (
     <div className="app">
-      <SideNav />
       <TopBar />
+      <Masthead />
+      <SideNav />
+      <TickerStrip />
       <KillBanner />
       <main className="main">
         <Routes>
@@ -46,7 +47,6 @@ function Shell() {
           <Route path="/ops" element={<Operations />} />
         </Routes>
       </main>
-      <TickerStrip />
     </div>
   );
 }
@@ -57,19 +57,13 @@ export function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <MotionConfig reducedMotion="user">
-        <ToastProvider>
-          <ServerClockProvider>
-            <BrowserRouter>
-              <div className="backdrop" aria-hidden="true">
-                <div className="backdrop-grid" />
-                <div className="backdrop-floor" />
-              </div>
-              <Shell />
-            </BrowserRouter>
-          </ServerClockProvider>
-        </ToastProvider>
-      </MotionConfig>
+      <ToastProvider>
+        <ServerClockProvider>
+          <BrowserRouter>
+            <Shell />
+          </BrowserRouter>
+        </ServerClockProvider>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

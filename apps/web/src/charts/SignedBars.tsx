@@ -8,7 +8,7 @@ export interface SignedRow {
   value: number;
 }
 
-const ROW = 32;
+const ROW = 30;
 const BAR = 12;
 const LABEL_WIDE = 150;
 const VALUE_WIDE = 76;
@@ -27,7 +27,9 @@ export function SignedBars({
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<string | null>(null);
-  const gid = control.replace(/[^a-zA-Z0-9-]/g, "-");
+  // a row with keyboard focus stays lit even when the page scrolls a different row under the mouse
+  const [focused, setFocused] = useState<string | null>(null);
+  const active = focused ?? hover;
   // a phone-width panel gives the bars the room the labels can spare
   const narrow = width > 0 && width < 480;
   const LABEL_W = narrow ? 112 : LABEL_WIDE;
@@ -56,17 +58,6 @@ export function SignedBars({
           data-control={control}
           onPointerLeave={() => setHover(null)}
         >
-          <defs>
-            {/* each bar brightens toward its end, away from zero */}
-            <linearGradient id={`${gid}-up`} x1="0" x2="1" y1="0" y2="0">
-              <stop offset="0" style={{ stopColor: "var(--up)", stopOpacity: 0.5 }} />
-              <stop offset="1" style={{ stopColor: "var(--up)", stopOpacity: 1 }} />
-            </linearGradient>
-            <linearGradient id={`${gid}-down`} x1="1" x2="0" y1="0" y2="0">
-              <stop offset="0" style={{ stopColor: "var(--down)", stopOpacity: 0.5 }} />
-              <stop offset="1" style={{ stopColor: "var(--down)", stopOpacity: 1 }} />
-            </linearGradient>
-          </defs>
           <g transform={`translate(${LABEL_W + leftV},2)`}>
             <line x1={x(0)} x2={x(0)} y1={0} y2={rows.length * ROW} className="axis-base" />
             {rows.map((r, i) => {
@@ -81,10 +72,10 @@ export function SignedBars({
               return (
                 <g
                   key={r.id}
-                  className={hover === r.id ? "bar-row is-hover" : "bar-row"}
+                  className={active === r.id ? "bar-row is-hover" : "bar-row"}
                   onPointerEnter={() => setHover(r.id)}
-                  onFocus={() => setHover(r.id)}
-                  onBlur={() => setHover(null)}
+                  onFocus={() => setFocused(r.id)}
+                  onBlur={() => setFocused(null)}
                   tabIndex={0}
                   aria-label={`${r.label}: ${format(r.value)}`}
                 >
@@ -92,14 +83,7 @@ export function SignedBars({
                   <text x={-LABEL_W - leftV} y={cy + 4} className="bar-label">
                     {r.label}
                   </text>
-                  {w > 0.5 && (
-                    <path
-                      d={d}
-                      fill={`url(#${gid}-${pos ? "up" : "down"})`}
-                      className={`bar ${pos ? "from-left" : "from-right"}`}
-                      style={{ animationDelay: `${i * 40}ms` }}
-                    />
-                  )}
+                  {w > 0.5 && <path d={d} fill={pos ? "var(--up)" : "var(--down)"} />}
                   <text
                     x={pos ? x(r.value) + 6 : x(r.value) - 6}
                     y={cy + 4}

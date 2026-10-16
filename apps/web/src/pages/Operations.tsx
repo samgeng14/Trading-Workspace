@@ -58,7 +58,6 @@ function KillSwitchPanel() {
     <Panel title="Kill switch" className="span-5 killswitch-panel">
       {ks && (
         <div className="killswitch" data-armed={ks.armed}>
-          <span className="killswitch-orb" aria-hidden="true" />
           {ks.armed ? (
             <>
               <StatusBadge status="error" label="Armed: trading halted" />
@@ -88,7 +87,7 @@ function KillSwitchPanel() {
               </p>
               <button
                 type="button"
-                className="btn btn-danger-solid btn-cta"
+                className="btn btn-danger"
                 onClick={killSwitch.openArm}
                 data-control="ops.kill-switch.arm"
               >

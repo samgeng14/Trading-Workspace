@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { useRisk } from "../api/hooks";
 import { DivergingBars } from "../charts/DivergingBars";
-import { Gauge } from "../charts/Gauge";
 import { SignedBars } from "../charts/SignedBars";
 import { Delta, LoadError, Meter, PageHead, Panel, Stat } from "../components/bits";
 import { Figure } from "../components/Figure";
@@ -67,20 +66,6 @@ export function Risk() {
             label="Forecast volatility"
             value={<span className="num">{pct(data.forecast_vol, 1)}</span>}
             sub={`target ${pct(data.target_vol, 0)}, annualized`}
-            // the ring is full at twice the target, so on target reads as half
-            visual={
-              <Gauge
-                value={data.forecast_vol}
-                max={data.target_vol * 2}
-                tone={
-                  data.forecast_vol > data.target_vol * 1.2
-                    ? "bad"
-                    : data.forecast_vol > data.target_vol
-                      ? "warn"
-                      : "accent"
-                }
-              />
-            }
           />
           <Stat
             className="tile"

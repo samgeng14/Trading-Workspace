@@ -22,8 +22,8 @@ a fixed API contract. That way nothing built early gets thrown away.
 | Fund mandate | **Long/short, strictly no leverage.** Gross (long + \|short\|) ≤ 100% of NAV, with futures at full notional and options at delta-adjusted notional once that can be measured (until then any option blocks). Leveraged and inverse ETFs count at their economic exposure (TQQQ at 3×). Cash ≥ 0 after orders, so no margin loan. Enforced in C++ on every order path (the dashboard's submit and the 15:35 ET daily run), counting every holding in the account, not just the model's. *Decided.* | Your rule. A check that sees only the model's targets misses everything else in the account. |
 | Languages | **C++ and Python only**; TypeScript only for the dashboard UI (`apps/web`). No Rust in our code: the Rust `hawk-backtester` has been ported to C++ as `dv02_engine.backtest`. *Decided.* | Fewer toolchains to build, test and review. Bindings already share the C++ math with Python, so a third language adds nothing. |
 | Universe | **Anything IBKR trades**, subject to the mandate and the account's permissions: stocks, ETFs, futures, options, bonds, FX, crypto. *Decided.* | Each sleeve trades where its edge is. Permissions (Section 7) and the no-leverage check decide what can actually trade. |
-| Frontend language | **TypeScript + React + Vite**, hand-built design system, no UI kit theme. *Decided.* | Best tooling for dense, live, data-heavy screens. A hand-built system keeps the look ours, tuned to the data, rather than a kit's defaults. |
-| Look | **DV02, the dark Terminal theme by default**: a high-end trading terminal. A near-black desk lit by soft cyan and violet glows, glass chrome, dark panels with a lit top edge, Geist for text and headline figures and Geist Mono for numbers, cyan for the portfolio, mint and coral for gains and losses, motion that settles quickly and stands still under reduced motion; a Command Center cockpit; a tab bar on phones. Light is the same design one click away. *Decided (October 16), replacing the Journal (WSJ-style) theme of October 12.* | What you asked for, and you read it mostly on a phone. Dense numbers stay calm: the glow is in the chrome and the headline figures, not in the tables. |
+| Frontend language | **TypeScript + React + Vite**, hand-built design system, no UI kit theme. *Decided.* | Best tooling for dense, live, data-heavy screens. The "vibe-coded" look comes from default kits (Tailwind/shadcn gradients, glows, rounded cards), not from React. |
+| Look | **DV02, Journal theme by default**: a WSJ-style financial page. Warm-white newsprint, black ink, black rules instead of boxed cards, a masthead with the nameplate between two ears and the dateline under a thick-and-thin rule, condensed capitals for section heads, a news serif for headlines and headline figures, condensed tabular figures in the tables, one ink blue for links and the portfolio line, the paper's green and red for gains and losses; a Command Center cockpit; a tab bar on phones. A dark "night edition" stays one click away. *Decided (October 12); redesigned in the same style on October 16, after the owner rejected a dark neon terminal look.* | What you asked for. It also suits a finance tool: dense, calm, readable. |
 | Middle layer | **FastAPI service with a versioned contract** (OpenAPI + WebSocket schemas); TypeScript types generated from it | The frontend can ship now on the existing Python system. Later the C++ engine is swapped in underneath without touching the UI. |
 | Engine | **C++20 daemon (`tradeitd`)** for broker connections, order management, the central risk book, hedging and intraday strategies | This is where C++ pays off: one long-lived broker connection, deterministic event loop, replayable state, low latency later. |
 | Research | **Stays in Python** (pandas + DuckDB). C++ risk and simulation code is exposed to Python via bindings. Polars is built in Rust, so whether third-party Rust-built tools (Polars, the ruff linter) may stay is an open decision (Section 15). | Sharpe comes from data and signals, not language. WRDS tooling is Python/SQL. Shared bindings keep research and production math identical. |
@@ -60,7 +60,7 @@ a fixed API contract. That way nothing built early gets thrown away.
   growth of $100.
 - **The dashboard looks like a financial page:** the Journal (WSJ-style)
   theme is the default, with the dark theme one click away (Section 4).
-  (Replaced on October 16 by the dark Terminal theme; Section 4.)
+  (Redesigned in the same style on October 16; Section 4.)
 - **The C++ engine has started** (`engine/`): CMake, C++20, nanobind bindings
   built by scikit-build-core, an in-repo test harness, and CI with sanitizers.
   It has the no-leverage check and the backtester port (Section 6).
@@ -256,60 +256,58 @@ Alternatives considered:
 
 ### Design system
 
-Built in `apps/web/src/design/`. Every colour, font, radius and shadow is a
-token in `tokens.css`, for both themes, and components use only those. The
-Terminal theme (October 16) replaced the Journal theme and its dark edition.
+Built in `apps/web/src/design/`. Every colour, font and size is a token in
+`tokens.css`, for both themes, and components use only those. Redesigned on
+October 16 in the same broadsheet style; a dark neon "terminal" look was tried
+first and the owner rejected it.
 
 - **Type**
-  - *Geist* for text, page titles and headline figures (NAV, the KPI tiles):
-    it has tabular figures, so headline digits don't shift as they tick.
-  - *Geist Mono* for numbers in tables, the status strip, the ticker, chart
-    ticks and timestamps: columns line up.
-  - Small uppercase letterspaced labels for stats and table heads.
-- **Colour (Terminal, the default)**
-  - Near-black page (`#05070b`) lit from behind by two slow cyan and violet
-    glows and a faint grid; panels `#0c1119` with a hairline border and a lit
-    top edge; glass (blurred, translucent) top bar, rail, tab bar, tooltips
-    and dialogs.
-  - Cyan (`#22c3ee`) for the active section, focus and the primary action;
-    `#1b9ad6` for the portfolio line, orange (`#e0682a`) as the second
-    series, slate for benchmarks.
-  - Mint (`#2fd59a`) and coral (`#ff6680`) for gains and losses, always with
-    a sign; asset classes take the dataviz reference palette's slots in a
-    fixed order, so a colour follows its class.
-  - Status lights (good / warning / critical) have their own tokens and an
-    icon shape each, separate from P&L and series colours.
-- **Colour (light, one click away)**
-  - Cool paper white (`#eef1f6`), white panels, navy ink, the same layout;
-    the toggle remembers the choice (`dv02.ui-theme`).
+  - *Newsreader* (a news serif, variable, with optical sizes) for the
+    nameplate, page headlines, decks and headline figures (NAV, the data cells).
+  - *IBM Plex Sans Condensed* for section heads, labels, table heads and every
+    figure in a table: its digits are all one width, so columns line up and a
+    ticking number never shifts, the way a paper sets market data.
+  - *Public Sans* for running text.
+- **Colour (Journal, the default)**
+  - Warm-white newsprint (`#faf9f5`), black ink (`#111`), grey hairlines,
+    black rules over every section instead of boxed cards, zebra rows in the
+    market tables.
+  - Black for the active section, selected options and primary buttons.
+  - Ink blue (`#0f6aa8`) for the portfolio line and links, orange (`#c4621a`)
+    as the second series, warm grey for benchmarks; asset classes take the
+    dataviz reference palette's slots in a fixed order.
+  - Green (`#0a7b34`) and red (`#c4161c`) for gains and losses, always with a sign.
+  - Status text (good / warn / bad) has its own tokens, separate from P&L colours.
+- **Colour (the night edition, one click away)**
+  - Near-black page (`#0e0d0c`), cream ink (`#ece4d6`), sand accent
+    (`#d6b07a`), ochre and blue series, sage and coral for gains and losses.
+    Same layout, other tokens; the toggle remembers the choice.
   - All chart colours were run through the dataviz palette validator
     (lightness band, chroma, colour-blind and normal-vision separation,
-    contrast) on each theme's panel. All text clears WCAG 4.5:1.
+    contrast) in both themes. All text clears WCAG 4.5:1.
 - **Structure**
-  - Rail: nameplate with the day's dateline, mode and account, sections with
-    a sliding highlight, then read-only facts (latest close, quote feed,
-    gateway, today's orders, next job). It folds to icons on a narrow laptop.
-  - Status strip along the top, as chips: mode, market session with a
-    countdown and a bar for how far through the session it is, the pre-trade
-    gate (Ready / Blocked / Submitted / Halted), the stream, system lights
-    (link to Operations), exchange clock, Halt trading, theme.
-  - Ticker along the bottom: headline markets, the book's biggest gainers and
-    losers today, then other markets, as a slow tape that pauses under the
-    pointer.
-  - Phones: the sections become a tab bar at the bottom; the status strip is a
-    header (nameplate, mode, clock, Halt) over a row of chips that swipes
-    sideways; wide tables keep the symbol column in place.
-  - Pages open with a small accent line, a title and a one-line purpose.
-- **Charts**
+  - Masthead: a status line (mode, market session with a countdown and a bar
+    for how far through the session it is, the pre-trade gate, the stream,
+    system lights, exchange clock, Halt trading, theme); the DV02 nameplate
+    between two ears (the edition and account; the gateway, today's orders and
+    the next job); the dateline under a thick-and-thin rule.
+  - Section bar under the masthead, in capitals, kept in view as the page
+    scrolls; a markets strip under it (headline markets, the book's biggest
+    gainers and losers, other markets). No animation.
+  - Pages open with a section label, a serif headline and a one-line deck.
+    Panels have condensed-capital heads under a black rule; columns are
+    divided by hairline column rules; no glow, gradients or rounded cards.
+  - Phones: the nameplate on top, the status line under it, the sections as a
+    tab bar at the bottom; wide tables keep the symbol column in place.
+- **Charts (WSJ graphics conventions)**
   - y labels in their own gutter, clear of the lines.
-  - Lines labelled directly at their ends; the portfolio line glows softly;
-    washes fade into the baseline; gains above zero green, losses red.
+  - Lines are labelled directly at their ends.
+  - Horizontal hairlines only; flat washes.
   - A crosshair tooltip lists every series and works from the keyboard
     (arrows, Home, End).
   - Every chart has a Table view.
-- **Motion:** sections rise in, lines draw themselves once, meters and bars
-  grow, NAV counts to its value and flashes when it ticks. Nothing moves
-  under the system's reduced-motion setting.
+- **Not allowed:** gradients, glows, glassmorphism, drop shadows, rounded
+  cards, emoji, animated counters, neon-on-black.
 - **Still to build:** a `/design` style-guide route.
 
 ### Pages ("sections")
@@ -1068,9 +1066,10 @@ CI, by phase:
   permissions.
 - **Frontend:** React + TypeScript; built first.
 - **Look and name:** the fund is "DV02 Fund"; the nameplate reads "DV02".
-  The dark Terminal theme is the default, with its light twin one click away;
-  Command Center layout. (October 16; the Journal (WSJ-style newspaper) theme
-  was the default from October 12, and the first dark theme before that.)
+  The Journal (WSJ-style newspaper) theme is the default, with a dark theme
+  one click away; Command Center layout. (Dark was the default until
+  October 12. On October 16 the owner rejected a dark neon terminal look and
+  had the Journal redesigned in the same style.)
 - **Holdings outside the model (October 12):** sold at the next rebalance.
   The book becomes the model alone, under 100% gross with no margin loan.
 - **TQQQ (October 12):** out of the model. QQQ was already in the

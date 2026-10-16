@@ -17,7 +17,7 @@ interface Props {
   control: string;
 }
 
-const ROW = 32;
+const ROW = 30;
 const BAR = 12;
 const LABEL_WIDE = 104;
 const VALUE_WIDE = 64;
@@ -29,7 +29,9 @@ const VALUE_WIDE = 64;
 export function DivergingBars({ rows, format, ariaLabel, control }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<string | null>(null);
-  const gid = control.replace(/[^a-zA-Z0-9-]/g, "-");
+  // a row with keyboard focus stays lit even when the page scrolls a different row under the mouse
+  const [focused, setFocused] = useState<string | null>(null);
+  const active = focused ?? hover;
   // a phone-width panel gives the bars the room the labels can spare
   const narrow = width > 0 && width < 480;
   const LABEL_W = narrow ? 92 : LABEL_WIDE;
@@ -40,7 +42,7 @@ export function DivergingBars({ rows, format, ariaLabel, control }: Props) {
   const lo = Math.min(-0.02, ...rows.map((r) => r.short));
   const x = scaleLinear().domain([lo, hi]).range([0, plotW]);
   const height = rows.length * ROW + 8;
-  const hovered = rows.find((r) => r.id === hover);
+  const hovered = rows.find((r) => r.id === active);
 
   return (
     <div ref={ref} className="chart">
@@ -67,17 +69,6 @@ export function DivergingBars({ rows, format, ariaLabel, control }: Props) {
           data-control={control}
           onPointerLeave={() => setHover(null)}
         >
-          <defs>
-            {/* each bar brightens toward its end, away from zero */}
-            <linearGradient id={`${gid}-long`} x1="0" x2="1" y1="0" y2="0">
-              <stop offset="0" style={{ stopColor: "var(--series-1)", stopOpacity: 0.55 }} />
-              <stop offset="1" style={{ stopColor: "var(--series-1)", stopOpacity: 1 }} />
-            </linearGradient>
-            <linearGradient id={`${gid}-short`} x1="1" x2="0" y1="0" y2="0">
-              <stop offset="0" style={{ stopColor: "var(--series-2)", stopOpacity: 0.55 }} />
-              <stop offset="1" style={{ stopColor: "var(--series-2)", stopOpacity: 1 }} />
-            </linearGradient>
-          </defs>
           <g transform={`translate(${LABEL_W + VALUE_W},4)`}>
             <line x1={x(0)} x2={x(0)} y1={0} y2={rows.length * ROW} className="axis-base" />
             {rows.map((r, i) => {
@@ -88,31 +79,19 @@ export function DivergingBars({ rows, format, ariaLabel, control }: Props) {
                 <g
                   key={r.id}
                   onPointerEnter={() => setHover(r.id)}
-                  onFocus={() => setHover(r.id)}
-                  onBlur={() => setHover(null)}
+                  onFocus={() => setFocused(r.id)}
+                  onBlur={() => setFocused(null)}
                   tabIndex={0}
                   aria-label={`${r.label}: long ${format(r.long)}, short ${format(r.short)}, net ${format(r.net)}`}
-                  className={hover === r.id ? "bar-row is-hover" : "bar-row"}
+                  className={active === r.id ? "bar-row is-hover" : "bar-row"}
                 >
                   <rect x={-LABEL_W - VALUE_W} y={i * ROW} width={width} height={ROW} className="bar-hit" />
                   <text x={-LABEL_W - VALUE_W} y={cy + 4} className="bar-label">
                     {r.label}
                   </text>
-                  {r.long > 0 && (
-                    <path
-                      d={roundedRight(x(0), cy - BAR / 2, longW, BAR)}
-                      fill={`url(#${gid}-long)`}
-                      className="bar from-left"
-                      style={{ animationDelay: `${i * 40}ms` }}
-                    />
-                  )}
+                  {r.long > 0 && <path d={roundedRight(x(0), cy - BAR / 2, longW, BAR)} fill="var(--series-1)" />}
                   {r.short < 0 && (
-                    <path
-                      d={roundedLeft(x(0) - shortW, cy - BAR / 2, shortW, BAR)}
-                      fill={`url(#${gid}-short)`}
-                      className="bar from-right"
-                      style={{ animationDelay: `${i * 40}ms` }}
-                    />
+                    <path d={roundedLeft(x(0) - shortW, cy - BAR / 2, shortW, BAR)} fill="var(--series-2)" />
                   )}
                   <line x1={x(r.net)} x2={x(r.net)} y1={cy - BAR / 2 - 3} y2={cy + BAR / 2 + 3} className="net-tick" />
                   {r.long > 0 && (

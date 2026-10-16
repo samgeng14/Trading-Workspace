@@ -1,9 +1,8 @@
-import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { useRebalancePreview, useStatus } from "../api/hooks";
 import { useStream } from "../api/stream";
-import { BrandGlyph, HaltIcon, MoonIcon, SessionIcon, StatusIcon, SunIcon } from "../components/icons";
+import { HaltIcon, MoonIcon, SessionIcon, StatusIcon, SunIcon } from "../components/icons";
 import { useKillSwitchDialogs } from "../components/KillSwitch";
 import { countdown, timeET, weekdayTimeET } from "../lib/format";
 import { gate } from "../lib/readiness";
@@ -36,7 +35,7 @@ function since(ms: number): string {
   return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
 }
 
-/** The status strip: what mode, is the market open, can we trade, is everything up, and the halt. */
+/** The status line over the nameplate: what mode, is the market open, can we trade, is everything up, and the halt. */
 export function TopBar() {
   const { data: status } = useStatus();
   const stream = useStream();
@@ -61,12 +60,6 @@ export function TopBar() {
   return (
     <header className="topbar">
       <div className="topbar-id">
-        <span className="mobile-mark">
-          <span className="brand-mark">
-            <BrandGlyph size={15} />
-          </span>
-          <span className="mobile-mark-text">DV02</span>
-        </span>
         {status && <span className={`mode-badge mode-${status.mode}`}>{MODE_TEXT[status.mode]}</span>}
       </div>
 
@@ -90,11 +83,7 @@ export function TopBar() {
         </Seg>
         <Seg label="Stream" className="topbar-stream">
           {stream.live ? (
-            <span
-              className="stream-live"
-              title="The API pushes every change over a WebSocket; REST is re-checked every 30 s as a safety net"
-            >
-              <span className="live-dot" aria-hidden="true" />
+            <span title="The API pushes every change over a WebSocket; REST is re-checked every 30 s as a safety net">
               Live
               {stream.lastFrameAt !== null && (
                 <span className="muted"> · {since(Date.now() - stream.lastFrameAt)}</span>
@@ -165,18 +154,7 @@ export function TopBar() {
           aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
           data-control="topbar.theme"
         >
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={theme}
-              style={{ display: "grid" }}
-              initial={{ rotate: -90, opacity: 0, scale: 0.6 }}
-              animate={{ rotate: 0, opacity: 1, scale: 1 }}
-              exit={{ rotate: 90, opacity: 0, scale: 0.6 }}
-              transition={{ duration: 0.22 }}
-            >
-              {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-            </motion.span>
-          </AnimatePresence>
+          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
         </button>
       </div>
 

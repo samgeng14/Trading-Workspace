@@ -46,33 +46,54 @@ test("system health opens Operations", async ({ page }) => {
   await expect(page).toHaveURL(/\/ops$/);
 });
 
-test("the dark Terminal theme by default; the toggle switches to light and is remembered", async ({ page }) => {
-  // the default is the owner's pick, not the system's
-  await page.emulateMedia({ colorScheme: "light" });
+test("journal (light) by default; the theme toggle switches to dark and is remembered", async ({ page }) => {
+  // the default is the paper, whatever the system prefers
+  await page.emulateMedia({ colorScheme: "dark" });
   await open(page);
   const bg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const chrome = page.locator('meta[name="theme-color"]');
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  const night = await bg();
-  expect(night).toBe("rgb(5, 7, 11)");
-  await expect(chrome).toHaveAttribute("content", "#05070b");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  const paper = await bg();
+  expect(paper).toBe("rgb(250, 249, 245)");
+  await expect(chrome).toHaveAttribute("content", "#faf9f5");
 
   await ctl(page, "topbar.theme").click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  expect(await bg()).toBe("rgb(238, 241, 246)");
-  await expect(chrome).toHaveAttribute("content", "#eef1f6");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await bg()).toBe("rgb(14, 13, 12)");
+  await expect(chrome).toHaveAttribute("content", "#0e0d0c");
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
   await ctl(page, "topbar.theme").click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  expect(await bg()).toBe(night);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  expect(await bg()).toBe(paper);
 });
 
-test("a theme saved while the Journal theme was the default doesn't override the new one", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("dv02.theme", "light"));
+test("the masthead: the nameplate between its ears, the dateline, then the sections", async ({ page }) => {
   await open(page);
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const head = page.locator(".masthead");
+  await expect(head.locator(".wordmark")).toHaveText("DV02");
+  await expect(head.locator(".ear-left")).toContainText("Demo edition");
+  await expect(head.locator(".ear-left")).toContainText("DU0000000");
+  await expect(head.locator(".ear-right")).toContainText("Gateway");
+  await expect(head.locator(".ear-right")).toContainText("filled");
+  await expect(head.locator(".dateline")).toContainText("Friday, October 9, 2026");
+  // the nameplate sits between its ears, over the dateline; the section bar comes next
+  const [left, plate, right, date, nav] = await Promise.all(
+    [".ear-left", ".wordmark", ".ear-right", ".dateline", "nav[aria-label=Sections]"].map((sel) =>
+      page.locator(sel).boundingBox(),
+    ),
+  );
+  expect(left!.x + left!.width).toBeLessThan(plate!.x);
+  expect(plate!.x + plate!.width).toBeLessThan(right!.x);
+  expect(Math.abs(plate!.x + plate!.width / 2 - 720)).toBeLessThan(2);
+  expect(date!.y).toBeGreaterThan(plate!.y + plate!.height - 1);
+  expect(nav!.y).toBeGreaterThanOrEqual(date!.y + date!.height - 1);
+
+  // the section bar stays in view as the page scrolls
+  await page.mouse.wheel(0, 1500);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(1000);
+  expect(Math.round((await page.locator("nav[aria-label=Sections]").boundingBox())!.y)).toBe(0);
 });
 
 test("market session and clock follow the exchange", async ({ page }) => {
@@ -97,21 +118,20 @@ test("the market chip shows how far through the session the exchange is", async 
   await expect(page.locator(".seg-progress")).toHaveCount(0);
 });
 
-test("the ticker tape runs two copies of the same list, the second hidden from screen readers", async ({ page }) => {
+test("the markets strip shows whole items: one that doesn't fit is hidden, never cut in half", async ({ page }) => {
   await open(page);
-  const lists = page.locator(".ticker .ticker-items");
-  await expect(lists).toHaveCount(2);
-  await expect(lists.nth(0)).not.toHaveAttribute("aria-hidden", "true");
-  await expect(lists.nth(1)).toHaveAttribute("aria-hidden", "true");
-  await expect(lists.nth(0).locator(".ticker-item").first()).toBeVisible();
-  expect(await lists.nth(1).innerText()).toBe(await lists.nth(0).innerText());
+  const strip = page.locator(".ticker-items");
+  await expect(strip.locator(".ticker-item").first()).toBeVisible();
+  await expect(strip.locator(".ticker-tag").first()).toHaveText(/Gainer|Loser/);
   await expect(page.locator(".ticker-note")).toHaveText("Delayed 15 min");
-
-  // with reduced motion the tape stands still and shows one copy
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await expect(lists.nth(1)).toBeHidden();
-  const moving = await page
-    .locator(".ticker-tape")
-    .evaluate((el) => getComputedStyle(el).animationName !== "none" && getComputedStyle(el).animationDuration !== "0s");
-  expect(moving).toBe(false);
+  for (const width of [1440, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    const cut = await strip.evaluate((ul) => {
+      const box = ul.getBoundingClientRect();
+      return Array.from(ul.querySelectorAll(".ticker-item"))
+        .map((li) => li.getBoundingClientRect())
+        .filter((r) => r.top < box.bottom && r.right > box.right + 1).length;
+    });
+    expect(cut, `${width}px`).toBe(0);
+  }
 });

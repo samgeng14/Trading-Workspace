@@ -1,4 +1,3 @@
-import { motion } from "motion/react";
 import type { ReactNode } from "react";
 import { direction, money, pct } from "../lib/format";
 import { StatusIcon } from "./icons";
@@ -196,7 +195,6 @@ export function PageHead({
   );
 }
 
-/** Buttons for one choice; a pill slides to the pressed one. */
 export function Segmented<T extends string>({
   value,
   options,
@@ -220,14 +218,7 @@ export function Segmented<T extends string>({
           onClick={() => onChange(o.value)}
           data-control={`${control}.${o.value}`}
         >
-          {value === o.value && (
-            <motion.span
-              layoutId={`seg-${control}`}
-              className="segmented-thumb"
-              transition={{ type: "spring", stiffness: 520, damping: 38 }}
-            />
-          )}
-          <span className="segmented-text">{o.label}</span>
+          {o.label}
         </button>
       ))}
     </div>

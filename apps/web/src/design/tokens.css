@@ -1,177 +1,58 @@
 /*
- * Design tokens. Every colour, size, radius, shadow and font in the app comes from here.
+ * Design tokens. Every colour, size and font in the app comes from here.
  *
- * The default is the Terminal theme: a near-black trading desk lit from behind by soft
- * cyan and violet glows, glass chrome (top bar, rail, tab bar, dialogs), dark panels with
- * hairline borders and a lit top edge, cyan for the portfolio and for focus, mint and
- * coral for gains and losses. Light is the same design on cool paper white, one click
- * away; the pick is remembered (data-theme on <html>, dv02.ui-theme in localStorage).
+ * The default is the Journal theme, a broadsheet's financial pages: warm white
+ * newsprint, black ink, sections set off by black rules instead of boxed cards,
+ * a nameplate over a thick-and-thin rule, condensed capitals for section heads
+ * and table heads, a news serif for headlines and headline figures, condensed
+ * tabular figures in the tables (the way a paper sets market data), one ink
+ * blue for links and the portfolio line, and the paper's green and red for gains
+ * and losses. Nothing glows, nothing is rounded, nothing counts up.
  *
- * Chart series were run through the dataviz palette validator on each theme's panel
- * surface (lightness band, chroma, colour-blind and normal-vision separation, contrast:
- * all pass). Text colours clear WCAG 4.5:1 on panels and on the page; the benchmark line
- * is a reference mark and clears 3:1.
+ * Dark (the night edition) is one click away: the same page in cream ink on
+ * near-black, with a sand accent. The viewer switches with the theme button and
+ * the pick is remembered (data-theme on <html>, dv02.theme in localStorage).
+ *
+ * Chart series and the asset-class palette were run through the dataviz palette
+ * validator on each theme's page (lightness band, chroma, colour-blind and
+ * normal-vision separation, contrast). Text colours clear WCAG 4.5:1 on the page;
+ * the benchmark line is a reference mark and clears 3:1.
  */
 
 :root {
-  color-scheme: dark;
-
-  /* surfaces */
-  --bg-page: #05070b;
-  --bg-chrome: rgba(9, 12, 18, 0.74);
-  --bg-panel: #0c1119;
-  --panel-fill: linear-gradient(180deg, rgba(19, 26, 38, 0.88) 0%, rgba(11, 16, 24, 0.88) 100%);
-  --bg-raised: #121925;
-  --bg-sunken: #080b11;
-  --bg-hover: rgba(148, 196, 255, 0.05);
-  --bg-selected: rgba(34, 195, 238, 0.1);
-  --bg-chip: rgba(148, 163, 184, 0.06);
-
-  /* ink */
-  --ink-1: #e6edf6;
-  --ink-2: #a3afc1;
-  --ink-3: #7d8aa0;
-  --ink-inverse: #05070b;
-
-  /* lines */
-  --rule: rgba(148, 163, 184, 0.09);
-  --rule-strong: rgba(148, 163, 184, 0.2);
-  --rule-ink: rgba(148, 163, 184, 0.32);
-  --border: rgba(148, 163, 184, 0.11);
-  --border-lit: rgba(125, 211, 252, 0.28);
-
-  /* accent: cyan for the portfolio, focus and the active section */
-  --accent: #22c3ee;
-  --accent-ink: #5fd4f5;
-  --accent-2: #8b7bff;
-  --accent-wash: rgba(34, 195, 238, 0.12);
-  --accent-glow: rgba(34, 195, 238, 0.45);
-  --accent-fill: linear-gradient(135deg, #22c3ee 0%, #3b82f6 100%);
-  --accent-fill-ink: #021018;
-
-  /* gains and losses */
-  --up: #2fd59a;
-  --down: #ff6680;
-  --up-wash: rgba(47, 213, 154, 0.14);
-  --down-wash: rgba(255, 102, 128, 0.14);
-  --up-glow: rgba(47, 213, 154, 0.5);
-  --down-glow: rgba(255, 102, 128, 0.5);
-
-  /* chart series (validated: see the header) */
-  --series-1: #1b9ad6;
-  --series-2: #e0682a;
-  --bench: #66748a;
-  /* asset-class allocation: the dataviz reference palette's dark steps, in its fixed order */
-  --cat-1: #3987e5;
-  --cat-2: #d95926;
-  --cat-3: #199e70;
-  --cat-4: #c98500;
-  --cat-5: #d55181;
-  --cat-6: #008300;
-  --cat-7: #9085e9;
-
-  /* status fills (icons, meters) and status text; never reused as series colours */
-  --status-good: #2fd59a;
-  --status-warning: #f5b83d;
-  --status-serious: #f08a4b;
-  --status-critical: #ff5c74;
-  --status-unknown: #7d8aa0;
-  --tone-good: #2fd59a;
-  --tone-warn: #f5b83d;
-  --tone-bad: #ff6680;
-
-  --halt-bg: #e11d48;
-  --halt-ink: #fff5f6;
-  --overlay: rgba(2, 4, 8, 0.62);
-
-  /* the lit backdrop behind everything */
-  --glow-a: rgba(34, 195, 238, 0.16);
-  --glow-b: rgba(139, 123, 255, 0.13);
-  --glow-c: rgba(47, 213, 154, 0.07);
-  --grid-line: rgba(148, 163, 184, 0.045);
-
-  --shadow-panel: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 24px 48px -28px rgba(0, 0, 0, 0.85);
-  --shadow-float: 0 18px 60px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(148, 163, 184, 0.12);
-  --panel-edge: linear-gradient(90deg, transparent 0%, rgba(95, 212, 245, 0.42) 50%, transparent 100%);
-
-  /* Geist for running text, titles and headline figures (it has tabular figures);
-     Geist Mono for columns, tickers, timestamps and chart ticks, so digits line up. */
-  --font-sans: "Geist Variable", "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-display: var(--font-sans);
-  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-
-  --fs-2xs: 10.5px;
-  --fs-xs: 11.5px;
-  --fs-sm: 12.5px;
-  --fs-md: 13.5px;
-  --fs-lg: 15px;
-  --fs-xl: 22px;
-  --fs-2xl: 28px;
-  --fs-hero: 48px;
-
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-
-  --radius-sm: 8px;
-  --radius: 12px;
-  --radius-lg: 18px;
-  --topbar-h: 60px;
-  --ticker-h: 34px;
-  --nav-w: 248px;
-  --tabbar-h: 62px;
-  --row-h: 34px;
-
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-:root[data-theme="light"] {
   color-scheme: light;
 
-  --bg-page: #eef1f6;
-  --bg-chrome: rgba(250, 251, 253, 0.8);
-  --bg-panel: #ffffff;
-  --panel-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(252, 253, 255, 0.94) 100%);
-  --bg-raised: #ffffff;
-  --bg-sunken: #f4f6fa;
-  --bg-hover: rgba(10, 116, 201, 0.045);
-  --bg-selected: rgba(10, 116, 201, 0.08);
-  --bg-chip: rgba(15, 23, 42, 0.04);
+  --bg-page: #faf9f5;
+  --bg-panel: #faf9f5;
+  --bg-sunken: #f2f0ea;
+  --bg-zebra: #f4f2ec;
+  --bg-hover: #efece4;
+  --bg-selected: rgba(10, 106, 166, 0.08);
 
-  --ink-1: #0b1220;
-  --ink-2: #3d4a5c;
-  --ink-3: #566275;
-  --ink-inverse: #ffffff;
+  --ink-1: #111111;
+  --ink-2: #444444;
+  --ink-3: #5c5c5c;
+  --ink-inverse: #faf9f5;
 
-  --rule: rgba(15, 23, 42, 0.07);
-  --rule-strong: rgba(15, 23, 42, 0.16);
-  --rule-ink: rgba(15, 23, 42, 0.32);
-  --border: rgba(15, 23, 42, 0.08);
-  --border-lit: rgba(10, 116, 201, 0.3);
+  --rule: #dcd9d1;
+  --rule-strong: #8d897f;
+  --rule-ink: #111111;
 
-  --accent: #0a74c9;
-  --accent-ink: #0a64ad;
-  --accent-2: #6250d6;
-  --accent-wash: rgba(10, 116, 201, 0.09);
-  --accent-glow: rgba(10, 116, 201, 0.28);
-  --accent-fill: linear-gradient(135deg, #0a74c9 0%, #4f46e5 100%);
-  --accent-fill-ink: #ffffff;
+  --accent: #0a6aa6;
+  --accent-ink: #0b5f94;
+  --accent-wash: rgba(10, 106, 166, 0.1);
+  --accent-fill: #111111;
+  --accent-fill-ink: #faf9f5;
 
-  --up: #06784a;
-  --down: #cc2244;
-  --up-wash: rgba(6, 120, 74, 0.09);
-  --down-wash: rgba(204, 34, 68, 0.08);
-  --up-glow: rgba(6, 120, 74, 0.22);
-  --down-glow: rgba(204, 34, 68, 0.22);
+  --up: #0a7b34;
+  --down: #c4161c;
+  --up-wash: rgba(10, 123, 52, 0.1);
+  --down-wash: rgba(196, 22, 28, 0.09);
 
-  --series-1: #0a74c9;
-  --series-2: #cf5a1d;
-  --bench: #8a94a3;
-  /* the dataviz reference palette's light steps */
+  --series-1: #0f6aa8;
+  --series-2: #c4621a;
+  --bench: #86827a;
+  /* asset classes: the dataviz reference palette's light steps, in its fixed order */
   --cat-1: #2a78d6;
   --cat-2: #eb6834;
   --cat-3: #1baf7a;
@@ -180,25 +61,105 @@
   --cat-6: #008300;
   --cat-7: #6250d6;
 
+  /* status fills (icons, meters) and status text; never reused as series colours */
   --status-good: #0ca30c;
-  --status-warning: #f0a30a;
+  --status-warning: #fab219;
   --status-serious: #ec835a;
   --status-critical: #d03b3b;
-  --status-unknown: #8a94a3;
-  --tone-good: #06784a;
-  --tone-warn: #8a5a00;
-  --tone-bad: #cc2244;
+  --status-unknown: #898781;
+  --tone-good: #0a7b34;
+  --tone-warn: #835400;
+  --tone-bad: #c4161c;
 
-  --halt-bg: #c81e3c;
+  --halt-bg: #b42318;
   --halt-ink: #ffffff;
-  --overlay: rgba(15, 23, 42, 0.32);
+  --overlay: rgba(17, 17, 17, 0.35);
 
-  --glow-a: rgba(10, 116, 201, 0.1);
-  --glow-b: rgba(98, 80, 214, 0.08);
-  --glow-c: rgba(6, 120, 74, 0.05);
-  --grid-line: rgba(15, 23, 42, 0.035);
+  /* Newsreader (a news serif with optical sizes) for the nameplate, headlines and
+     headline figures; IBM Plex Sans Condensed for section heads, labels and every
+     figure in a table (its digits are tabular, so columns line up); Public Sans for
+     running text. */
+  --font-serif: "Newsreader Variable", "Newsreader", Georgia, "Times New Roman", serif;
+  --font-label: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --font-data: var(--font-label);
+  --font-sans: "Public Sans Variable", "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  --shadow-panel: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -20px rgba(15, 23, 42, 0.22);
-  --shadow-float: 0 20px 50px -16px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(15, 23, 42, 0.08);
-  --panel-edge: linear-gradient(90deg, transparent 0%, rgba(10, 116, 201, 0.32) 50%, transparent 100%);
+  --fs-2xs: 10.5px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-md: 13.5px;
+  --fs-lg: 15.5px;
+  --fs-xl: 23px;
+  --fs-2xl: 30px;
+  --fs-hero: 56px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --measure: 1440px;
+  --gutter: 32px;
+  --radius: 0px;
+  --row-h: 32px;
+  --tabbar-h: 60px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-page: #0e0d0c;
+  --bg-panel: #0e0d0c;
+  --bg-sunken: #171614;
+  --bg-zebra: #141311;
+  --bg-hover: #1f1d1a;
+  --bg-selected: rgba(214, 176, 122, 0.1);
+
+  --ink-1: #ece4d6;
+  --ink-2: #b8ae9e;
+  --ink-3: #8b8274;
+  --ink-inverse: #151410;
+
+  --rule: #2a2723;
+  --rule-strong: #4a453c;
+  --rule-ink: #ece4d6;
+
+  --accent: #d6b07a;
+  --accent-ink: #d6b07a;
+  --accent-wash: rgba(214, 176, 122, 0.12);
+  --accent-fill: #ece4d6;
+  --accent-fill-ink: #151410;
+
+  --up: #79c07d;
+  --down: #ea6b5f;
+  --up-wash: rgba(121, 192, 125, 0.13);
+  --down-wash: rgba(234, 107, 95, 0.13);
+
+  --series-1: #bd8a3c;
+  --series-2: #5c8bd2;
+  --bench: #7d7568;
+  /* the dataviz reference palette's dark steps */
+  --cat-1: #3987e5;
+  --cat-2: #d95926;
+  --cat-3: #199e70;
+  --cat-4: #c98500;
+  --cat-5: #d55181;
+  --cat-6: #008300;
+  --cat-7: #9085e9;
+
+  --status-good: #79c07d;
+  --status-warning: #e0b04a;
+  --status-serious: #e08a5a;
+  --status-critical: #ea6b5f;
+  --status-unknown: #8b8274;
+  --tone-good: #79c07d;
+  --tone-warn: #e0b04a;
+  --tone-bad: #ea6b5f;
+
+  --halt-bg: #a8322a;
+  --halt-ink: #fff4ee;
+  --overlay: rgba(0, 0, 0, 0.6);
 }

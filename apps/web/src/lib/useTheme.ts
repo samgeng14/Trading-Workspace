@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 export type Theme = "light" | "dark";
-// A new key with the Terminal theme, so a pick saved while the Journal (light) theme was the
-// default doesn't keep anyone off the new dark default.
-export const THEME_KEY = "dv02.ui-theme";
-const CHROME = { dark: "#05070b", light: "#eef1f6" } as const;
+// A new key when the Journal theme became the default (it was dark before), so an
+// old pick of dark doesn't keep anyone off the Journal.
+export const THEME_KEY = "dv02.theme";
+const CHROME = { dark: "#0e0d0c", light: "#faf9f5" } as const;
 
 function stored(): Theme | null {
   try {
@@ -15,9 +15,9 @@ function stored(): Theme | null {
   }
 }
 
-/** The dark Terminal theme unless the viewer picked light; the pick is remembered per browser. */
+/** The Journal (light) theme unless the viewer picked dark; the pick is remembered per browser. */
 export function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() => stored() ?? "dark");
+  const [theme, setTheme] = useState<Theme>(() => stored() ?? "light");
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;

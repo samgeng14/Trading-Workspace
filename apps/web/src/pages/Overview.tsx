@@ -6,17 +6,15 @@ import { DivergingBars } from "../charts/DivergingBars";
 import { sessionMinutes } from "../charts/axis";
 import { EquityChart } from "../charts/EquityChart";
 import { EQUITY_MODES, type EquityMode, equityLines } from "../charts/equity";
-import { Gauge } from "../charts/Gauge";
 import { LineChart } from "../charts/LineChart";
 import { Sparkline } from "../charts/Sparkline";
-import { AnimatedNumber } from "../components/AnimatedNumber";
 import { Delta, LoadError, Meter, Panel, Segmented, Stat } from "../components/bits";
 import { StatusIcon } from "../components/icons";
 import { HistoryEmpty, isShortHistory } from "../components/HistoryEmpty";
 import { NextJob, ScheduleList } from "../components/Schedule";
 import { Figure } from "../components/Figure";
 import { type Column, SortableTable } from "../components/SortableTable";
-import { dateLong, dateShort, datelineET, money, num, pct, price, shortTimeET, timeET } from "../lib/format";
+import { dateLong, dateShort, money, num, pct, price, shortTimeET, timeET } from "../lib/format";
 import { ASSET_CLASS_LABEL, limitText, MIN_RATIO_OBS } from "../lib/labels";
 import { type CheckState, type Issue, VERDICT_TEXT } from "../lib/readiness";
 import { useReadiness } from "../lib/useReadiness";
@@ -59,7 +57,7 @@ function CommandHead() {
   return (
     <header className="page-head">
       <div className="page-head-text">
-        <p className="page-eyebrow">{datelineET(now)}</p>
+        <p className="page-eyebrow">Front page</p>
         <h1 className="page-title">Command Center</h1>
         <p className="page-sub">
           Daily cockpit. Is the book safe to act on today, what changed, and what needs a person to look at.
@@ -181,10 +179,8 @@ function HeroBand() {
   const { data: s, error } = useSummary();
   const status = useStatus().data;
   if (error) return <LoadError error={error} />;
-  if (!s) return <div className="hero panel skeleton" aria-busy="true" style={{ minHeight: 260 }} />;
+  if (!s) return <div className="hero panel" aria-busy="true" style={{ minHeight: 260 }} />;
   const live = status?.market.session === "open";
-  // the mandate's ceiling is 100% gross: the ring turns red only past it
-  const grossTone = s.gross_exposure > 1 ? "bad" : "accent";
   return (
     <section className="hero panel" aria-label="Portfolio summary">
       <div className="hero-top">
@@ -192,14 +188,13 @@ function HeroBand() {
           <div className="hero-kicker">
             <span className="stat-label">Net liquidation value</span>
             <span className={`hero-live ${live ? "is-live" : ""}`}>
-              {live && <span className="live-dot" aria-hidden="true" />}
               {live
                 ? `Live ${shortTimeET(s.as_of)} ET`
                 : `Close, ${status ? dateLong(status.market.trading_date) : ""}`}
             </span>
           </div>
           <div className="hero-value" data-testid="nav">
-            <AnimatedNumber value={s.nav} format={(v) => money(v)} />
+            {money(s.nav)}
           </div>
           <div className="hero-deltas" data-testid="kpi-day">
             <Delta value={s.day_pnl} kind="money" chip />
@@ -217,7 +212,7 @@ function HeroBand() {
           </span>
         </div>
         <div className="hero-spark">
-          <Sparkline values={s.nav_history.map((p) => p.value)} height={92} label="NAV, last 30 sessions" />
+          <Sparkline values={s.nav_history.map((p) => p.value)} height={72} label="NAV, last 30 sessions" />
           <span className="hero-spark-caption">NAV · last {s.nav_history.length} sessions</span>
         </div>
       </div>
@@ -258,7 +253,6 @@ function HeroBand() {
               <span className="num">{pct(s.short_exposure, 0)}</span>
             </>
           }
-          visual={<Gauge value={s.gross_exposure} max={1} tone={grossTone} />}
         />
         <Stat
           className="tile"
@@ -355,14 +349,12 @@ function IntradayPanel({ className }: { className: string }) {
                 id: "pnl",
                 label: "Day P&L",
                 color: "var(--ink-1)",
-                glow: true,
                 values: view.points.map((p) => p.pnl),
                 endText: money(view.last, { sign: true }),
               },
             ]}
             baseline={0}
             signedFill
-            live={data?.live}
             x={view.x}
             yFormat={(v) => money(v, { compact: true, sign: true })}
             tipFormat={(v) => money(v, { sign: true })}

@@ -1,11 +1,13 @@
 # DV02 Fund dashboard
 
-The trading dashboard: a PM-style cockpit for the paper book, in the Terminal
-look: a near-black desk lit by cyan and violet glows, glass chrome, cyan for the
-portfolio, mint and coral for gains and losses. Light is the same design on
-cool paper white, behind the theme button (remembered as `dv02.ui-theme`).
-On a phone the sections become a tab bar at the bottom and the status strip a
-two-row header, so the whole dashboard works over Tailscale from a phone.
+The trading dashboard: a PM-style cockpit for the paper book, set as a
+broadsheet's financial pages. A masthead (status line, the DV02 nameplate between
+two ears, the dateline under a thick-and-thin rule), a section bar that stays in
+view, a markets strip, then the page: serif headlines and headline figures,
+condensed capitals for section heads, tabular figures in the tables, black rules
+instead of boxes. Dark (the night edition) is behind the theme button, remembered
+as `dv02.theme`. On a phone the nameplate stays on top and the sections become a
+tab bar at the bottom.
 
 ```bash
 cd apps/web
@@ -36,16 +38,13 @@ The header's mode badge reads **Demo** while it runs on simulated data.
 - `src/mocks/` is the demo backend: an MSW service worker implementing the
   contract from a seeded simulation (`sim.ts`). The FastAPI service implements
   the same contract over real data.
-- `src/design/tokens.css` holds every colour, font, radius and shadow, for both
-  themes. Chart colours (the series and the asset-class palette) were checked
-  with the dataviz palette validator (colour-blind and normal-vision
-  separation, contrast) on each theme's panel. The faces are Geist for text and
-  headline figures and Geist Mono for columns, ticks and timestamps (both have
-  tabular figures, so digits line up as they tick).
-- Motion comes from CSS (sections rise in, lines draw themselves, meters
-  fill, the ticker tape scrolls) and from `motion` for the sliding pills (the
-  section rail and every segmented control). Everything stands still under
-  the system's reduced-motion setting.
+- `src/design/tokens.css` holds every colour, font and size, for both themes.
+  Chart colours (the series and the asset-class palette) were checked with the
+  dataviz palette validator (colour-blind and normal-vision separation,
+  contrast) on each theme's page. WSJ's own faces (Escrow, Retina) are
+  proprietary; the tokens use Newsreader (with optical sizes) for headlines and
+  headline figures, IBM Plex Sans Condensed for section heads and table figures
+  (its digits are all one width, so columns line up), and Public Sans for text.
 
 ## Every control works: the control contract
 

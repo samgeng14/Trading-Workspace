@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 import { ctl, open } from "./helpers";
 
-// The owner reads the dashboard on a phone over Tailscale: the sections become a tab bar at the
-// bottom, the top bar a two-row header (nameplate, clock and halt; then the status chips).
+// The owner reads the dashboard on a phone over Tailscale: the nameplate stays on top, the status
+// line sits under it (mode, clock and halt; then the status segments, which swipe sideways), and
+// the sections become a tab bar at the bottom.
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
 const SECTIONS = [
@@ -20,9 +21,6 @@ test("the sections are a tab bar along the bottom of the screen", async ({ page 
   const box = (await bar.boundingBox())!;
   expect(Math.round(box.y + box.height)).toBe(844);
   expect(box.width).toBe(390);
-  // the rail's nameplate and cards stay out of the tab bar
-  await expect(bar.locator(".brand")).toBeHidden();
-  await expect(bar.locator(".rail-card").first()).toBeHidden();
 
   for (const s of SECTIONS) {
     const tab = ctl(page, s.id);
@@ -36,18 +34,23 @@ test("the sections are a tab bar along the bottom of the screen", async ({ page 
   }
 });
 
-test("the header holds the nameplate, the mode, the clock and the halt", async ({ page }) => {
+test("the nameplate on top, then the mode, the clock and the halt", async ({ page }) => {
   await open(page);
-  await expect(page.locator(".mobile-mark")).toBeVisible();
-  await expect(page.locator(".mobile-mark")).toContainText("DV02");
+  const plate = page.locator(".wordmark");
+  await expect(plate).toBeVisible();
+  await expect(plate).toHaveText("DV02");
+  await expect(page.locator(".dateline")).toContainText("Friday, October 9, 2026");
+  // the ears are for wider pages
+  await expect(page.locator(".ear-left")).toBeHidden();
   await expect(page.locator(".mode-badge")).toHaveText("Demo");
   await expect(page.locator(".topbar-clock")).toBeVisible();
   const halt = ctl(page, "topbar.kill-switch");
   await expect(halt).toBeVisible();
   await expect(halt).toHaveAccessibleName("Halt trading");
-  // the chips scroll sideways inside the header; the page itself never does
-  const chips = page.locator(".topbar-segs");
-  expect(await chips.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+  expect((await plate.boundingBox())!.y).toBeLessThan((await halt.boundingBox())!.y);
+  // the status segments scroll sideways inside the line; the page itself never does
+  const segs = page.locator(".topbar-segs");
+  expect(await segs.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   await expect(page.locator(".topbar-session")).toBeVisible();
   await expect(page.locator(".topbar-stream")).toBeAttached();
 });
