@@ -1,0 +1,15 @@
+# The engine's git-ignored state (and Postgres, once it is used) to R2.
+[Unit]
+Description=DV02 backup to Cloudflare R2
+Wants=network-online.target
+After=network-online.target
+OnFailure=dv02-alert@%n.service
+
+[Service]
+Type=oneshot
+User=dv02
+Group=dv02
+EnvironmentFile=/etc/dv02/dv02.env
+ExecStart=/opt/dv02/deploy/bin/backup
+ExecStartPost=/opt/dv02/deploy/bin/heartbeat backup
+NoNewPrivileges=true

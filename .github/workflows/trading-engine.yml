@@ -1,0 +1,45 @@
+name: trading-engine
+
+on:
+  pull_request:
+    paths: ["trading-engine/**", "engine/**", "services/api/requirements.txt", ".github/workflows/trading-engine.yml"]
+  push:
+    branches: [main]
+    paths: ["trading-engine/**", "engine/**", "services/api/requirements.txt", ".github/workflows/trading-engine.yml"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: trading-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/requirements.txt
+      # The daily runner's environment, as `tradeit setup` installs it. The poetry
+      # list in trading-engine/pyproject.toml is not used: it lacks pandas.
+      - run: pip install -r ../services/api/requirements.txt pytest ruff==0.8.6
+      - name: The C++ engine (the no-leverage check every order goes through)
+        run: pip install ../engine
+      # Only code that is already clean. Not linted yet: src/dashboard, src/research,
+      # src/trading_engine, and the files excluded below (their findings are still to fix).
+      - name: Lint
+        run: |
+          ruff check src/broker src/cli src/common src/data src/execution src/portfolio \
+            src/production src/runtime src/strategies tests \
+            --extend-exclude src/broker/ibkr/orders.py \
+            --extend-exclude src/execution/build_live_basket.py \
+            --extend-exclude src/execution/order_policy.py \
+            --extend-exclude src/production/daily_runner.py \
+            --extend-exclude src/production/runtime/submit_paper_orders.py \
+            --extend-exclude src/strategies/etf/natr_mean_reversion.py \
+            --extend-exclude tests/test_ibkr_connection.py \
+            --extend-exclude tests/unit/test_adversarial_edge_cases.py \
+            --extend-exclude tests/unit/test_ibkr_executions.py \
+            --extend-exclude tests/unit/test_runtime_smoke.py
+      - name: Unit and integration tests (fake broker, no gateway)
+        run: python -m pytest

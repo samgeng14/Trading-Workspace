@@ -1,42 +1,48 @@
+# How the daily runner (src/production/daily_runner.py) may trade. Read on
+# every run; the dashboard's runs are daily runner runs too.
 execution:
-  mode: paper
-  allow_submit: false
-  dry_run: true
+  # The runner sends orders only when all three allow it. Otherwise the run is a
+  # dry run (targets, basket and every pre-trade check, nothing sent), and the
+  # run log says which setting stopped it. A missing or unreadable file sends
+  # nothing.
+  # The owner's call (2026-10-16): the scheduled run sends paper orders by itself.
+  # To stop the fund, `bin/tradeit kill "why"`; to stop sending without a halt,
+  # set allow_submit: false.
+  mode: paper          # the only profile the runner sends orders for
+  allow_submit: true   # false: never send orders
+  dry_run: false       # true: every run is a dry run
 
-  basket:
-    min_trade_dollars: 1000.0
-    round_shares_down: true
-    cash_buffer: 0.005
-
-  order_defaults:
-    order_type: MOC
-    tif: DAY
-    outside_rth: false
-
-  safety:
-    cancel_open_orders_before_submit: false
-    reject_duplicate_symbols: true
-    reject_unknown_symbols: true
-    require_fresh_account_snapshot: true
-    require_fresh_positions_snapshot: true
+  # Set elsewhere, so not here: the order type and time in force
+  # (src/broker/ibkr/auction.py picks market-on-close before the closing
+  # auctions' cutoff, else market-on-open), the basket's 0.5% cash buffer and
+  # $1,000 minimum trade (build_paper_basket.default_config, which the runner
+  # and the dashboard preview share), and the risk limits
+  # (config/risk_limits.yaml).
 
   rebalance:
     # Rebalance cadence:
     #   monthly — only rebalance when the calendar month rolls over
     #             (legacy behaviour; matches the original
     #             daily_runner._needs_rebalance gate)
-    #   drift   — daily check, fire when basket composition changes or
-    #             any name's |target − actual| weight drift exceeds
-    #             ``drift_threshold``, with a global cooldown to dampen
-    #             same-week churn
+    #   drift   — daily check of today's targets against the account's
+    #             weights now (IBKR's positions at decision time, else the
+    #             last positions snapshot): fire when the basket composition
+    #             changes or any name's |target − actual| weight drift exceeds
+    #             ``drift_threshold``, with a cooldown to dampen churn.
+    # Under either cadence, shares held outside the model also fire it (the
+    # basket sells them).
     cadence: drift
 
     # Used only when cadence: drift
     drift_threshold: 0.05          # 5% per-name weight drift band
     composition_threshold: 0.05    # weight cutoff for "materially held"
-                                   # — a name entering or leaving this set
-                                   #   forces a rebalance regardless of
-                                   #   drift_threshold
-    cooldown_days: 3               # min days between submissions; does
-                                   # not block cold starts or --force
+                                   # — a name entering or leaving this set,
+                                   #   between today's targets and the last
+                                   #   submitted basket, forces a rebalance
+                                   #   regardless of drift_threshold
+    cooldown_days: 3               # calendar days after a submission during
+                                   # which drift, composition and outside-model
+                                   # triggers hold off (positions don't show
+                                   # orders still working); never blocks a
+                                   # cold start or --force-rebalance
     state_path: data/broker/state/last_rebalance.json

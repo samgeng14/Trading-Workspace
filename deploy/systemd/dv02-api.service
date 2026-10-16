@@ -1,0 +1,23 @@
+# The DV02 API, serving the built dashboard on the same port (DV02_WEB_DIST).
+# Listens on 127.0.0.1 only; the Cloudflare tunnel is the way in from outside.
+[Unit]
+Description=DV02 API and dashboard (127.0.0.1:8000)
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+OnFailure=dv02-alert@%n.service
+
+[Service]
+Type=simple
+User=dv02
+Group=dv02
+WorkingDirectory=/opt/dv02/services/api
+EnvironmentFile=/etc/dv02/dv02.env
+Environment=DV02_WEB_DIST=/opt/dv02/apps/web/dist
+ExecStart=/opt/dv02/.venv/bin/python -m dv02_api --port 8000
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

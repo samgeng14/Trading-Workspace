@@ -2,15 +2,27 @@
 """
 daily_runner.py — Daily auto-trade pipeline.
 
-Run this at 4:30 PM ET (after market close) every trading day.
-It handles the full cycle automatically:
+Run this at 15:35 ET every trading day (bin/tradeit schedule install sets
+that up), before the closing auctions stop taking orders. It handles the full
+cycle automatically:
 
-  1. Append today's IBKR daily bars to the master price file
-  2. Regenerate targets (momentum model — picks top-5 ETFs monthly)
-  3. Detect if today is a rebalance date (end-of-month or new signal)
+  0. Reconcile the orders earlier runs sent against IBKR's positions
+     (src/runtime/end_of_day_reconcile.py): a material break arms the kill
+     switch, and a reconcile that couldn't run blocks this run's orders
+  1. Append IBKR daily bars to the master price file, up to the last
+     completed session (before the close, yesterday's: today's bar is partial)
+  2. Regenerate targets from those closes
+  3. Detect if today is a rebalance date (end-of-month or new signal; drift
+     of the account's positions now from today's targets; or shares held
+     outside the model, which the basket sells)
   4. If rebalance needed: build basket (diff vs current positions)
-  5. Submit paper orders to IBKR
+  5. Submit paper orders to IBKR, sells first: market-on-close, filled at
+     today's close, when sent by 15:45 ET; market-on-open for the next session
+     after that or when the market is closed (src/broker/ibkr/auction.py)
   6. Write structured log to data/logs/runtime/
+
+On a weekend or a market holiday (src/common/clock.py) a real run stops at
+once and logs why; a dry run still refreshes bars and targets.
 
 Usage:
     cd /Users/tradingworkspace/TradingWorkspace/trading-engine
@@ -27,7 +39,10 @@ import os
 import sys
 from datetime import datetime, date
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Sequence
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -53,12 +68,15 @@ log = logging.getLogger("daily_runner")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-DEFAULT_HOST = os.environ.get("IBKR_HOST", "127.0.0.1")
-# Allow overriding the IBKR API port via env so the same plist/script works
-# whether the user runs IB Gateway (4002 paper / 4001 live) or TWS
-# (7497 paper / 7496 live). CLI --port still wins over env.
-DEFAULT_PORT_PAPER = int(os.environ.get("IBKR_PORT_PAPER", "4002"))
-DEFAULT_PORT_LIVE = int(os.environ.get("IBKR_PORT_LIVE", "4001"))
+from src.broker.ibkr.settings import client_id_for, resolve_endpoint
+from src.common import clock
+
+# Host / ports come from env (IBKR_HOST, IBKR_PORT_PAPER, IBKR_PORT_LIVE)
+# or config/broker.yaml — see src/broker/ibkr/settings.py. Works for IB
+# Gateway (4002 paper / 4001 live) and TWS (7497 / 7496). CLI --port wins.
+DEFAULT_HOST = resolve_endpoint("paper").host
+DEFAULT_PORT_PAPER = resolve_endpoint("paper").port
+DEFAULT_PORT_LIVE = resolve_endpoint("live").port
 DEFAULT_CLIENT_ID = int(os.environ.get("IBKR_CLIENT_ID", "101"))
 
 # Momentum strategy params
@@ -83,6 +101,16 @@ DEFAULT_REBALANCE_CONFIG: dict[str, Any] = {
 
 def _today() -> date:
     return datetime.now().date()
+
+
+def _market_closed_reason(today: date) -> str | None:
+    """Why NYSE has no session on ``today`` (a weekend or a market holiday), or
+    None when it trades. A real run skips closed days: there is no close to
+    trade at, and orders sent then would go market-on-open for the next session
+    without anyone asking for them."""
+    if clock.is_us_business_day(today):
+        return None
+    return "a weekend" if today.weekday() >= 5 else "a market holiday"
 
 
 def _is_month_end_week() -> bool:
@@ -115,6 +143,20 @@ def _load_rebalance_config() -> dict[str, Any]:
     except Exception as exc:
         log.warning("Could not parse execution.yaml rebalance block: %s", exc)
     return cfg
+
+
+def _load_execution_config() -> dict[str, Any]:
+    """The submit switches in config/execution.yaml (src/production/execution_config.py)."""
+    from src.production import execution_config
+
+    return execution_config.load(PROJECT_ROOT / "config" / "execution.yaml")
+
+
+def _submit_disabled(exec_cfg: dict[str, Any], profile: str) -> str | None:
+    """Why config/execution.yaml stops this run sending orders, or None when it allows them."""
+    from src.production import execution_config
+
+    return execution_config.submit_disabled(exec_cfg, profile)
 
 
 def _load_latest_targets() -> "pd.DataFrame | None":
@@ -200,6 +242,113 @@ def _weights_from_reconciliation(
     return target_weights, current_weights
 
 
+def _nav_from_summary(profile: str) -> float | None:
+    """NetLiquidation from the latest saved account summary, if any."""
+    import pandas as pd
+
+    files = sorted((PROJECT_ROOT / "data" / "broker" / "account").glob(f"{profile}_account_summary_*.csv"))
+    if not files:
+        return None
+    try:
+        summary = pd.read_csv(files[-1])
+        tag_col = "tag" if "tag" in summary.columns else summary.columns[0]
+        val_col = "value" if "value" in summary.columns else summary.columns[1]
+        hit = summary.loc[summary[tag_col].astype(str).str.lower() == "netliquidation"]
+        if hit.empty:
+            return None
+        nav = float(str(hit.iloc[0][val_col]).replace(",", ""))
+        return nav if nav > 0 else None
+    except Exception as exc:
+        log.warning("Could not parse NAV from %s: %s", files[-1].name, exc)
+        return None
+
+
+def _current_positions(
+    profile: str, host: str, port: int, client_id: int,
+) -> tuple["pd.DataFrame | None", float | None, str]:
+    """Every position in the account, NAV, and where they came from: IBKR now,
+    else the last positions snapshot and account summary. The snapshot is
+    written when a basket is built, before its orders fill, so it is only the
+    fallback. Read once per run, for the drift gate and the outside-model check."""
+    import pandas as pd
+
+    try:
+        from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig
+        from src.production.runtime.build_paper_basket import fetch_positions_df
+
+        client = IBKRClient(
+            IBKRConnectionConfig(host=host, port=port, client_id=client_id, expected_profile=profile)
+        )
+        client.connect()
+        try:
+            return fetch_positions_df(client), client.net_liquidation(), "ibkr"
+        finally:
+            client.disconnect()
+    except Exception as exc:
+        log.warning("Could not read positions from IBKR (%s: %s); using the last snapshot.", type(exc).__name__, exc)
+    path = PROJECT_ROOT / "data" / "broker" / "positions" / f"{profile}_positions_snapshot.csv"
+    if path.exists():
+        return pd.read_csv(path), _nav_from_summary(profile), "snapshot"
+    return None, None, "none"
+
+
+def _latest_targets(targets_df: "pd.DataFrame") -> "pd.DataFrame":
+    """Today's targets: the latest rebalance date's rows, in the model universe."""
+    from src.production.generate_targets import model_universe
+
+    latest = targets_df.loc[targets_df["rebalance_date"] == targets_df["rebalance_date"].max()]
+    return latest.loc[latest["symbol"].astype(str).str.upper().isin(model_universe())]
+
+
+def _current_weights(positions: "pd.DataFrame", nav: float, fallback_prices: dict[str, float]) -> dict[str, float]:
+    """Each share holding's weight of NAV: shares times IBKR's mark, else the
+    symbol's last close (``fallback_prices``). Only shares: the basket trades
+    shares, and a future or option it can't sell would otherwise show as drift
+    on every run. A holding with no price is left out, with a warning."""
+    from src.production.runtime.build_paper_basket import SHARES
+
+    weights: dict[str, float] = {}
+    for row in positions.to_dict("records"):
+        qty = float(row.get("current_shares") or 0.0)
+        sec_type = row.get("sec_type") if isinstance(row.get("sec_type"), str) else ""
+        if not qty or sec_type not in SHARES:
+            continue
+        symbol = str(row["symbol"]).upper().strip()
+        try:
+            mark = float(row.get("market_price"))
+        except (TypeError, ValueError):
+            mark = float("nan")
+        price = mark if mark == mark and mark > 0 else fallback_prices.get(symbol)
+        if not price:
+            log.warning("No price for %s; it is left out of the drift check.", symbol)
+            continue
+        weights[symbol] = weights.get(symbol, 0.0) + qty * price / nav
+    return weights
+
+
+def _holdings_outside_model(
+    targets_df: "pd.DataFrame | None",
+    positions: "pd.DataFrame | None",
+    source: str,
+) -> dict[str, Any]:
+    """Shares the account holds that the latest targets don't include (the
+    basket sells them whole) and holdings it leaves alone (futures, options).
+    JSON-safe, for the run log."""
+    from src.production.runtime.build_paper_basket import holdings_outside_model
+
+    out: dict[str, Any] = {"sell": [], "kept": [], "warnings": [], "positions_from": source}
+    if targets_df is None or targets_df.empty or positions is None:
+        return out
+    latest = _latest_targets(targets_df)
+    outside = holdings_outside_model(latest, positions)
+    out.update(sell=outside.sell, kept=outside.kept, warnings=outside.warnings())
+    if outside.sell:
+        log.info("Holdings outside the model (positions from %s): %s", source, ", ".join(outside.sell))
+    for warning in out["warnings"]:
+        log.warning("%s", warning)
+    return out
+
+
 def _load_last_rebalance_state(state_path: Path) -> dict[str, Any] | None:
     if not state_path.exists():
         return None
@@ -282,20 +431,44 @@ def _needs_rebalance_drift(
     profile: str,
     rb_cfg: dict[str, Any],
     force: bool = False,
+    outside_model: Sequence[str] = (),
+    *,
+    targets_df: "pd.DataFrame | None" = None,
+    positions: "pd.DataFrame | None" = None,
+    nav: float | None = None,
+    source: str = "none",
 ) -> tuple[bool, dict[str, Any]]:
-    """Drift-band cadence: daily check, fire on composition or drift.
+    """Drift-band cadence: daily check, fire on holdings outside the model,
+    composition or drift, comparing today's targets with the account's
+    weights now (``positions`` over ``nav``, from IBKR or the last snapshot).
+    The previous run's reconciliation file is not used: it holds that run's
+    targets and the shares held before its orders filled, so a composition
+    change would never show.
 
     Returns ``(should_rebalance, diagnostics)`` where ``diagnostics`` is
     a JSON-safe dict suitable for the run log.
     """
+    from src.production.runtime.build_paper_basket import load_last_closes
     from src.runtime.auto_rebalance import decide_rebalance_with_drift
 
-    recon = _load_reconciliation(profile)
-    if recon is None or recon.empty:
-        log.info("No reconciliation found → will rebalance (cold start).")
-        return True, {"reason": "no reconciliation file", "cold_start": True}
+    if targets_df is None or targets_df.empty:
+        log.info("No targets → will rebalance (cold start).")
+        return True, {"reason": "no targets", "cold_start": True, "positions_from": source}
+    if positions is None or nav is None or nav <= 0:
+        log.info("No positions or NAV to compare with today's targets → will rebalance (cold start).")
+        return True, {"reason": "no positions or NAV to compare with today's targets", "cold_start": True,
+                      "positions_from": source}
 
-    target_weights, current_weights = _weights_from_reconciliation(recon)
+    latest = _latest_targets(targets_df)
+    target_weights = {
+        str(row["symbol"]).upper(): float(row["target_weight"])
+        for _, row in latest.iterrows()
+        if float(row.get("target_weight", 0.0)) > 0
+    }
+    closes = load_last_closes(PROJECT_ROOT / "data" / "market" / "cleaned" / "prices" / "etf_prices_master.parquet")
+    if "close" in latest.columns:
+        closes.update({str(s).upper(): float(c) for s, c in zip(latest["symbol"], latest["close"]) if float(c) > 0})
+    current_weights = _current_weights(positions, nav, closes)
 
     state_path = PROJECT_ROOT / rb_cfg["state_path"]
     state = _load_last_rebalance_state(state_path)
@@ -320,6 +493,7 @@ def _needs_rebalance_drift(
         composition_threshold=float(rb_cfg["composition_threshold"]),
         cooldown_days=int(rb_cfg["cooldown_days"]),
         force=force,
+        outside_model=outside_model,
     )
 
     log.info(
@@ -336,6 +510,8 @@ def _needs_rebalance_drift(
         "cadence": "drift",
         "rebalance": decision.rebalance,
         "reason": decision.reason,
+        "positions_from": source,
+        "nav": nav,
         "max_drift": decision.max_drift,
         "composition_changed": decision.composition_changed,
         "in_cooldown": decision.in_cooldown,
@@ -355,20 +531,44 @@ def _needs_rebalance(
     profile: str,
     rb_cfg: dict[str, Any],
     force: bool = False,
+    outside: dict[str, Any] | None = None,
+    *,
+    positions: "pd.DataFrame | None" = None,
+    nav: float | None = None,
+    source: str = "none",
 ) -> tuple[bool, dict[str, Any]]:
     """Cadence dispatcher.
 
     Returns ``(should_rebalance, diagnostics)``. The diagnostics dict is
     persisted in the run log so post-mortems can answer "why didn't the
     runner trade today?" without re-running anything.
+
+    ``outside`` is :func:`_holdings_outside_model`. Shares held outside the
+    model are a reason to rebalance under either cadence (the drift gate's
+    cooldown still applies), since the basket is what sells them.
     """
+    from src.runtime.auto_rebalance import outside_model_reason
+
+    outside = outside or {}
+    sell = list(outside.get("sell") or [])
     cadence = str(rb_cfg.get("cadence", "monthly")).lower()
     if cadence == "drift":
-        return _needs_rebalance_drift(profile=profile, rb_cfg=rb_cfg, force=force)
+        decided, diag = _needs_rebalance_drift(
+            profile=profile, rb_cfg=rb_cfg, force=force, outside_model=sell,
+            targets_df=targets_df, positions=positions, nav=nav, source=source,
+        )
+        if diag.get("cold_start") and sell:
+            diag["reason"] += f"; {outside_model_reason(sell)}"
+        return decided, {**diag, "outside_model": outside}
     if cadence != "monthly":
         log.warning("Unknown cadence %r in execution.yaml → falling back to monthly.", cadence)
     decided = _needs_rebalance_monthly(targets_df, force=force)
-    return decided, {"cadence": "monthly", "rebalance": decided}
+    diag: dict[str, Any] = {"cadence": "monthly", "rebalance": decided}
+    if not decided and sell:
+        log.info("Holdings outside the model → will rebalance; the basket sells them.")
+        decided = True
+        diag.update(rebalance=True, reason=outside_model_reason(sell))
+    return decided, {**diag, "outside_model": outside}
 
 
 def _write_run_log(run_id: str, result: dict[str, Any]) -> Path:
@@ -386,9 +586,14 @@ def _already_ran_today_successfully() -> Optional[Path]:
 
     Used by the catch-up flag (``--skip-if-ran-today``) to make the
     LaunchAgent's RunAtLoad fire idempotent: log in any time after a
-    successful 16:32 run and the runner exits without doing anything,
-    but log in after a *missed* 16:32 (Mac was off, asleep, or you'd
-    user-switched away too long) and it executes the catch-up.
+    successful scheduled run and the runner exits without doing anything,
+    but log in after a *missed* one (Mac was off, asleep, or you'd
+    user-switched away too long) and it executes the catch-up. A catch-up
+    after 15:45 ET sends its orders market-on-open, for the next session.
+
+    Dry runs don't count: the dashboard's "Run audit" button runs the
+    pipeline with ``dry_run=True``, and that must not cancel the real
+    scheduled run.
     """
     run_dir = PROJECT_ROOT / "artifacts" / "runs"
     if not run_dir.exists():
@@ -398,7 +603,7 @@ def _already_ran_today_successfully() -> Optional[Path]:
         try:
             with open(path) as f:
                 doc = json.load(f)
-            if doc.get("ok") is True:
+            if doc.get("ok") is True and not doc.get("dry_run"):
                 return path
         except Exception:
             continue
@@ -406,6 +611,74 @@ def _already_ran_today_successfully() -> Optional[Path]:
 
 
 # ── Step functions ────────────────────────────────────────────────────────────
+
+def step_reconcile(host: str, port: int, profile: str) -> dict[str, Any]:
+    """Reconcile the orders earlier runs sent against IBKR's positions now
+    (src/runtime/end_of_day_reconcile.py). A material break arms the kill
+    switch, which then blocks this run's orders. A reconcile that couldn't run
+    (gateway unreachable, book unreadable) blocks them too, in step_submit_orders:
+    the book is unverified."""
+    log.info("── Step 0: Reconcile earlier orders against IBKR ───────────")
+    try:
+        from src.broker.ibkr.settings import make_client
+        from src.runtime.end_of_day_reconcile import reconcile_end_of_day
+
+        res = reconcile_end_of_day(
+            profile=profile,
+            client=make_client(profile, "reconcile", host=host, port=port, readonly=True),
+            root=PROJECT_ROOT,
+        )
+    except Exception as exc:
+        log.exception("Reconcile raised")
+        return {"ok": False, "action": "reconcile", "error": f"{type(exc).__name__}: {exc}"}
+    out: dict[str, Any] = {
+        "ok": res.ok,
+        "action": "reconcile",
+        "material_mismatch": res.material_mismatch,
+        "diffs": res.diffs,
+        "report_path": res.report_path,
+    }
+    if res.skipped:
+        out.update(skipped=True, reason=res.skipped)
+        log.info("Reconcile skipped: %s", res.skipped)
+    elif res.error:
+        out["error"] = res.error
+        log.error("✗ Reconcile failed: %s (this run sends no orders)", res.error)
+    elif res.material_mismatch:
+        log.error("✗ Reconcile: %s breaks against IBKR, kill switch armed; see %s", len(res.diffs), res.report_path)
+    elif res.diffs:
+        log.warning("Reconcile: %s small breaks against IBKR, under the threshold; see %s", len(res.diffs), res.report_path)
+    else:
+        log.info("✓ Reconcile: the book matches IBKR to the share (%s orders counted).", len(res.orders))
+    return out
+
+
+def _record_submission(profile: str, run_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Add the orders just sent to the expected book, for the next run's
+    reconcile: the positions snapshot the basket was built on plus the
+    submission log (symbol, action, quantity, IBKR ids, status)."""
+    import pandas as pd
+    from src.runtime.end_of_day_reconcile import record_submission
+
+    try:
+        positions = pd.read_csv(PROJECT_ROOT / "data" / "broker" / "positions" / f"{profile}_positions_snapshot.csv")
+        orders = pd.read_csv(result["submission_path"])
+        path = record_submission(
+            profile,
+            run_id=run_id,
+            positions=positions,
+            orders=orders,
+            execution=(result.get("result") or {}).get("execution"),
+            root=PROJECT_ROOT,
+        )
+        log.info("Recorded the submission in the expected book: %s", path)
+        return {"ok": True, "book": str(path)}
+    except Exception as exc:
+        # The next reconcile then sees these fills as breaks and arms the switch:
+        # the safe side, and the run log says why.
+        log.exception("Could not record the submission in the expected book")
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
 
 def step_append_daily(
     host: str,
@@ -427,10 +700,11 @@ def step_append_daily(
 
     if result.get("ok"):
         log.info(
-            "✓ Appended %s new rows for %s symbols. Latest date: %s",
+            "✓ Appended %s new rows for %s symbols. Latest date: %s (bars through %s, the last completed session)",
             result.get("new_rows_added_to_master", 0),
             result.get("symbols_with_data", 0),
             result.get("latest_date"),
+            result.get("completed_through"),
         )
     else:
         log.error("✗ Append failed: %s", result.get("error"))
@@ -520,13 +794,37 @@ def step_generate_targets(profile: str) -> dict[str, Any]:
 
     if result.get("ok"):
         log.info(
-            "✓ Targets written. Rebalance dates: %s. Latest: %s.",
+            "✓ Targets written. Rebalance dates: %s. Latest: %s (prices through %s; signals on %s).",
             result.get("rebalance_dates", 0),
             result.get("latest_rebalance_date"),
+            result.get("prices_through"),
+            (result.get("signal_prices") or "price").replace("_", "-"),
         )
+        if result.get("signal_prices_note"):
+            log.warning("Signals: %s", result["signal_prices_note"])
     else:
         log.error("✗ Target generation failed: %s", result.get("error"))
 
+    return result
+
+
+def step_update_total_return(host: str, port: int, client_id: int) -> dict[str, Any]:
+    """After the run: refresh the model's dividend-adjusted closes, which the
+    next run's signals read (src/production/pipeline/append_total_return.py).
+    Runs after the orders, so it never delays the market-on-close cutoff, and a
+    failure here only leaves the previous closes in place."""
+    log.info("── After the run: total-return closes ───────────────────────")
+    try:
+        from src.production.pipeline.append_total_return import append_total_return
+
+        result = append_total_return(host=host, port=port, client_id=client_id)
+    except Exception as exc:  # noqa: BLE001 — never fails the run
+        log.exception("Total-return closes: refresh raised")
+        return {"ok": False, "action": "total_return_closes", "error": f"{type(exc).__name__}: {exc}"}
+    if result.get("ok"):
+        log.info("✓ Total-return closes refreshed for %d ETFs.", len(result.get("refreshed") or []))
+    else:
+        log.warning("Total-return closes: %s", result.get("error") or result.get("errors"))
     return result
 
 
@@ -576,15 +874,25 @@ def step_submit_orders(
     client_id: int,
     profile: str,
     dry_run: bool = False,
+    *,
+    run_id: str | None = None,
+    reconciled: bool = True,
 ) -> dict[str, Any]:
+    """``reconciled`` is whether step_reconcile passed (or had nothing to do);
+    a run whose reconcile failed sends nothing. ``run_id`` labels the
+    submission in the expected book."""
     log.info("── Step 4: Submit paper orders ──────────────────────────────")
 
     # ── Pre-trade risk gate ──────────────────────────────────────────────
     # Runs the kill switch + price validators + exposure limits before any
-    # network call to IBKR. Aborts with a structured reason if anything
-    # fails so the run log makes the failure cause obvious.
+    # network call to IBKR, then the C++ no-leverage check on the whole
+    # book (every holding, the model's or not, plus these orders). Either
+    # one blocks. Runs on dry runs too, so the log says what a real run
+    # would do. Aborts with a structured reason if anything fails so the
+    # run log makes the failure cause obvious.
     try:
         import pandas as pd
+        from src.runtime.leverage import check_leverage
         from src.runtime.risk_checks import run_pre_trade_risk_checks
 
         recon_path = PROJECT_ROOT / "data" / "broker" / "reconciliations" / f"{profile}_reconciliation.parquet"
@@ -595,22 +903,8 @@ def step_submit_orders(
             else pd.read_csv(recon_path)
         )
 
-        # NAV from latest account summary.
-        acct_dir = PROJECT_ROOT / "data" / "broker" / "account"
-        files = sorted(acct_dir.glob(f"{profile}_account_summary_*.csv"))
-        nav = 0.0
-        if files:
-            try:
-                summary = pd.read_csv(files[-1])
-                tag_col = "tag" if "tag" in summary.columns else summary.columns[0]
-                val_col = "value" if "value" in summary.columns else summary.columns[1]
-                hit = summary.loc[
-                    summary[tag_col].astype(str).str.lower() == "netliquidation"
-                ]
-                if not hit.empty:
-                    nav = float(str(hit.iloc[0][val_col]).replace(",", ""))
-            except Exception as exc:
-                log.warning("Could not parse NAV from account summary: %s", exc)
+        # NAV from the latest account summary; a missing one blocks (NAV 0).
+        nav = _nav_from_summary(profile) or 0.0
 
         prices_path = PROJECT_ROOT / "data" / "market" / "cleaned" / "prices" / "etf_prices_master.parquet"
         risk = run_pre_trade_risk_checks(
@@ -619,15 +913,17 @@ def step_submit_orders(
             prices_path=prices_path,
         )
         log.info(risk.report())
-        if not risk.ok:
+        leverage = check_leverage(profile, root=PROJECT_ROOT)
+        log.info(leverage.report())
+        if not (risk.ok and leverage.ok):
             log.error("✗ Pre-trade risk checks BLOCKED submission.")
             return {
                 "ok": False,
                 "action": "submit_orders",
                 "blocked": True,
-                "reasons": risk.blocking_reasons,
-                "warnings": risk.warnings,
-                "risk_details": risk.details,
+                "reasons": risk.blocking_reasons + leverage.blocking_reasons,
+                "warnings": risk.warnings + leverage.warnings,
+                "risk_details": {**risk.details, "leverage": leverage.details},
             }
     except Exception as exc:
         # If the risk gate itself fails to load, that's a *fail-open* risk —
@@ -641,11 +937,25 @@ def step_submit_orders(
         }
 
     if dry_run:
-        log.info("DRY RUN — skipping order submission.")
+        from src.broker.ibkr.auction import execution_for
+
+        log.info(
+            "DRY RUN — skipping order submission. Sent now, they would go %s.",
+            execution_for(basket_df["symbol"]).summary(),
+        )
         return {"ok": True, "action": "submit_orders", "skipped": True, "reason": "dry_run"}
 
+    if not reconciled:
+        log.error("✗ The reconcile of earlier orders did not pass: not trading on an unverified book.")
+        return {
+            "ok": False,
+            "action": "submit_orders",
+            "blocked": True,
+            "reasons": ["the end-of-day reconcile did not pass (see the reconcile step): the book is unverified"],
+        }
+
     try:
-        from src.dashboard.services.order_service import submit_paper_orders
+        from src.production.runtime.order_service import submit_paper_orders
         result = submit_paper_orders(
             profile=profile,
             host=host,
@@ -656,10 +966,15 @@ def step_submit_orders(
         )
         if result.get("ok"):
             log.info(
-                "✓ Orders submitted. submitted=%s · path=%s",
+                "✓ Orders submitted, %s. submitted=%s · path=%s",
+                ((result.get("result") or {}).get("execution") or {}).get("summary"),
                 result.get("submitted"),
                 result.get("submission_path"),
             )
+            if result.get("submitted"):
+                result["recorded"] = _record_submission(
+                    profile, run_id or datetime.now().strftime("%Y%m%d_%H%M%S"), result
+                )
         else:
             log.error("✗ Submit failed: %s", result.get("reason") or result.get("error"))
         return result
@@ -698,6 +1013,33 @@ def run(
         "dry_run": dry_run,
         "steps": {},
     }
+
+    # ── Closed days ───────────────────────────────────────────────────────────
+    closed = _market_closed_reason(_today())
+    if closed and not dry_run:
+        log.info("NYSE is closed today (%s): no close to trade at, so the run is skipped.", closed)
+        run_result.update(ok=True, skipped=True, reason=f"NYSE closed: {closed}")
+        _write_run_log(run_id, run_result)
+        return run_result
+    if clock.is_early_close(_today()):
+        log.info(
+            "Early close today (13:00 ET). A run after it sends its orders market-on-open "
+            "for the next session; that is by design, not a fault."
+        )
+
+    # ── May this run send orders? config/execution.yaml decides ──────────────
+    # A run it doesn't allow is a dry run: every step and every check, nothing
+    # sent, and the run log says which setting stopped it.
+    if not dry_run:
+        off = _submit_disabled(_load_execution_config(), profile)
+        if off:
+            log.warning("Orders are switched off: %s. This run is a dry run.", off)
+            dry_run = True
+            run_result.update(dry_run=True, submit_disabled=off)
+
+    # ── Step 0: Reconcile the orders earlier runs sent ────────────────────────
+    reconcile_result = step_reconcile(host=host, port=port, profile=profile)
+    run_result["steps"]["reconcile"] = reconcile_result
 
     # ── Step 1: Append daily bars ─────────────────────────────────────────────
     if not skip_append:
@@ -751,8 +1093,11 @@ def run(
         rb_cfg["cooldown_days"],
     )
     targets_df = _load_latest_targets()
+    positions, nav, source = _current_positions(profile, host, port, client_id + 10)
+    outside = _holdings_outside_model(targets_df, positions, source)
     should_rebalance, rebalance_diag = _needs_rebalance(
-        targets_df, profile=profile, rb_cfg=rb_cfg, force=force_rebalance,
+        targets_df, profile=profile, rb_cfg=rb_cfg, force=force_rebalance, outside=outside,
+        positions=positions, nav=nav, source=source,
     )
     run_result["should_rebalance"] = should_rebalance
     run_result["rebalance_decision"] = rebalance_diag
@@ -778,9 +1123,12 @@ def run(
         return run_result
 
     # ── Step 4: Submit orders ─────────────────────────────────────────────────
+    # Orders always go out on the fixed "orders" clientId so they can be
+    # cancelled / modified later from any tool that uses that role.
     submit_result = step_submit_orders(
-        host=host, port=port, client_id=client_id + 20,
+        host=host, port=port, client_id=client_id_for("orders", profile),
         profile=profile, dry_run=dry_run,
+        run_id=run_id, reconciled=bool(reconcile_result.get("ok")),
     )
     run_result["steps"]["submit_orders"] = submit_result
 
@@ -848,9 +1196,9 @@ def main() -> None:
         "--skip-if-ran-today", action="store_true", dest="skip_if_ran_today",
         help=(
             "Idempotency guard for the LaunchAgent's RunAtLoad fire: exit "
-            "immediately if today is a weekend, or if today's run log already "
-            "exists with ok=True. Designed for catch-up on login when the "
-            "scheduled fire was missed (Mac off / asleep)."
+            "immediately if NYSE is closed today (a weekend or a holiday), or "
+            "if today's run log already exists with ok=True. Designed for "
+            "catch-up on login when the scheduled fire was missed (Mac off / asleep)."
         ),
     )
     parser.add_argument("--json-out", action="store_true", help="Print result JSON to stdout")
@@ -858,13 +1206,14 @@ def main() -> None:
 
     # ── Catch-up guard ─────────────────────────────────────────────────
     # Run when EITHER:
-    #   • the scheduler fires us at 16:32 on a weekday, OR
+    #   • the scheduler fires us on a weekday (15:35 ET), OR
     #   • the user logs in and the scheduled fire was missed.
-    # Skip when the user logs in on a weekend, or already after today's
-    # run succeeded (so RunAtLoad is harmless on every subsequent login).
+    # Skip when the user logs in on a day NYSE is closed, or already after
+    # today's run succeeded (so RunAtLoad is harmless on every subsequent login).
     if args.skip_if_ran_today:
-        if _today().weekday() >= 5:
-            log.info("Catch-up: today is a weekend → skip.")
+        closed = _market_closed_reason(_today())
+        if closed:
+            log.info("Catch-up: NYSE is closed today (%s) → skip.", closed)
             sys.exit(0)
         prior = _already_ran_today_successfully()
         if prior is not None:
@@ -889,6 +1238,14 @@ def main() -> None:
         force_rebalance=args.force_rebalance,
         skip_append=args.skip_append,
     )
+
+    # The next run's signals; after this run's orders, and only when it read IBKR.
+    if not result.get("skipped") and not args.skip_append:
+        result.setdefault("steps", {})["total_return_closes"] = step_update_total_return(
+            host=args.host, port=resolved_port, client_id=args.client_id + 6,
+        )
+        if result.get("run_id"):
+            _write_run_log(result["run_id"], result)
 
     if args.json_out:
         print(json.dumps(result, indent=2, default=str))

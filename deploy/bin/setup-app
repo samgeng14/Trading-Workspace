@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# setup-app: the dv02 user, the checkout in /opt/dv02, its Python env and C++
+# engine (bin/tradeit setup) and the dashboard build. Run as root. Idempotent:
+# run it again to update the VM to the branch's latest commit, then
+# `sudo systemctl restart dv02-api` to load it. deploy/bin/bootstrap calls it.
+set -euo pipefail
+BRANCH="${DV02_BRANCH:-claude/serene-babbage-0204ht}"
+REPO="${DV02_REPO:-https://github.com/samgeng14/Trading-Workspace.git}"
+ROOT="${DV02_ROOT:-/opt/dv02}"
+
+say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+as_dv02() { sudo -u dv02 -H bash -c "cd '$ROOT' && $*"; }
+[ "$(id -u)" = 0 ] || { echo "setup-app: run it as root (sudo)" >&2; exit 1; }
+
+say "User dv02 and the checkout in $ROOT ($BRANCH)"
+# its home (pip and npm caches) outside the checkout
+id dv02 >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/dv02 --shell /bin/bash dv02
+getent group docker >/dev/null && usermod -aG docker dv02
+install -d -o dv02 -g dv02 "$ROOT"
+if [ -d "$ROOT/.git" ]; then
+  as_dv02 "git fetch -q origin '$BRANCH' && git checkout -q '$BRANCH' && git merge -q --ff-only 'origin/$BRANCH'"
+else
+  sudo -u dv02 -H git clone -q --branch "$BRANCH" "$REPO" "$ROOT"
+fi
+if command -v semanage >/dev/null 2>&1; then
+  # SELinux (Oracle Linux): let systemd run the deploy scripts from /opt
+  semanage fcontext -a -t bin_t "$ROOT/deploy/bin(/.*)?" 2>/dev/null || true
+  restorecon -R "$ROOT/deploy/bin" || true
+fi
+
+say "Python env, C++ engine and dashboard packages (bin/tradeit setup; a few minutes the first time)"
+as_dv02 "bin/tradeit setup </dev/null"
+say "The dashboard build"
+as_dv02 "cd apps/web && npm run build --silent"
+echo "setup-app: $ROOT is at $(as_dv02 'git log --oneline -1')"

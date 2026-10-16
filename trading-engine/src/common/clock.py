@@ -110,6 +110,22 @@ def _holidays(year: int) -> set[date]:
     return _HOLIDAY_CACHE[year]
 
 
+def is_early_close(d: date) -> bool:
+    """True if NYSE closes at 13:00 ET on ``d``.
+
+    The day before Independence Day when July 4 falls Tuesday to Friday, the
+    day after Thanksgiving, and Christmas Eve when it is a trading day. Same
+    days as EARLY_CLOSES in services/api/dv02_api/nyse.py for 2025-2027.
+    """
+    if not is_us_business_day(d):
+        return False
+    if d.month == 7 and d.day == 3:
+        return d.weekday() <= 3
+    if d.month == 11:
+        return d == _nth_weekday(d.year, 11, 3, 4) + timedelta(days=1)
+    return d.month == 12 and d.day == 24
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 
 def now_et() -> datetime:
@@ -132,16 +148,15 @@ class MarketSession(NamedTuple):
 
 
 def market_session_for(d: date) -> MarketSession | None:
-    """Return today's market session in ET, or None if NYSE is closed.
+    """Return the regular session on ``d`` in ET, or None if NYSE is closed.
 
-    Does NOT model early-close days (Black Friday, Christmas Eve) yet — we
-    just return regular hours. Worst case: a 1-3pm ET order on an early-close
-    day gets queued for the next session.
+    On an early-close day (:func:`is_early_close`) the session ends at 13:00.
     """
     if not is_us_business_day(d):
         return None
+    close = EARLY_CLOSE_LOCAL if is_early_close(d) else MARKET_CLOSE_LOCAL
     open_dt = datetime.combine(d, MARKET_OPEN_LOCAL).replace(tzinfo=NYSE_TZ)
-    close_dt = datetime.combine(d, MARKET_CLOSE_LOCAL).replace(tzinfo=NYSE_TZ)
+    close_dt = datetime.combine(d, close).replace(tzinfo=NYSE_TZ)
     return MarketSession(open_at=open_dt, close_at=close_dt)
 
 
@@ -177,10 +192,7 @@ def seconds_until_next_close(at: datetime | None = None) -> float:
         return (sess.close_at - at).total_seconds()
     # We're past today's close — fall through to next session's close.
     nxt_open = next_market_open(at)
-    nxt_close = datetime.combine(
-        nxt_open.date(), MARKET_CLOSE_LOCAL
-    ).replace(tzinfo=NYSE_TZ)
-    return (nxt_close - at).total_seconds()
+    return (market_session_for(nxt_open.date()).close_at - at).total_seconds()
 
 
 def previous_business_day(d: date) -> date:
@@ -189,3 +201,22 @@ def previous_business_day(d: date) -> date:
     while not is_us_business_day(cursor):
         cursor -= timedelta(days=1)
     return cursor
+
+
+# IBKR's daily bar for a session takes the closing auction's prints a few
+# minutes after the close; until then the bar can still change.
+DAILY_BAR_SETTLE = timedelta(minutes=15)
+
+
+def last_completed_session(at: datetime | None = None) -> date:
+    """The latest session whose daily bar is final at ``at``.
+
+    Today's once DAILY_BAR_SETTLE has passed after its close (16:15 ET, or
+    13:15 on an early-close day), else the business day before. A run before
+    that reads yesterday's close: today's bar is still partial.
+    """
+    at = at.astimezone(NYSE_TZ) if at else now_et()
+    sess = market_session_for(at.date())
+    if sess is not None and at >= sess.close_at + DAILY_BAR_SETTLE:
+        return at.date()
+    return previous_business_day(at.date())

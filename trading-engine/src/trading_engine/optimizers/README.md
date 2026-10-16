@@ -56,8 +56,10 @@ must reference an entry in [`risk/registry.py`](../risk/README.md).
 ## Adding an optimizer
 
 1. Drop a file in `catalogue/`. Use `cvxpy` or `scipy.optimize` for
-   convex programs. For MIQP (cardinality / round-lot constraints) we
-   shell out to `mosek` or `gurobi` via cvxpy.
+   convex programs. Pass `solver=pick_solver()` from
+   [`solvers.py`](../solvers.py) to every cvxpy `solve()`, or
+   `pick_solver(mixed_integer=True)` for MIQP (cardinality / round-lot
+   constraints), which needs licensed MOSEK or SCIP.
 2. Register parameterizations in `registry.py`.
 3. Reference by name in YAML configs.
 

@@ -41,32 +41,24 @@ Then open http://localhost:8501
 
 ### Option A: macOS LaunchAgent (recommended — persists after reboots)
 
-Install once:
+Install once, from the repo root:
 ```bash
-python -m src.production.scheduler --install-launchagent
+bin/tradeit schedule install
 ```
 
-This creates a LaunchAgent that runs the full pipeline **every weekday at 4:32 PM** local time.
+This creates a LaunchAgent that runs the full pipeline for this checkout **every weekday at 3:35 PM ET** (2:35 PM Central), before the closing auction, so its orders fill at that day's close.
 
 To check it's running:
 ```bash
-launchctl list | grep capitalfund
+bin/tradeit schedule status
 ```
 
 To uninstall:
 ```bash
-python -m src.production.scheduler --uninstall-launchagent
+bin/tradeit schedule remove
 ```
 
-### Option B: Keep terminal open (simpler)
-
-```bash
-python -m src.production.scheduler
-```
-
-This blocks the terminal and runs daily. Press Ctrl+C to stop.
-
-### Option C: Manual trigger
+### Option B: Manual trigger
 
 ```bash
 # Dry run (no orders submitted)
@@ -84,10 +76,10 @@ python -m src.production.daily_runner --force-rebalance
 ## What happens on each daily run
 
 ```
-4:32 PM ET (after market close)
+3:35 PM ET (before the close; orders go market-on-close by 3:45 PM ET)
     │
     ├── 1. Append IBKR Daily Bars (lookback 5 D)
-    │       → fetches today's bar for all 22 ETFs
+    │       → fetches bars through the last completed session (yesterday's close) for all 22 ETFs
     │       → appends to data/market/cleaned/prices/etf_prices_master.parquet
     │
     ├── 2. Generate Targets
@@ -112,7 +104,7 @@ Run logs are saved to: `artifacts/runs/daily_run_YYYYMMDD_HHMMSS.json`
 
 The current model is a **momentum-based ETF rotation**:
 
-- Universe: 22 ETFs (SPY, QQQ, TQQQ, GLD, SLV, TLT, IEI, SHY, BIL, IBIT, ETHA, USO, UNG, VEA, VWO, INDA, VFH, VHT, VIS, VNQ, VPU, VIXY)
+- Universe: 21 ETFs (SPY, QQQ, GLD, SLV, TLT, IEI, SHY, BIL, IBIT, ETHA, USO, UNG, VEA, VWO, INDA, VFH, VHT, VIS, VNQ, VPU, VIXY), from `config/universes/etfs.yaml`. TQQQ (3x) left the model: the fund doesn't use leverage.
 - Signal: 126-day (6-month) price momentum
 - Selection: top-5 ETFs by momentum score
 - Weight: equal weight (20% each)
@@ -128,7 +120,7 @@ The current model is a **momentum-based ETF rotation**:
 | **Home** | Ops status: broker connection, NAV, positions, data gap alert |
 | **Run Pipeline** | Manual controls: backfill, append, targets, full pipeline |
 | **Basket Review** | Preview what trades would be submitted |
-| **Submit Orders** | Submit paper orders with duplicate guard |
+| **Submit Orders** | Gone: orders go through the daily runner (`bin/tradeit`, or the DV02 dashboard's Submit), which runs every pre-trade check |
 | **Orders & Fills** | View submitted orders and fills |
 | **Positions** | Current IBKR positions |
 | **Risk Monitor** | Pre-flight checks before submitting |

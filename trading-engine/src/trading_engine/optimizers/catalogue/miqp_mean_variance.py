@@ -1,9 +1,12 @@
+import warnings
 from typing import Callable, Optional, Protocol, List, Tuple, Dict
 
 import cvxpy as cp
 import numpy as np
 import polars as pl
 from polars import DataFrame, LazyFrame
+
+from trading_engine.solvers import pick_solver
 
 
 class RiskModel(Protocol):
@@ -56,7 +59,6 @@ def _align_prices_to_tickers(prices_df: DataFrame, tickers: List[str]) -> DataFr
     :param tickers: Target tickers to include
     :return: Prices DataFrame aligned to tickers
     """
-    present = [c for c in prices_df.columns if c in tickers]
     missing = [t for t in tickers if t not in prices_df.columns]
     if missing:
         prices_df = prices_df.with_columns([pl.lit(None).alias(t) for t in missing])
@@ -220,7 +222,7 @@ def _solve_mv_miqp(
                         constraints.append(w[i] <= w_max[i])
 
         problem = cp.Problem(objective, constraints)
-        problem.solve(solver=cp.MOSEK, verbose=False)
+        problem.solve(solver=pick_solver(), verbose=False)
 
         if w.value is None:
             A = (kappa * cov) + (2.0 * lambda_te) * np.eye(n)
@@ -231,6 +233,30 @@ def _solve_mv_miqp(
                 return np.linalg.pinv(A) @ b
 
         return np.asarray(w.value, dtype=float).reshape(-1)
+
+    def _without_min_delta() -> np.ndarray:
+        # Standard QP (box constraints and turnover penalty, no min_delta constraint)
+        return _solve_mv_miqp(
+            cov=cov,
+            mu=mu,
+            target_w=target_w,
+            gamma=gamma,
+            lambda_te=lambda_te,
+            kappa=kappa,
+            w_prev=w_prev,
+            min_position_delta=0.0,
+            turnover_lambda=turnover_lambda,
+            w_min=w_min,
+            w_max=w_max,
+        )
+
+    solver = pick_solver(mixed_integer=True)
+    if solver is None:
+        warnings.warn(
+            "No mixed-integer solver (licensed MOSEK or SCIP): solving without "
+            "the minimum position delta constraint"
+        )
+        return _without_min_delta()
 
     # MIQP formulation with minimum position delta constraint
     w = cp.Variable(n)
@@ -313,23 +339,13 @@ def _solve_mv_miqp(
 
     problem = cp.Problem(objective, constraints)
 
-    # Solve MIQP - MOSEK supports mixed-integer optimization
+    # Solve MIQP - needs a mixed-integer solver (MOSEK or SCIP)
     try:
-        problem.solve(solver=cp.MOSEK, verbose=False)
+        problem.solve(solver=solver, verbose=False)
     except Exception as e:
         print(f"MIQP solve failed: {e}")
         # Fallback to standard QP without min_delta constraint
-        w_qp = cp.Variable(n)
-        obj_qp = cp.Minimize(
-            0.5 * cp.quad_form(w_qp, P_psd)
-            - gamma * (mu_clean @ w_qp)
-            + lambda_te * cp.sum_squares(w_qp - target_w_clean)
-        )
-        prob_qp = cp.Problem(obj_qp, [])
-        prob_qp.solve(solver=cp.MOSEK, verbose=False)
-        if w_qp.value is not None:
-            return np.asarray(w_qp.value, dtype=float).reshape(-1)
-        return w_prev  # Last resort fallback
+        return _without_min_delta()
 
     if w.value is None:
         # Fallback to previous weights

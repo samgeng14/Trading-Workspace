@@ -1,14 +1,25 @@
+"""
+build_paper_basket.py — The rebalance basket: targets vs the account's positions.
+
+Every target is sized to NAV less the cash buffer; its order goes out when it
+moves at least ``min_trade_dollars``. Every share holding the targets don't
+include (outside the model) is sold whole at the same rebalance, whatever its
+size. Futures, options and anything else the basket can't trade are left
+alone and reported (``holdings_outside_model``).
+"""
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 
 import numpy as np
 import pandas as pd
 
+from src.broker.ibkr.settings import resolve_endpoint
 from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig
 
 
@@ -24,12 +35,14 @@ class BasketBuildConfig:
     account_snapshot_dir: Path
     positions_snapshot_dir: Path
     host: str = "127.0.0.1"
-    port: int = 4004
-    client_id: int = 21
+    port: int = 4002
+    client_id: int = 301
     account: str | None = None
     cash_buffer: float = 0.005
     min_trade_dollars: float = 1000.0
     symbol_whitelist: tuple[str, ...] = ()
+    # the master price file: last closes for holdings outside the model IBKR has no mark for
+    prices_path: Path | None = None
 
 
 def _project_root() -> Path:
@@ -39,6 +52,7 @@ def _project_root() -> Path:
 
 def default_config() -> BasketBuildConfig:
     root = _project_root()
+    endpoint = resolve_endpoint("paper")
     return BasketBuildConfig(
         targets_path=root / "data/market/cleaned/targets/etf_targets_monthly.parquet",
         reconciliation_csv_path=root / "data/broker/reconciliations/paper_reconciliation.csv",
@@ -49,11 +63,13 @@ def default_config() -> BasketBuildConfig:
         orders_parquet_path=root / "data/broker/orders/paper_orders_only.parquet",
         account_snapshot_dir=root / "data/broker/account",
         positions_snapshot_dir=root / "data/broker/positions",
-        host="127.0.0.1",
-        port=4004,
-        client_id=21,
+        host=endpoint.host,
+        port=endpoint.port,
+        client_id=endpoint.client_id("account"),
+        account=endpoint.account,
         cash_buffer=0.005,
         min_trade_dollars=1000.0,
+        prices_path=root / "data/market/cleaned/prices/etf_prices_master.parquet",
     )
 
 
@@ -124,34 +140,141 @@ def load_latest_targets(targets_path: Path) -> pd.DataFrame:
     return latest_targets
 
 
+POSITION_COLUMNS = ["symbol", "current_shares", "avg_cost", "sec_type", "multiplier", "market_price"]
+# Sized by a multiplier, and one row per contract (MESZ6, not MES): two expiries, or a
+# stock and its options, summed into one row would be a position nobody holds.
+PER_CONTRACT = ("FUT", "CONTFUT", "OPT", "FOP", "WAR")
+# What the basket trades. A snapshot written before sec_type was recorded holds shares only.
+SHARES = ("", "STK", "ETF")
+
+
+def _positive(value: Any) -> float:
+    """``value`` as a float when it is finite and > 0, else NaN."""
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return x if np.isfinite(x) and x > 0 else float("nan")
+
+
 def fetch_positions_df(client: IBKRClient) -> pd.DataFrame:
+    """Every position in the account. ``sec_type``, ``multiplier`` and ``market_price``
+    (IBKR's own mark, NaN when it has none) let the no-leverage check
+    (src/runtime/leverage.py) price holdings the model doesn't trade. Futures and
+    options are keyed by their local symbol; a multiplier IBKR leaves empty is 1
+    for shares and NaN for them, which the check blocks as unpriced."""
     positions = client.positions()
     if len(positions) == 0:
-        return pd.DataFrame(columns=["symbol", "current_shares", "avg_cost"])
+        return pd.DataFrame(columns=POSITION_COLUMNS)
 
-    positions_df = pd.DataFrame(
-        [
+    marks = {
+        getattr(item.contract, "conId", None): _positive(getattr(item, "marketPrice", None))
+        for item in client.ib.portfolio()
+    }
+    rows = []
+    for p in positions:
+        contract = getattr(p, "contract", None)
+        sec_type = getattr(contract, "secType", None)
+        multiplier = _positive(getattr(contract, "multiplier", None))
+        symbol = getattr(contract, "symbol", None)
+        if sec_type in PER_CONTRACT:
+            symbol = getattr(contract, "localSymbol", None) or f"{symbol} {getattr(contract, 'conId', '')}"
+        rows.append(
             {
-                "symbol": getattr(getattr(p, "contract", None), "symbol", None),
+                "symbol": symbol,
                 "current_shares": float(getattr(p, "position", 0.0)),
                 "avg_cost": float(getattr(p, "avgCost", 0.0)),
+                "sec_type": sec_type,
+                "multiplier": multiplier if np.isfinite(multiplier) or sec_type in PER_CONTRACT else 1.0,
+                "market_price": marks.get(getattr(contract, "conId", None), float("nan")),
             }
-            for p in positions
-        ]
-    )
+        )
     positions_df = (
-        positions_df.groupby("symbol", as_index=False)
-        .agg(current_shares=("current_shares", "sum"), avg_cost=("avg_cost", "mean"))
+        pd.DataFrame(rows)
+        .groupby("symbol", as_index=False)
+        .agg(
+            current_shares=("current_shares", "sum"),
+            avg_cost=("avg_cost", "mean"),
+            sec_type=("sec_type", "first"),
+            multiplier=("multiplier", "first"),
+            market_price=("market_price", "first"),
+        )
         .sort_values("symbol")
         .reset_index(drop=True)
     )
-    return positions_df
+    return positions_df[POSITION_COLUMNS]
 
 
 def fetch_account_snapshot_df(client: IBKRClient) -> pd.DataFrame:
     summary = client.account_summary()
     rows = [{"tag": k, "value": v} for k, v in summary.items()]
     return pd.DataFrame(rows).sort_values("tag").reset_index(drop=True)
+
+
+def load_last_closes(prices_path: Path | None) -> dict[str, float]:
+    """The master price file's last close per symbol (finite and > 0 only)."""
+    if prices_path is None:
+        return {}
+    for path in (prices_path, prices_path.with_suffix(".csv")):
+        if path.exists():
+            px = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
+            px.columns = [str(c).lower().strip() for c in px.columns]
+            px = px.dropna(subset=["date", "symbol", "close"])
+            px["date"] = pd.to_datetime(px["date"])
+            px["symbol"] = px["symbol"].astype(str).str.upper().str.strip()
+            last = px.sort_values("date").groupby("symbol").tail(1)
+            closes = {sym: _positive(c) for sym, c in zip(last["symbol"], last["close"])}
+            return {sym: c for sym, c in closes.items() if np.isfinite(c)}
+    return {}
+
+
+@dataclass(frozen=True)
+class OutsideModel:
+    """Holdings the targets don't include."""
+
+    sell: list[str] = field(default_factory=list)  # whole shares: sold whole at this rebalance
+    kept: list[str] = field(default_factory=list)  # futures, options, anything else: left alone
+
+    def warnings(self) -> list[str]:
+        if not self.kept:
+            return []
+        return [
+            f"{', '.join(self.kept)}: outside the model, but not sold automatically (the basket trades "
+            "whole shares of stocks and ETFs only). They stay until you close them, and they count "
+            "toward the no-leverage check"
+        ]
+
+
+def _quantity(value: Any) -> float:
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return x if np.isfinite(x) else 0.0
+
+
+def holdings_outside_model(
+    latest_targets: pd.DataFrame,
+    positions_df: pd.DataFrame,
+    *,
+    symbol_whitelist: Iterable[str] = (),
+) -> OutsideModel:
+    """Positions whose symbol isn't in ``latest_targets``: whole shares to sell, and the
+    rest (futures, options, other asset classes, a fraction of a share) to keep."""
+    if positions_df is None or len(positions_df) == 0:
+        return OutsideModel()
+    targeted = set(latest_targets["symbol"].astype(str).str.upper().str.strip())
+    whitelist = {s.strip().upper() for s in symbol_whitelist}
+    sell: list[str] = []
+    kept: list[str] = []
+    for row in positions_df.to_dict("records"):
+        symbol = str(row["symbol"]).upper().strip()
+        qty = _quantity(row.get("current_shares"))
+        if not qty or symbol in targeted or (whitelist and symbol not in whitelist):
+            continue
+        sec_type = row.get("sec_type") if isinstance(row.get("sec_type"), str) else ""
+        (sell if sec_type in SHARES and abs(qty) >= 1 else kept).append(symbol)
+    return OutsideModel(sorted(sell), sorted(kept))
 
 
 def build_reconciliation(
@@ -162,9 +285,28 @@ def build_reconciliation(
     cash_buffer: float = 0.0,
     min_trade_dollars: float = 1000.0,
     symbol_whitelist: Iterable[str] = (),
+    model: Iterable[str] = (),
+    last_closes: Mapping[str, float] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The reconciliation (one row per symbol) and the orders to send.
+
+    A share holding the targets don't include gets a row with target 0
+    (``in_model`` False) and an order for the whole position, under
+    ``min_trade_dollars`` or not: a remainder would keep the book outside the
+    model. It is priced at IBKR's mark (``market_price`` in ``positions_df``),
+    else ``last_closes`` (the master's last close), else left with no price,
+    which the no-leverage check blocks as unpriced. ``model``, when given,
+    drops targets outside it: a targets file written before a symbol left the
+    model (TQQQ) doesn't buy it back.
+    """
     latest_targets = latest_targets.copy()
     positions_df = positions_df.copy()
+    latest_targets["symbol"] = latest_targets["symbol"].astype(str).str.upper()
+
+    if model:
+        allowed = {sym.strip().upper() for sym in model}
+        latest_targets = latest_targets.loc[latest_targets["symbol"].isin(allowed)].copy()
+    outside = holdings_outside_model(latest_targets, positions_df, symbol_whitelist=symbol_whitelist)
 
     if symbol_whitelist:
         keep = {sym.strip().upper() for sym in symbol_whitelist}
@@ -187,11 +329,34 @@ def build_reconciliation(
         how="left",
     )
 
+    recon["in_model"] = True
+    if outside.sell:
+        held = positions_df.assign(symbol=positions_df["symbol"].astype(str).str.upper().str.strip())
+        held = held.drop_duplicates("symbol").set_index("symbol")
+        closes = last_closes or {}
+        latest_date = latest_targets["date"].max() if "date" in latest_targets.columns else pd.NaT
+        rows = []
+        for sym in outside.sell:
+            mark = _positive(held.at[sym, "market_price"]) if "market_price" in held.columns else math.nan
+            rows.append(
+                {
+                    "date": latest_date,
+                    "symbol": sym,
+                    "close": mark if np.isfinite(mark) else closes.get(sym, math.nan),
+                    "target_weight": 0.0,
+                    "current_shares": _quantity(held.at[sym, "current_shares"]),
+                    "in_model": False,
+                }
+            )
+        recon = pd.concat([recon, pd.DataFrame(rows)], ignore_index=True)
+    recon["in_model"] = recon["in_model"].astype(bool)
+
     recon["current_shares"] = recon["current_shares"].fillna(0).astype(int)
     recon["target_dollars"] = investable_value * recon["target_weight"].astype(float)
-    recon["target_shares"] = np.floor(
-        recon["target_dollars"] / recon["close"].astype(float)
-    ).astype(int)
+    # outside the model the target is 0 shares, priced or not
+    recon["target_shares"] = (
+        np.floor(recon["target_dollars"] / recon["close"].astype(float)).where(recon["in_model"], 0).astype(int)
+    )
     recon["delta_shares"] = recon["target_shares"] - recon["current_shares"]
     recon["side"] = np.where(
         recon["delta_shares"] > 0,
@@ -224,6 +389,7 @@ def build_reconciliation(
             "estimated_trade_dollars",
             "estimated_commission",
             "abs_delta_shares",
+            "in_model",
         ]
         if col in recon.columns
     ]
@@ -234,7 +400,7 @@ def build_reconciliation(
     orders_only = recon.loc[
         (recon["side"] != "HOLD")
         & (recon["abs_delta_shares"] > 0)
-        & (recon["estimated_trade_dollars"] >= float(min_trade_dollars))
+        & ((recon["estimated_trade_dollars"] >= float(min_trade_dollars)) | ~recon["in_model"])
     ].copy().reset_index(drop=True)
 
     return recon, orders_only
@@ -298,6 +464,7 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
             port=config.port,
             client_id=config.client_id,
             account=config.account,
+            expected_profile="paper",
         )
     )
     client.connect()
@@ -308,6 +475,11 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
     finally:
         client.disconnect()
 
+    from src.production.generate_targets import model_universe
+
+    model = model_universe()
+    model_targets = latest_targets.loc[latest_targets["symbol"].astype(str).str.upper().isin(model)]
+    outside = holdings_outside_model(model_targets, positions_df, symbol_whitelist=config.symbol_whitelist)
     recon, orders_only = build_reconciliation(
         latest_targets,
         positions_df,
@@ -315,6 +487,8 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
         cash_buffer=config.cash_buffer,
         min_trade_dollars=config.min_trade_dollars,
         symbol_whitelist=config.symbol_whitelist,
+        model=model,
+        last_closes=load_last_closes(config.prices_path),
     )
     saved_paths = save_outputs(
         recon=recon,
@@ -340,6 +514,10 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
             ].sum()
         ),
         "saved_paths": saved_paths,
+        # sold whole at this rebalance / left alone (futures, options): see holdings_outside_model
+        "outside_model_sold": outside.sell,
+        "outside_model_kept": outside.kept,
+        "warnings": outside.warnings(),
     }
 
 
@@ -376,6 +554,10 @@ def main() -> None:
     print(f"Orders rows: {result['orders_rows']}")
     print(f"Buy dollars: {result['buy_dollars']:.2f}")
     print(f"Sell dollars: {result['sell_dollars']:.2f}")
+    if result["outside_model_sold"]:
+        print(f"Selling holdings outside the model: {', '.join(result['outside_model_sold'])}")
+    for warning in result["warnings"]:
+        print(f"Warning: {warning}")
     for name, path in result["saved_paths"].items():
         print(f"{name}: {path}")
 

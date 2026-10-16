@@ -13,71 +13,17 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-from .client import IBKRClient, IBKRConnectionConfig
+from .client import IBKRClient
+from .settings import make_client
 
 log = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_BROKER_CONFIG_PATH = _PROJECT_ROOT / "config" / "broker.yaml"
 
-# Offset added to the configured paper client_id when opening a
-# dedicated read-only connection so we don't collide with a live
-# order-submitting client_id on the same gateway.
-_READ_CLIENT_ID_OFFSET = 50
-
-_DEFAULT_BROKER_CONFIG: dict[str, Any] = {
-    "host": "127.0.0.1",
-    "port": 4004,
-    "client_id": 21,
-    "readonly": True,
-    "account": None,
-}
-
-
-def _broker_profile_config(profile: str) -> dict[str, Any]:
-    """Read the profile section from ``config/broker.yaml``.
-
-    Falls back to defaults if the file or the ``ibkr.<profile>`` block
-    is missing — keeps the module importable in unit-test envs without
-    the repo's config dir.
-    """
-    try:
-        import yaml  # local import — keeps top-level import light
-    except ImportError:
-        return dict(_DEFAULT_BROKER_CONFIG)
-
-    try:
-        with _BROKER_CONFIG_PATH.open("r", encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-    except FileNotFoundError:
-        return dict(_DEFAULT_BROKER_CONFIG)
-    except Exception as exc:  # noqa: BLE001 — config corruption shouldn't crash imports
-        log.warning("executions: broker.yaml read failed: %s", exc)
-        return dict(_DEFAULT_BROKER_CONFIG)
-
-    ibkr = (data.get("ibkr") or {})
-    profile_cfg = (ibkr.get(profile) or {})
-    return {
-        "host": ibkr.get("host", _DEFAULT_BROKER_CONFIG["host"]),
-        "port": int(profile_cfg.get("port", _DEFAULT_BROKER_CONFIG["port"])),
-        "client_id": int(profile_cfg.get("client_id", _DEFAULT_BROKER_CONFIG["client_id"])),
-        "readonly": bool(profile_cfg.get("readonly", _DEFAULT_BROKER_CONFIG["readonly"])),
-        "account": profile_cfg.get("account") or None,
-    }
-
-
-def _make_readonly_client(profile: str, *, client_id_offset: int = _READ_CLIENT_ID_OFFSET) -> IBKRClient:
-    cfg = _broker_profile_config(profile)
-    return IBKRClient(IBKRConnectionConfig(
-        host=cfg["host"],
-        port=cfg["port"],
-        client_id=int(cfg["client_id"]) + int(client_id_offset),
-        readonly=True,  # forced — list_executions never writes
-        account=cfg["account"],
-    ))
+def _make_readonly_client(profile: str) -> IBKRClient:
+    # Forced read-only: list_executions never writes.
+    return make_client(profile, "executions", readonly=True)
 
 
 def _normalize_fill(fill: Any) -> dict[str, Any] | None:

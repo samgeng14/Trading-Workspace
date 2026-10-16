@@ -1,0 +1,20 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.4"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "dv02-engine"
+version = "0.1.0"
+description = "DV02 Fund C++ engine (pre-trade risk, backtesting) with Python bindings"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.26"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
+cmake.build-type = "Release"
+wheel.packages = ["python/dv02_engine"]
+
+[tool.scikit-build.cmake.define]
+DV02_BUILD_PYTHON = "ON"
+DV02_BUILD_TESTS = "OFF"

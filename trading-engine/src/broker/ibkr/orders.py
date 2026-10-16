@@ -6,7 +6,7 @@ from typing import Any, Literal, Optional
 
 from ib_async import Contract, LimitOrder, MarketOrder, Order, Stock, StopOrder
 
-from .client import IBKRClient, IBKRConnectionConfig
+from .client import IBKRClient
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class OrderRequest:
     stop_price: float | None = None
     exchange: str = "SMART"
     currency: str = "USD"
-    tif: str = "DAY"
+    tif: str = "DAY"  # "OPG" with MKT is a market-on-open order
     outside_rth: bool = False
     account: str | None = None
     order_ref: str | None = None
@@ -47,6 +47,11 @@ class OrderRequest:
             raise IBKROrderError("Stop orders require a positive stop_price")
         if self.order_type == "MOC" and self.tif != "DAY":
             raise IBKROrderError("MOC orders must use tif='DAY'")
+        # OPG makes a market (or limit) order a market-on-open (limit-on-open) order
+        if self.tif == "OPG" and self.order_type not in {"MKT", "LMT"}:
+            raise IBKROrderError("tif='OPG' (on the open) is for MKT and LMT orders only")
+        if self.tif == "OPG" and self.outside_rth:
+            raise IBKROrderError("An on-open order (tif='OPG') can't also be outside regular hours")
 
 
 class IBKROrderManager:
@@ -111,11 +116,12 @@ class IBKROrderManager:
         order = self.build_order(request)
 
         logger.info(
-            "Placing order symbol=%s action=%s qty=%s type=%s account=%s",
+            "Placing order symbol=%s action=%s qty=%s type=%s tif=%s account=%s",
             request.normalized_symbol(),
             request.action,
             request.quantity,
             request.order_type,
+            order.tif,
             order.account,
         )
         trade = self.client.ib.placeOrder(contract, order)
@@ -317,18 +323,10 @@ def submit_one(
 
     owns_manager = manager is None
     if manager is None:
-        # Lazy import — avoids a circular if executions.py is loaded later.
-        from .executions import _broker_profile_config
+        from .settings import make_client
 
-        cfg = _broker_profile_config(profile)
         try:
-            client = IBKRClient(IBKRConnectionConfig(
-                host=cfg["host"],
-                port=cfg["port"],
-                client_id=int(cfg["client_id"]),
-                readonly=False,
-                account=cfg["account"],
-            ))
+            client = make_client(profile, "orders")
             client.connect()
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"connect failed: {exc}", "symbol": sym}

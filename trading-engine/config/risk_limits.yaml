@@ -1,24 +1,33 @@
+# The engine's exposure limits, checked by the pre-trade gate
+# (src/runtime/risk_checks.py) on the basket's target weights before any order
+# goes out: the daily runner's and the dashboard preview's. Read by
+# src/portfolio/risk/exposure_limits.py (load_exposure_limits); every key below
+# must be set, and an unknown key is an error rather than ignored.
+#
+# Weights are fractions of NAV (0.20 = 20%). The no-leverage policy is the
+# loosest any of these may be: gross 1.00, net 1.00, one name 0.25, cash 0.
+# A looser value here is replaced by the policy's, with a warning; tighten
+# freely. The C++ no-leverage check (src/runtime/leverage.py) applies that
+# policy separately to the whole account, holdings outside the model included.
 risk_limits:
   portfolio:
-    max_gross_exposure: 1.00
-    min_cash_buffer: 0.005
-    max_turnover_per_rebalance: 0.50
-    max_names: 25
+    max_gross_exposure: 1.00       # sum of |weight|
+    min_net_exposure: 0.50         # sum of weights, longs minus shorts
+    max_net_exposure: 1.00
+    # Cash left after the rebalance, measured from target weights, which sum
+    # to 1.00 for this model: anything above 0 blocks every rebalance. The
+    # basket keeps its own 0.5% cash buffer (build_paper_basket.py), and the
+    # no-leverage check requires cash >= 0 on the whole account.
+    min_cash_buffer: 0.00
+    min_holdings: 5                # names with a weight above 0
 
   position:
-    max_single_name_weight: 0.20
-    max_single_trade_notional: 150000.0
-    max_single_trade_shares: 5000
-    min_trade_dollars: 1000.0
+    max_single_name_weight: 0.20   # any one target weight
+    # Warns, doesn't block: an order this large a share of NAV is worth a look.
+    max_single_trade_pct_of_nav: 0.30
 
-  execution:
-    reject_zero_price: true
-    reject_negative_price: true
-    reject_stale_data: true
-    reject_if_market_closed_for_moc: false
-    reject_if_open_orders_exist: false
-
-  derivatives:
-    enabled: false
-    max_futures_gross_notional: 0.25
-    max_options_premium_at_risk: 0.02
+# Not enforced anywhere yet, so not set here: a turnover cap, a cap on the
+# number of names, dollar and share caps per order, and limits for futures and
+# options (the no-leverage check counts futures at notional and blocks any
+# option). Stale prices are the price validator's: a model ETF more than a
+# session behind the last completed close blocks (src/data/cleaning/validators.py).

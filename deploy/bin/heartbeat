@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# heartbeat JOB [fail]: ping JOB's heartbeat URL (DV02_HEARTBEAT_<JOB>, e.g.
+# DV02_HEARTBEAT_RUNNER in /etc/dv02/dv02.env), or its /fail URL. Built for
+# healthchecks.io-style checks: a ping on success, an alert when one is late
+# or a /fail arrives. JOB may be a unit name (dv02-runner.service is runner).
+# Never fails the unit it runs from: an unreachable heartbeat service is
+# reported on stderr only.
+set -uo pipefail
+job="${1:?usage: heartbeat JOB [fail]}"
+job="${job#dv02-}"; job="${job%.service}"
+var="DV02_HEARTBEAT_$(printf '%s' "$job" | tr '[:lower:]-' '[:upper:]_')"
+url="${!var:-}"
+if [ -z "$url" ]; then
+  echo "heartbeat: $var is not set; no ping for $job" >&2
+  exit 0
+fi
+[ "${2:-}" = fail ] && url="${url%/}/fail"
+curl -fsS -m 10 --retry 3 -o /dev/null "$url" || echo "heartbeat: ping to the $job check failed" >&2
+exit 0

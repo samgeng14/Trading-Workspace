@@ -1,18 +1,30 @@
+# The Postgres store for bars, signals, targets, orders, fills, positions,
+# NAV and run logs (docs/PLAN.md, Phase 2). Not read by anything yet: until it
+# is wired, these settings have no effect. The tables are the ones
+# db/migrations creates, in that order; tests/unit/test_db_config.py keeps
+# this list and the migrations in step.
+#
+# Credentials never go in this file: the VM's .env sets DV02_DB_USER and
+# DV02_DB_PASSWORD (git-ignored, entered by the owner over SSH).
+
 database:
   enabled: false
   driver: postgresql
   host: 127.0.0.1
   port: 5432
   name: trading
-  user: postgres
-  password: postgres
+  user_env: DV02_DB_USER
+  password_env: DV02_DB_PASSWORD
   schema: public
 
 tables:
-  market_data: market_data
+  market_bars: market_bars
   signals: signals
   targets: targets
-  positions: positions
   orders: orders
   fills: fills
+  positions: positions
   run_logs: run_logs
+  derivative_positions: derivative_positions
+  derivative_signals: derivative_signals
+  nav: nav

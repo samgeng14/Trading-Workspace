@@ -13,12 +13,10 @@ Sub-views:
 from __future__ import annotations
 
 import re
-import socket
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
@@ -133,7 +131,7 @@ def positions(profile: str | None = None) -> dict[str, Any]:
             ["symbol", "unrealized_pnl"]
         ].head(5)
     )
-    pnl_chart = df[["symbol", "unrealized_pnl"]].to_dict(orient="records")
+    pnl_chart = df.dropna(subset=["unrealized_pnl"])[["symbol", "unrealized_pnl"]].to_dict(orient="records")
 
     return {
         "available": True,
@@ -689,8 +687,15 @@ def _load_positions(path: Path, nav: float | None) -> pd.DataFrame:
     out["market_value"] = _to_num(df[mv_col]) if mv_col else pd.NA
     out["unrealized_pnl"] = _to_num(df[unreal_col]) if unreal_col else pd.NA
     out["realized_pnl"] = _to_num(df[realized_col]) if realized_col else 0.0
+    for col in ("avg_price", "last_price", "market_value", "unrealized_pnl"):
+        out[col] = pd.to_numeric(out[col], errors="coerce")
 
-    if out["last_price"].isna().all():
+    # IBKR's mark where it has one; per row, the master's last close where it
+    # doesn't (NaN, or a snapshot with no price column). A row with neither
+    # stays unpriced: shown blank, never as $0.
+    out["last_price"] = out["last_price"].where(out["last_price"] > 0)
+    missing = out["last_price"].isna()
+    if missing.any():
         prices_dir = PROJECT_ROOT / "data" / "market" / "cleaned" / "prices"
         latest_prices_df = None
         for p in (prices_dir / "etf_prices_master.parquet", prices_dir / "etf_prices_master.csv"):
@@ -705,29 +710,23 @@ def _load_positions(path: Path, nav: float | None) -> pd.DataFrame:
         if latest_prices_df is not None and not latest_prices_df.empty:
             latest_prices_df.columns = [c.lower() for c in latest_prices_df.columns]
             latest_prices_df["date"] = pd.to_datetime(latest_prices_df["date"], errors="coerce")
+            latest_prices_df["close"] = pd.to_numeric(latest_prices_df["close"], errors="coerce")
             latest = (
-                latest_prices_df.dropna(subset=["date"])
+                latest_prices_df.dropna(subset=["date", "close"])
                 .sort_values(["symbol", "date"])
                 .groupby("symbol", as_index=False)
-                .tail(1)[["symbol", "close"]]
-                .rename(columns={"close": "_last"})
+                .tail(1)
             )
-            latest["symbol"] = latest["symbol"].astype(str).str.upper()
-            out = out.merge(latest, on="symbol", how="left")
-            out["last_price"] = out["_last"]
-            out = out.drop(columns=["_last"])
+            last_close = dict(zip(latest["symbol"].astype(str).str.upper(), latest["close"]))
+            out.loc[missing, "last_price"] = out.loc[missing, "symbol"].map(last_close)
+            out["last_price"] = out["last_price"].where(out["last_price"] > 0)
 
-    if out["market_value"].isna().all() and not out["last_price"].isna().all():
-        out["market_value"] = out["shares"] * out["last_price"]
+    out["market_value"] = out["market_value"].fillna(out["shares"] * out["last_price"])
+    out["unrealized_pnl"] = out["unrealized_pnl"].fillna(
+        out["shares"] * (out["last_price"] - out["avg_price"])
+    )
 
-    if (
-        out["unrealized_pnl"].isna().all()
-        and not out["last_price"].isna().all()
-        and not out["avg_price"].isna().all()
-    ):
-        out["unrealized_pnl"] = out["shares"] * (out["last_price"] - out["avg_price"])
-
-    out = out.fillna(0.0)
+    out["realized_pnl"] = out["realized_pnl"].fillna(0.0)
     out = out.loc[out["shares"] != 0].copy()
     if nav and nav != 0:
         out["weight_pct"] = 100.0 * out["market_value"] / nav
@@ -741,18 +740,10 @@ def _load_positions(path: Path, nav: float | None) -> pd.DataFrame:
 
 
 def _autodetect_port(profile: str) -> int:
-    candidates = (
-        [7497, 4002, 4001, 7496] if profile == "paper" else [7496, 4001, 4002, 7497]
-    )
-    for port in candidates:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
-        try:
-            if sock.connect_ex(("127.0.0.1", port)) == 0:
-                return port
-        finally:
-            sock.close()
-    return 4002 if profile == "paper" else 4001
+    # Only ever probes ports for the same profile; see settings.candidate_ports.
+    from src.broker.ibkr.settings import detect_port
+
+    return detect_port(profile)
 
 
 def _ibkr_endpoint_choices(profile: str) -> list[dict[str, Any]]:

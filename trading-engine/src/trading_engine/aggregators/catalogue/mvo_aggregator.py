@@ -6,6 +6,8 @@ import polars as pl
 from polars import LazyFrame
 import cvxpy as cp
 
+from trading_engine.solvers import pick_solver
+
 
 def _extract_returns_df(backtest_results: Dict[str, dict]) -> pl.DataFrame:
     """
@@ -249,7 +251,7 @@ def _solve_mvo(
         )
         objective = cp.Minimize(quad + lin + reg)
         problem = cp.Problem(objective, constraints)
-        problem.solve(solver=cp.MOSEK, verbose=False)
+        problem.solve(solver=pick_solver(), verbose=False)
         result = np.asarray(w.value, dtype=float).reshape(-1)
         # Numerical guard: ensure sum to 1 and non-negative
         result = np.maximum(result, 0.0)
@@ -277,7 +279,7 @@ def _solve_mvo(
     )
     objective = cp.Minimize(quad + lin + reg)
     problem = cp.Problem(objective, constraints)
-    problem.solve(solver=cp.MOSEK, verbose=False)
+    problem.solve(solver=pick_solver(), verbose=False)
     result = np.asarray(w.value, dtype=float).reshape(-1)
     # Numerical guard: enforce L1 norm to 1
     l1 = float(np.sum(np.abs(result)))

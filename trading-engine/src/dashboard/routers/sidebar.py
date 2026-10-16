@@ -4,7 +4,6 @@ metadata, ETF refresh, and the Run-Audit button.
 """
 from __future__ import annotations
 
-import socket
 import time
 from datetime import datetime
 from pathlib import Path
@@ -247,15 +246,7 @@ def _list_optimizers() -> tuple[list[str], str]:
 
 
 def _autodetect_ibkr_port(profile: str) -> int:
-    candidates = (
-        [7497, 4002, 4001, 7496] if profile == "paper" else [7496, 4001, 4002, 7497]
-    )
-    for port in candidates:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
-        try:
-            if sock.connect_ex(("127.0.0.1", port)) == 0:
-                return port
-        finally:
-            sock.close()
-    return 4002 if profile == "paper" else 4001
+    # Only ever probes ports for the same profile; see settings.candidate_ports.
+    from src.broker.ibkr.settings import detect_port
+
+    return detect_port(profile)

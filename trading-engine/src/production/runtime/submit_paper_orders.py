@@ -19,8 +19,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig
-from src.broker.ibkr.orders import IBKROrderManager, OrderRequest
+from src.broker.ibkr.auction import Execution, execution_for  # noqa: E402
+from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig  # noqa: E402
+from src.broker.ibkr.orders import IBKROrderManager, OrderRequest  # noqa: E402
+from src.broker.ibkr.settings import resolve_endpoint  # noqa: E402
+from src.execution.kill_switch import KillSwitchTripped, require_kill_switch_clear  # noqa: E402
+from src.runtime.leverage import check_leverage  # noqa: E402
 
 
 @dataclass(slots=True)
@@ -29,31 +33,27 @@ class SubmitPaperOrdersConfig:
     submissions_dir: Path
     fills_dir: Path
     host: str = "127.0.0.1"
-    port: int = 4004
-    client_id: int = 31
+    port: int = 4002
+    client_id: int = 300
     account: str | None = None
     dry_run: bool = True
-    order_type: str = "MKT"
     wait_for_status: bool = True
     timeout: float = 30.0
     symbols: tuple[str, ...] = ()
 
 
-def _project_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
 def default_config() -> SubmitPaperOrdersConfig:
     root = _project_root()
+    endpoint = resolve_endpoint("paper")
     return SubmitPaperOrdersConfig(
         orders_path=root / "data/broker/orders/paper_orders_only.parquet",
         submissions_dir=root / "data/broker/orders",
         fills_dir=root / "data/broker/fills",
-        host="127.0.0.1",
-        port=4002,
-        client_id=31,
+        host=endpoint.host,
+        port=endpoint.port,
+        client_id=endpoint.client_id("orders"),
+        account=endpoint.account,
         dry_run=True,
-        order_type="MKT",
         wait_for_status=True,
         timeout=30.0,
     )
@@ -87,10 +87,25 @@ def load_orders(orders_path: Path, symbols: tuple[str, ...] = ()) -> pd.DataFram
     if orders.empty:
         raise ValueError("No executable orders found after filtering")
 
-    return orders
+    return sells_first(orders)
 
 
-def build_trade_plan(orders_df: pd.DataFrame, account: str | None, order_type: str) -> list[OrderRequest]:
+def sells_first(orders: pd.DataFrame) -> pd.DataFrame:
+    """Every SELL ahead of every BUY, each side in file order.
+
+    The no-leverage check judges the book after every order fills, and the
+    basket (build_reconciliation) lists BUYs first. Sending the sells first
+    puts them at IBKR ahead of the buys that spend their proceeds. This orders
+    the submissions only; nothing waits for fills. It is done here, where every
+    submit path (the CLI, the dashboard, the daily runner) reads the orders
+    file, rather than by re-sorting the reconciliation files, which the
+    dashboard and the run's checks read as written.
+    """
+    order = orders["side"].map({"SELL": 0, "BUY": 1})
+    return orders.iloc[order.argsort(kind="stable")].reset_index(drop=True)
+
+
+def build_trade_plan(orders_df: pd.DataFrame, account: str | None, execution: Execution) -> list[OrderRequest]:
     requests: list[OrderRequest] = []
     for _, row in orders_df.iterrows():
         requests.append(
@@ -98,7 +113,8 @@ def build_trade_plan(orders_df: pd.DataFrame, account: str | None, order_type: s
                 symbol=str(row["symbol"]),
                 action=str(row["side"]),
                 quantity=float(int(row["quantity"])),
-                order_type=order_type,
+                order_type=execution.order_type,
+                tif=execution.tif,
                 account=account,
                 order_ref=f"paper-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{row['symbol']}",
             )
@@ -106,7 +122,7 @@ def build_trade_plan(orders_df: pd.DataFrame, account: str | None, order_type: s
     return requests
 
 
-def _plan_rows(orders_df: pd.DataFrame, order_type: str, dry_run: bool) -> list[dict[str, Any]]:
+def _plan_rows(orders_df: pd.DataFrame, execution: Execution, dry_run: bool) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for _, row in orders_df.iterrows():
         rows.append(
@@ -114,7 +130,8 @@ def _plan_rows(orders_df: pd.DataFrame, order_type: str, dry_run: bool) -> list[
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "symbol": row["symbol"],
                 "action": row["side"],
-                "order_type": order_type,
+                "order_type": execution.order_type,
+                "tif": execution.tif,
                 "quantity": int(row["quantity"]),
                 "delta_shares": int(row["delta_shares"]),
                 "estimated_trade_dollars": float(row.get("estimated_trade_dollars", 0.0)),
@@ -122,6 +139,27 @@ def _plan_rows(orders_df: pd.DataFrame, order_type: str, dry_run: bool) -> list[
             }
         )
     return rows
+
+
+PROFILE = "paper"  # the only profile this path sends; the client refuses a live account
+
+
+def pre_trade_blocks(orders_df: pd.DataFrame, orders_path: Path, *, profile: str = PROFILE) -> list[str]:
+    """Why ``orders_df`` must not go out, or [] when it may.
+
+    The kill switch, then the C++ no-leverage check on the whole book after
+    these orders (src/runtime/leverage.py). submit_paper_orders runs this
+    before it connects, so every caller gets it: the CLI's --submit, the order
+    service the dashboard and the daily runner go through, and anything new.
+    The runner runs the same checks earlier, with the exposure limits, and logs
+    the full report; this is the one that can't be skipped.
+    """
+    try:
+        require_kill_switch_clear()
+    except KillSwitchTripped as exc:
+        return [str(exc)]
+    leverage = check_leverage(profile, root=_project_root(), orders_path=orders_path, orders=orders_df)
+    return list(leverage.blocking_reasons)
 
 
 def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
@@ -132,15 +170,32 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     submission_path = config.submissions_dir / f"paper_orders_submitted_{timestamp}.csv"
     fills_path = config.fills_dir / f"paper_trade_log_{timestamp}.csv"
+    # MOC before the closing-auction deadline, else market-on-open for the next
+    # session (src/broker/ibkr/auction.py). Decided once, as the batch goes out,
+    # so its sells and buys fill in the same auction.
+    execution = execution_for(orders_df["symbol"])
 
     if config.dry_run:
-        preview_df = pd.DataFrame(_plan_rows(orders_df, config.order_type, dry_run=True))
+        preview_df = pd.DataFrame(_plan_rows(orders_df, execution, dry_run=True))
         preview_df.to_csv(submission_path, index=False)
         return {
             "submitted": False,
             "submission_path": submission_path,
             "fills_path": None,
             "rows": int(len(preview_df)),
+            "execution": execution.as_dict(),
+        }
+
+    reasons = pre_trade_blocks(orders_df, config.orders_path)
+    if reasons:
+        return {
+            "submitted": False,
+            "blocked": True,
+            "reasons": reasons,
+            "submission_path": None,
+            "fills_path": None,
+            "rows": 0,
+            "execution": execution.as_dict(),
         }
 
     client = IBKRClient(
@@ -149,6 +204,7 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
             port=config.port,
             client_id=config.client_id,
             account=config.account,
+            expected_profile=PROFILE,
         )
     )
     client.connect()
@@ -157,7 +213,7 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
     submission_rows: list[dict[str, Any]] = []
     fill_rows: list[dict[str, Any]] = []
     try:
-        requests = build_trade_plan(orders_df, account=config.account, order_type=config.order_type)
+        requests = build_trade_plan(orders_df, account=config.account, execution=execution)
 
         for request, (_, order_row) in zip(requests, orders_df.iterrows()):
             try:
@@ -174,6 +230,7 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
                         "symbol": request.symbol,
                         "action": request.action,
                         "order_type": request.order_type,
+                        "tif": request.tif,
                         "quantity": int(request.quantity),
                         "delta_shares": int(order_row["delta_shares"]),
                         "estimated_trade_dollars": float(order_row.get("estimated_trade_dollars", 0.0)),
@@ -195,6 +252,7 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
                         "symbol": request.symbol,
                         "action": request.action,
                         "order_type": request.order_type,
+                        "tif": request.tif,
                         "quantity": int(request.quantity),
                         "delta_shares": int(order_row["delta_shares"]),
                         "estimated_trade_dollars": float(order_row.get("estimated_trade_dollars", 0.0)),
@@ -213,6 +271,7 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
         "submission_path": submission_path,
         "fills_path": fills_path,
         "rows": int(len(submission_rows)),
+        "execution": execution.as_dict(),
     }
 
 
@@ -224,7 +283,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=default.port)
     parser.add_argument("--client-id", type=int, default=default.client_id)
     parser.add_argument("--account", default=default.account)
-    parser.add_argument("--order-type", choices=["MKT", "LMT", "STP", "MOC"], default=default.order_type)
     parser.add_argument("--timeout", type=float, default=default.timeout)
     parser.add_argument("--wait-for-status", action="store_true", default=default.wait_for_status)
     parser.add_argument("--symbol", action="append", dest="symbols", default=[])
@@ -240,17 +298,22 @@ def main() -> None:
     config.port = args.port
     config.client_id = args.client_id
     config.account = args.account
-    config.order_type = args.order_type
     config.timeout = args.timeout
     config.wait_for_status = args.wait_for_status
     config.symbols = tuple(args.symbols or [])
     config.dry_run = not args.submit
 
     result = submit_paper_orders(config)
+    if result.get("blocked"):
+        print("Blocked: nothing was sent.")
+        for reason in result["reasons"]:
+            print(" ", reason)
+        sys.exit(1)
     print("Submitted:" if result["submitted"] else "Dry run only:", result["submission_path"])
     if result["fills_path"]:
         print("Fills log:", result["fills_path"])
     print("Rows:", result["rows"])
+    print("Orders:", result["execution"]["summary"])
 
 
 if __name__ == "__main__":

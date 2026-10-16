@@ -1,0 +1,18 @@
+# Genuine price moves the owner has confirmed.
+#
+# A one-day close move the size of a split ratio (x1.74 or more, /1.74 or
+# less), or a +50% / -33% day that reverts the next day, is treated as bad
+# data (src/data/cleaning/price_basis.py): the price-master merge refuses it,
+# the repair tries to refetch it, and the price validator blocks trading. A
+# real move that large (ETH fell about 42% on 2020-03-12) would block trading
+# until someone acts. An entry here tells the merge, the repair and the
+# validator to accept exactly that symbol on that date; nothing else changes.
+#
+# Add one with the command below. It shows the bars around the date and asks
+# before writing:
+#   python -m src.production.backfill_gaps --confirm-move ETHA 2026-03-12 --note "ETH sold off"
+#
+# Each entry: symbol, date (the day whose close made the move), note (why it
+# is genuine). The command rewrites the entries below and keeps these comments.
+
+moves: []

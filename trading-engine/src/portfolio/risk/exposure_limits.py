@@ -25,13 +25,26 @@ Limits checked:
   6. **Min cash buffer** — keep at least N% of NAV in cash post-rebalance.
      Default 0% (the optimizer can spend it all if it wants). Set higher to
      keep liquidity for fees / margin calls.
+
+The engine's limits come from config/risk_limits.yaml (``load_exposure_limits``,
+read once into ``DEFAULT_EXPOSURE_LIMITS``). The fund's no-leverage policy,
+which the C++ engine enforces on the whole book (``dv02_engine.risk.Policy``:
+gross <= 100% of NAV, cash >= 0, any one name <= 25%), is the loosest they can
+be: the file can tighten those limits, never loosen them.
 """
 from __future__ import annotations
 
+import logging
+import math
 from dataclasses import dataclass, field
-from typing import Iterable
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
+
+log = logging.getLogger(__name__)
+
+RISK_LIMITS_PATH = Path(__file__).resolve().parents[3] / "config" / "risk_limits.yaml"
 
 
 @dataclass
@@ -45,7 +58,76 @@ class ExposureLimits:
     min_cash_buffer_pct: float = 0.00
 
 
-DEFAULT_EXPOSURE_LIMITS = ExposureLimits()
+# The no-leverage policy (engine/include/dv02/risk.hpp, Policy): the highest
+# value each cap may take. Its cash floor, cash >= 0, needs no entry: no limit
+# here may be negative.
+NO_LEVERAGE_CAPS = {
+    "max_gross_exposure_pct": 1.0,
+    "max_net_exposure_pct": 1.0,
+    "max_single_position_pct": 0.25,
+}
+
+# (section, key) in risk_limits.yaml -> ExposureLimits field
+RISK_LIMITS_KEYS = {
+    ("portfolio", "max_gross_exposure"): "max_gross_exposure_pct",
+    ("portfolio", "min_net_exposure"): "min_net_exposure_pct",
+    ("portfolio", "max_net_exposure"): "max_net_exposure_pct",
+    ("portfolio", "min_cash_buffer"): "min_cash_buffer_pct",
+    ("portfolio", "min_holdings"): "min_holdings",
+    ("position", "max_single_name_weight"): "max_single_position_pct",
+    ("position", "max_single_trade_pct_of_nav"): "max_single_trade_pct_of_nav",
+}
+
+
+def exposure_limits_from(doc: dict[str, Any], source: str = "risk_limits.yaml") -> ExposureLimits:
+    """ExposureLimits from a parsed risk_limits.yaml, held to the no-leverage policy.
+
+    Every key in RISK_LIMITS_KEYS must be set, and nothing else may be: a
+    misspelt limit would otherwise be ignored without a word. A cap looser
+    than the policy's is replaced by the policy's, with a warning.
+    """
+    section = (doc or {}).get("risk_limits")
+    if not isinstance(section, dict):
+        raise ValueError(f"{source}: no risk_limits section")
+    unknown = []
+    for group, block in section.items():
+        if not isinstance(block, dict):
+            unknown.append(str(group))
+            continue
+        unknown += [f"{group}.{key}" for key in block if (group, key) not in RISK_LIMITS_KEYS]
+    if unknown:
+        raise ValueError(f"{source}: unknown settings: {', '.join(unknown)}")
+
+    values: dict[str, Any] = {}
+    for (group, key), name in RISK_LIMITS_KEYS.items():
+        raw = (section.get(group) or {}).get(key)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw) or raw < 0:
+            raise ValueError(f"{source}: {group}.{key} must be a number >= 0, got {raw!r}")
+        values[name] = int(raw) if name == "min_holdings" else float(raw)
+        cap = NO_LEVERAGE_CAPS.get(name)
+        if cap is not None and values[name] > cap:
+            log.warning("%s: %s.%s = %s is looser than the no-leverage limit; using %s", source, group, key, raw, cap)
+            values[name] = cap
+    if values["min_net_exposure_pct"] > values["max_net_exposure_pct"]:
+        raise ValueError(f"{source}: portfolio.min_net_exposure is above portfolio.max_net_exposure")
+    return ExposureLimits(**values)
+
+
+def load_exposure_limits(path: Path | None = None) -> ExposureLimits:
+    """The engine's exposure limits: config/risk_limits.yaml (or ``path``).
+
+    A missing or malformed file raises: the pre-trade gate then blocks rather
+    than trade on limits nobody set.
+    """
+    import yaml
+
+    path = path or RISK_LIMITS_PATH
+    with open(path, encoding="utf-8") as f:
+        doc = yaml.safe_load(f) or {}
+    return exposure_limits_from(doc, source=str(path))
+
+
+DEFAULT_EXPOSURE_LIMITS = load_exposure_limits()
 
 
 @dataclass

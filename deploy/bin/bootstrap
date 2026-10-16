@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+# bootstrap: a fresh VM to a running DV02 dashboard, in one command.
+#
+#   curl -fsSL https://raw.githubusercontent.com/samgeng14/Trading-Workspace/claude/serene-babbage-0204ht/deploy/bin/bootstrap | sudo bash
+#
+# For Ubuntu 24.04 or Oracle Linux 9, arm64 (Oracle's free Ampere A1 shape) or
+# x86_64. It installs the packages and Docker, checks the IB Gateway image runs
+# on this CPU, then deploy/bin/setup-app (a dv02 user, the checkout in /opt/dv02,
+# its Python env and C++ engine, the dashboard build), Tailscale, and the systemd
+# units (deploy/bin/install). The dashboard is then served to your own Tailscale
+# devices at https://<this machine>.<your tailnet>.ts.net.
+#
+# It doesn't touch IBKR: no login, no gateway, no daily run. Those come after,
+# from the steps it prints at the end (deploy/README.md has them too). Running
+# it again updates the checkout and repeats every step; nothing is lost.
+set -euo pipefail
+
+BRANCH="${DV02_BRANCH:-claude/serene-babbage-0204ht}"
+REPO="https://github.com/samgeng14/Trading-Workspace.git"
+ROOT=/opt/dv02
+TS_NAME="${DV02_TS_HOSTNAME:-dv02}"
+LOGIN_USER="${SUDO_USER:-ubuntu}"  # who ran sudo: the account you SSH in as
+
+say() { printf '\n\033[1m==> %s\033[0m\n' "$*"; }
+die() { printf '\nbootstrap: %s\n' "$*" >&2; exit 1; }
+
+# Everything runs from main(), called on the last line: piped from curl, bash
+# has then read the whole script before any command can read stdin.
+main() {
+[ "$(id -u)" = 0 ] || die "run it as root: curl ... | sudo bash"
+. /etc/os-release
+arch="$(uname -m)"
+say "This machine: ${PRETTY_NAME:-$ID} on $arch"
+
+# ── packages ──────────────────────────────────────────────────────────────
+case "$ID" in
+  ol|rhel|rocky|almalinux|centos)
+    say "Packages (dnf)"
+    dnf -y install oracle-epel-release-el9 >/dev/null 2>&1 || dnf -y install epel-release >/dev/null 2>&1 || true
+    dnf -y install git gcc-c++ make cmake python3.12 python3.12-devel python3.12-pip \
+      rsync tar curl jq rclone policycoreutils-python-utils
+    if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
+      dnf -y module reset nodejs >/dev/null 2>&1 || true
+      dnf -y module enable nodejs:22 >/dev/null 2>&1 && dnf -y install nodejs ||
+        { curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - && dnf -y install nodejs; }
+    fi
+    if ! command -v docker >/dev/null 2>&1; then
+      # Docker CE, not podman: bin/tradeit runs `docker compose`. Fresh VM: drop the
+      # podman pieces that conflict with it.
+      dnf -y remove podman-docker buildah runc >/dev/null 2>&1 || true
+      dnf -y install dnf-plugins-core
+      dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+      dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    fi
+    ;;
+  ubuntu|debian)
+    say "Packages (apt)"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -q
+    apt-get install -y -q git build-essential cmake python3.12 python3.12-venv python3.12-dev \
+      rsync curl jq rclone ca-certificates gnupg
+    if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
+      curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y -q nodejs
+    fi
+    command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
+    ;;
+  *) die "this script knows Oracle Linux 9 and Ubuntu 24.04; this is $ID. Follow deploy/README.md by hand." ;;
+esac
+systemctl enable --now docker
+
+say "The IB Gateway image runs on this CPU?"
+want=amd64; [ "$arch" = aarch64 ] && want=arm64
+token="$(curl -fsS 'https://ghcr.io/token?scope=repository:gnzsnz/ib-gateway:pull' | jq -r .token)"
+archs="$(curl -fsS -H "Authorization: Bearer $token" \
+  -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+  https://ghcr.io/v2/gnzsnz/ib-gateway/manifests/stable | jq -r '.manifests[].platform.architecture')"
+if grep -qx "$want" <<<"$archs"; then
+  echo "yes: ghcr.io/gnzsnz/ib-gateway:stable has a $want build"
+else
+  die "ghcr.io/gnzsnz/ib-gateway:stable has no $want build (it has: $(echo $archs)); the gateway can't run here"
+fi
+
+# ── the app: user, checkout, Python env, C++ engine, dashboard build ─────
+if [ ! -d "$ROOT/.git" ]; then
+  say "The checkout"
+  id dv02 >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/dv02 --shell /bin/bash dv02
+  install -d -o dv02 -g dv02 "$ROOT"
+  sudo -u dv02 -H git clone -q --branch "$BRANCH" "$REPO" "$ROOT"
+fi
+DV02_BRANCH="$BRANCH" DV02_ROOT="$ROOT" "$ROOT/deploy/bin/setup-app"
+
+# ── Tailscale: the way in, for your devices only ──────────────────────────
+say "Tailscale"
+command -v tailscale >/dev/null 2>&1 || curl -fsSL https://tailscale.com/install.sh | sh
+systemctl enable --now tailscaled
+if ! tailscale status >/dev/null 2>&1; then
+  echo "Log this machine in to your Tailscale account: open the link below on your phone or Mac."
+  tailscale up --hostname "$TS_NAME"
+fi
+ts_host="$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')"
+[ -n "$ts_host" ] && [ "$ts_host" != null ] || die "Tailscale is up but has no name for this machine (is MagicDNS on?)"
+ts_short="${ts_host%%.*}"
+echo "This machine on your tailnet: $ts_host"
+
+# ── settings, units, serving ──────────────────────────────────────────────
+say "Settings (/etc/dv02/dv02.env)"
+install -d -m 750 -o root -g dv02 /etc/dv02
+if [ ! -f /etc/dv02/dv02.env ]; then
+  install -m 640 -o root -g dv02 "$ROOT/deploy/dv02.env.example" /etc/dv02/dv02.env
+fi
+# the API answers only to names it knows: this machine's tailnet name
+sed -i "s|^DV02_ALLOWED_HOSTS=.*|DV02_ALLOWED_HOSTS=$ts_host|" /etc/dv02/dv02.env
+grep -q '^DV02_ALLOWED_ORIGINS=' /etc/dv02/dv02.env &&
+  sed -i "s|^DV02_ALLOWED_ORIGINS=.*|DV02_ALLOWED_ORIGINS=https://$ts_host|" /etc/dv02/dv02.env ||
+  echo "DV02_ALLOWED_ORIGINS=https://$ts_host" >> /etc/dv02/dv02.env
+
+say "The systemd units (API, its check, the backup; not the daily run)"
+"$ROOT/deploy/bin/install"
+systemctl restart dv02-api
+for _ in $(seq 1 60); do curl -fsS -o /dev/null http://127.0.0.1:8000/api/v1/status && break; sleep 1; done
+curl -fsS -o /dev/null http://127.0.0.1:8000/api/v1/status || die "the API didn't answer; see: journalctl -u dv02-api -n 50"
+
+say "Serving the dashboard on your tailnet"
+if ! tailscale serve --bg http://127.0.0.1:8000; then
+  echo "Tailscale couldn't serve HTTPS yet: turn on HTTPS certificates for your tailnet"
+  echo "(https://login.tailscale.com/admin/dns → HTTPS Certificates → Enable), then run: sudo tailscale serve --bg http://127.0.0.1:8000"
+fi
+
+cat <<TXT
+
+DV02 is up. On any of your Tailscale devices (install the Tailscale app on your
+phone and log in to the same account): https://$ts_host
+
+It shows the engine's files; there is no IBKR connection yet. Next, in order
+(deploy/README.md has the details):
+
+  1. The IBKR paper login, typed by you, saved only on this machine:
+       sudo -u dv02 -H bash -c 'cd $ROOT && bin/tradeit login'
+     and, for the NAV history, the Flex query and token:
+       sudo -u dv02 -H bash -c 'cd $ROOT && bin/tradeit flex'
+  2. Copy the Mac's state (NAV history, run logs, the expected book) here. From the Mac:
+       rsync -avR trading-engine/artifacts trading-engine/data/broker trading-engine/data/market/cleaned $LOGIN_USER@$ts_short:/tmp/dv02-state/
+     then here: sudo rsync -a /tmp/dv02-state/trading-engine/ $ROOT/trading-engine/ && sudo chown -R dv02:dv02 $ROOT/trading-engine
+  3. One IB Gateway per login: on the Mac, bin/tradeit gateway stop. Then here:
+       sudo -u dv02 -H bash -c 'cd $ROOT && bin/tradeit gateway start && bin/tradeit doctor && bin/tradeit refresh'
+  4. Cut over, before 15:35 ET on a trading day: on the Mac, bin/tradeit schedule remove; here:
+       sudo systemctl enable --now dv02-runner.timer
+TXT
+}
+
+main "$@"

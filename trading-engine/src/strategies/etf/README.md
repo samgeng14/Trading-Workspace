@@ -50,7 +50,7 @@ Three pre-built ensembles:
 Inside `src/production/generate_targets.py`, the optimizer
 `ensemble_default` (and friends) takes the composite score and runs a
 softmax with temperature 3.0, then floors at 2% per asset. The result:
-all 22 ETFs held, top weight ~10-12%, min ~2.6-2.9%.
+all 21 model ETFs held, top weight ~10-12%, min ~2.6-2.9%.
 
 To see what each signal favors today:
 

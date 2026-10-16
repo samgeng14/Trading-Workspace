@@ -1,0 +1,625 @@
+/* ── buttons ─────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-1);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--ink-3);
+  background: var(--bg-hover);
+  text-decoration: none;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.btn-primary {
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
+}
+
+.btn-primary:hover:not(:disabled) {
+  border-color: var(--accent-fill);
+  background: var(--accent-fill);
+  filter: brightness(1.08);
+}
+
+.btn-danger {
+  border-color: var(--tone-bad);
+  color: var(--tone-bad);
+}
+
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--tone-bad);
+  background: var(--down-wash);
+}
+
+.btn-danger-solid {
+  border-color: var(--halt-bg);
+  background: var(--halt-bg);
+  color: var(--halt-ink);
+}
+
+.btn-danger-solid:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--halt-bg);
+}
+
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-ink);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  border-color: transparent;
+}
+
+.btn-icon.btn-ghost {
+  color: var(--ink-2);
+}
+
+.btn-icon {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* ── segmented control (range presets, view toggles) ─────────────────── */
+
+.segmented {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* A label never breaks inside its button; a crowded header wraps whole controls instead. */
+.segmented button {
+  height: 24px;
+  padding: 0 9px;
+  white-space: nowrap;
+  border: 0;
+  border-left: 1px solid var(--rule-strong);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.segmented button:first-child {
+  border-left: 0;
+}
+
+.segmented button:hover {
+  background: var(--bg-hover);
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
+  font-weight: 600;
+}
+
+/* ── form fields ─────────────────────────────────────────────────────── */
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.input,
+.select {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  color: var(--ink-1);
+  font-size: var(--fs-sm);
+}
+
+.select {
+  padding-right: 4px;
+}
+
+.input:focus-visible,
+.select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* ── panel ───────────────────────────────────────────────────────────── */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-top: var(--panel-top-w) solid var(--panel-top);
+  border-radius: var(--radius);
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-3);
+  min-height: 40px;
+  padding: 6px var(--space-4);
+  border-bottom: 1px solid var(--rule);
+}
+
+.panel-title {
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-1);
+  white-space: nowrap;
+}
+
+.panel-meta {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/* Several controls drop to a second line in a narrow panel instead of squeezing. */
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3) var(--space-4);
+}
+
+.panel-body.flush {
+  padding: 0;
+}
+
+.panel-foot {
+  padding: 7px var(--space-4);
+  border-top: 1px solid var(--rule);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.panel-foot .num {
+  white-space: normal;
+}
+
+/* ── stat tiles ──────────────────────────────────────────────────────── */
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.stat-label {
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* Headline values are set in the serif, like a newspaper's figures; the
+   mono stays for columns of numbers. */
+.stat-value {
+  margin-top: 2px;
+  font-family: var(--font-serif);
+  font-size: var(--fs-xl);
+  font-weight: 500;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.stat-sub {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.hero-value {
+  font-family: var(--font-serif);
+  font-size: var(--fs-hero);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.stat-value .num,
+.hero-value.num,
+.hero-value .num {
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+}
+
+/* ── status badge: icon + label, never colour alone ─────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.badge-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mode-demo,
+.mode-paper {
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
+}
+
+.mode-live {
+  background: var(--halt-bg);
+  color: var(--halt-ink);
+}
+
+/* ── tag: outlined state label (BLOCK, WARN, FRESH) ──────────────────── */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.tag[data-tone="good"],
+.tone-good {
+  color: var(--tone-good);
+}
+
+.tag[data-tone="warn"],
+.tone-warn {
+  color: var(--tone-warn);
+}
+
+.tag[data-tone="bad"],
+.tone-bad {
+  color: var(--tone-bad);
+}
+
+.tag[data-tone="accent"],
+.tone-accent {
+  color: var(--accent-ink);
+}
+
+.tag[data-tone="neutral"],
+.tone-neutral {
+  color: var(--ink-3);
+}
+
+/* ── tables ──────────────────────────────────────────────────────────── */
+
+.table-wrap {
+  overflow: auto;
+  max-height: 100%;
+}
+
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--fs-sm);
+}
+
+.table th,
+.table td {
+  height: var(--row-h);
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: var(--space-3);
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: var(--space-3);
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 32px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--ink-3);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.table th.r,
+.table td.r {
+  text-align: right;
+}
+
+.table td.r {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.table td.r .num {
+  font-size: inherit;
+}
+
+.table tbody tr:hover td {
+  background: var(--bg-hover);
+}
+
+.table tfoot td {
+  border-top: 1px solid var(--rule-strong);
+  border-bottom: 0;
+  font-weight: 600;
+}
+
+.table .sym {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.table .sub {
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+}
+
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.th-sort:hover {
+  color: var(--ink-1);
+}
+
+.th-sort[data-active="true"] {
+  color: var(--accent-ink);
+}
+
+.empty {
+  padding: var(--space-5) var(--space-3);
+  color: var(--ink-3);
+  text-align: center;
+  font-size: var(--fs-sm);
+}
+
+/* ── meter (limit utilization) ───────────────────────────────────────── */
+
+.meter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px var(--space-3);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.meter-row:last-child {
+  border-bottom: 0;
+}
+
+.meter-label {
+  font-size: var(--fs-sm);
+}
+
+.meter-value {
+  font-size: var(--fs-sm);
+  text-align: right;
+}
+
+.meter-track {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+/* Neutral sand when within limits; amber / red only when the limit needs attention. */
+.meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 0 2px 2px 0;
+  background: var(--ink-3);
+}
+
+.meter-fill[data-status="warning"] {
+  background: var(--status-warning);
+}
+
+.meter-fill[data-status="breach"] {
+  background: var(--status-critical);
+}
+
+.meter-detail {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/* ── dialog ──────────────────────────────────────────────────────────── */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--overlay);
+}
+
+.dialog {
+  position: fixed;
+  top: 18vh;
+  left: 50%;
+  z-index: 51;
+  width: min(460px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  background: var(--bg-panel);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+}
+
+.dialog-head {
+  padding: var(--space-4) var(--space-4) var(--space-2);
+}
+
+.dialog-title {
+  font-family: var(--font-serif);
+  font-size: var(--fs-xl);
+  font-weight: 500;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--rule);
+}
+
+.dialog .input {
+  width: 100%;
+  height: 30px;
+}
+
+.form-error {
+  color: var(--down);
+  font-size: var(--fs-sm);
+}
+
+/* ── toast ───────────────────────────────────────────────────────────── */
+
+.toasts {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.toast {
+  min-width: 260px;
+  max-width: 380px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+  font-size: var(--fs-sm);
+}
+
+.toast[data-tone="error"] {
+  border-left-color: var(--status-critical);
+}
+
+.toast[data-tone="success"] {
+  border-left-color: var(--status-good);
+}
