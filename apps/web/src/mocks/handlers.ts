@@ -75,6 +75,8 @@ const state = {
   submittedFor: new Map<string, string>(), // execution date -> ET time of the manual submission
   cancelled: new Set<string>(),
   doctorRanAt: null as string | null,
+  // a rebalance started from the dashboard: its session, when (real ms, for pacing its steps), what it sent
+  manualRun: null as null | { day: string; startedMs: number; at: string; preview: S["RebalancePreview"] },
 };
 
 // ── shared views ────────────────────────────────────────────────────────
@@ -996,6 +998,7 @@ function submit(): { ok: true; body: S["RebalanceResult"] } | { ok: false; body:
     }));
   state.submitted.push(...created);
   state.submittedFor.set(execDate, shortET(iso(at)));
+  state.manualRun = { day: execDate, startedMs: Date.now(), at: iso(at), preview: p };
   return {
     ok: true,
     body: {
@@ -1004,6 +1007,180 @@ function submit(): { ok: true; body: S["RebalanceResult"] } | { ok: false; body:
       message: `${created.length} MOC orders queued for ${dayLabel(execDate)}`,
     },
   };
+}
+
+// ── /trading/today ──────────────────────────────────────────────────────
+
+/** How long each step of a demo rebalance takes, so its progress can be watched. */
+export const DEMO_STEP_MS = 600;
+
+const RUN_STEPS: { id: string; label: string; doing: string }[] = [
+  { id: "reconcile", label: "Reconcile with IBKR", doing: "reconciling with IBKR" },
+  { id: "append_daily", label: "Fresh prices", doing: "fetching fresh prices" },
+  { id: "generate_targets", label: "Targets", doing: "computing targets" },
+  { id: "rebalance_decision", label: "Rebalance decision", doing: "deciding what to trade" },
+  { id: "build_basket", label: "Basket", doing: "building the basket" },
+  { id: "submit_orders", label: "Checks and orders", doing: "running the checks and sending orders" },
+];
+
+/** "15:40 ET" on `day`, "Thu 20:05 ET" on another day, as the real API words it. */
+function hmET(at: Date, day: string): string {
+  const time = shortET(iso(at));
+  if (etDate(at) === day) return `${time} ET`;
+  const wd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(at);
+  return `${wd} ${time} ET`;
+}
+
+/** Why "Rebalance now" may not start a run, in the real API's words; undefined when it may. */
+function rebalanceBlocked(dayState: S["TradingDayState"]): string | undefined {
+  if (dayState === "done") return "This session's orders are already in.";
+  if (dayState === "running") return "A run is already working.";
+  if (dayState === "closed") return "The market is closed today.";
+  if (state.killSwitch.armed) return "The kill switch is armed: resume trading first.";
+  return undefined;
+}
+
+/** The real API's answer (services/api dv02_api/today.py), from the simulated book. */
+function tradingDay(): S["TradingDay"] {
+  const { at } = current();
+  const today = etDate(at);
+  const open = isTradingDay(today);
+  const day = open ? today : nextTradingDay(today);
+  const fire = etTime(today, MOC_SUBMIT);
+  const nextRun = open && at < fire ? fire : etTime(nextTradingDay(today), MOC_SUBMIT);
+  const closeAt = etTime(day, closeTime(day));
+  const atClose = `the ${closeTime(day)} ET close`;
+  const answer = (
+    dayState: S["TradingDayState"],
+    headline: string,
+    detail: string,
+    extra: Partial<S["TradingDay"]> = {},
+  ): S["TradingDay"] => {
+    const reason = rebalanceBlocked(dayState);
+    return {
+      as_of: iso(at),
+      trading_date: day,
+      next_run_at: iso(nextRun),
+      connected: true,
+      state: dayState,
+      headline,
+      detail,
+      steps: [],
+      can_rebalance: reason === undefined,
+      ...(reason ? { blocked_reason: reason } : {}),
+      ...extra,
+    };
+  };
+
+  if (!open)
+    return answer(
+      "closed",
+      "No trading today: the market is closed",
+      `The next automatic run is ${hmET(nextRun, today)}.`,
+    );
+
+  // a rebalance started from the dashboard: its steps finish one by one, then its orders wait for the close
+  const run = state.manualRun?.day === day ? state.manualRun : null;
+  if (run) {
+    const p = run.preview;
+    const reached = Math.max(0, Math.floor((Date.now() - run.startedMs) / DEMO_STEP_MS));
+    const sent = state.submitted.filter((o) => o.submitted_at === run.at && !state.cancelled.has(o.id)).length;
+    const cancelled = p.totals.orders - sent;
+    const filled = at >= closeAt ? sent : 0;
+    const details: Record<string, string> = {
+      reconcile: "book matches IBKR",
+      append_daily: `${ETFS.length} new rows, latest ${p.targets_date}`,
+      generate_targets: `momentum_tilted on total-return prices, rebalance date ${p.targets_date}`,
+      rebalance_decision: "rebalance: forced from the dashboard",
+      build_basket: `${p.totals.orders} orders: buy ${apiMoney(p.totals.buy_notional)}, sell ${apiMoney(p.totals.sell_notional)}`,
+      submit_orders: `checks passed; submitted ${p.totals.orders} orders, market-on-close`,
+    };
+    const steps: S["TradingDayStep"][] = RUN_STEPS.map((step, i) => ({
+      id: step.id,
+      label: step.label,
+      state: i < reached ? "done" : i === reached ? "running" : "pending",
+      detail: i < reached ? details[step.id]! : i === reached ? step.doing : "",
+    }));
+    const startedAt = new Date(run.at);
+    if (reached < RUN_STEPS.length)
+      return answer(
+        "running",
+        `Rebalancing now: ${RUN_STEPS[reached]!.doing}`,
+        `Started ${hmET(startedAt, day)} from the dashboard: the daily run's own steps and checks.`,
+        { steps, run_started_at: run.at },
+      );
+    steps.push({
+      id: "fills",
+      label: "Fills",
+      state: filled >= sent ? "done" : "running",
+      detail: `filled ${filled}/${p.totals.orders}`,
+    });
+    const orders: S["TradingDayOrders"] = {
+      sent: p.totals.orders,
+      filled,
+      working: sent - filled,
+      cancelled,
+      auction: "close",
+      fills_at: iso(closeAt),
+      source: "ibkr",
+    };
+    const when = hmET(startedAt, day);
+    return answer(
+      "done",
+      at >= closeAt ? `Traded at today's close (orders sent ${when})` : `Orders in for today's close (sent ${when})`,
+      fillsLine(orders, at, closeAt, atClose),
+      { steps, orders, run_started_at: run.at },
+    );
+  }
+
+  // the scheduled run
+  if (at >= fire) {
+    const trades = tradesOn(day);
+    const firedAt = iso(fire);
+    if (trades.length === 0)
+      return answer(
+        "held",
+        "No trade needed today",
+        `The ${hmET(fire, day)} run checked the book: within the drift bands.`,
+        {
+          run_started_at: firedAt,
+        },
+      );
+    const ids = new Set(trades.map((t) => `${day}-${t.symbol}`));
+    const cancelled = [...ids].filter((id) => state.cancelled.has(id)).length;
+    const sent = trades.length;
+    const filled = at >= closeAt ? sent - cancelled : 0;
+    const orders: S["TradingDayOrders"] = {
+      sent,
+      filled,
+      working: at >= closeAt ? 0 : sent - cancelled,
+      cancelled,
+      auction: "close",
+      fills_at: iso(closeAt),
+      source: "ibkr",
+    };
+    const when = hmET(fire, day);
+    return answer(
+      "done",
+      at >= closeAt ? `Traded at today's close (orders sent ${when})` : `Orders in for today's close (sent ${when})`,
+      fillsLine(orders, at, closeAt, atClose),
+      { orders, run_started_at: firedAt },
+    );
+  }
+
+  return answer(
+    "not_yet",
+    "Not traded yet today",
+    `The automatic run is at ${hmET(fire, day)}: market-on-close, filled at the ${dayLabel(day).replace(",", "")} close.`,
+  );
+}
+
+function fillsLine(o: S["TradingDayOrders"], at: Date, closeAt: Date, atClose: string): string {
+  if (o.filled >= o.sent) return `Filled ${o.filled}/${o.sent} at ${atClose}.`;
+  const parts = [`Filled ${o.filled}/${o.sent}`];
+  if (o.working) parts.push(`${o.working} working` + (at < closeAt ? `, they fill at ${atClose}` : ""));
+  if (o.cancelled) parts.push(`${o.cancelled} cancelled or rejected`);
+  return parts.join("; ") + ".";
 }
 
 // ── /ops/* ──────────────────────────────────────────────────────────────
@@ -1112,6 +1289,7 @@ export const handlers = [
         );
   }),
   http.get(`${API}/trading/rebalance/preview`, () => HttpResponse.json(preview())),
+  http.get(`${API}/trading/today`, () => HttpResponse.json(tradingDay())),
   http.post(`${API}/trading/rebalance`, async ({ request }) => {
     const body = (await request.json()) as Partial<S["RebalanceRequest"]>;
     if (body.confirm !== "SUBMIT") return HttpResponse.json({ title: "Confirmation required" }, { status: 409 });

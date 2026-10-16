@@ -23,7 +23,7 @@ test("rebalance preview: rows toggle and sortable columns", async ({ page }) => 
   }
 });
 
-test("submitting needs SUBMIT typed; orders appear working, can be cancelled, and the duplicate guard holds", async ({
+test("rebalancing needs SUBMIT typed; its steps show live, then its orders work, cancel, and nothing sends twice", async ({
   page,
 }) => {
   covers("trading.orders.filter.*");
@@ -32,19 +32,36 @@ test("submitting needs SUBMIT typed; orders appear working, can be cancelled, an
   const leverage = page.locator("ul.checks li").filter({ hasText: "No leverage" });
   await expect(leverage).toContainText(/gross \d+\.\d% → \d+\.\d% of NAV, cash \$[\d,]+ after; every holding counted/);
   await expect(leverage.locator('circle[fill="var(--status-good)"]')).toHaveCount(1);
-  const submit = ctl(page, "trading.preview.submit");
-  await expect(submit).toBeEnabled();
-  await submit.click();
+  const today = page.getByTestId("trading-day");
+  await expect(today).toContainText("Not traded yet today");
+  const rebalance = ctl(page, "trading.today.rebalance");
+  await expect(rebalance).toBeEnabled();
+  await expect(page.locator(".today-why")).toHaveText(/^About \d+ orders\. Requires typed confirmation\.$/);
+  await rebalance.click();
   await expect(ctl(page, "rebalance.submit.confirm")).toBeDisabled();
   await ctl(page, "rebalance.submit.text").fill("submit");
   await expect(ctl(page, "rebalance.submit.confirm")).toBeDisabled();
   await ctl(page, "rebalance.submit.cancel").click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
-  await submit.click();
+  await rebalance.click();
   await ctl(page, "rebalance.submit.text").fill("SUBMIT");
   await ctl(page, "rebalance.submit.confirm").click();
   await expect(page.locator(".toast")).toContainText("MOC orders queued");
+
+  // the run's own steps, one by one
+  const steps = page.getByRole("list", { name: "Rebalance steps" });
+  await expect(today).toContainText("Rebalancing now:");
+  await expect(steps.locator("li")).toHaveCount(6);
+  await expect(steps.locator('li[data-state="running"]')).toHaveCount(1);
+  // then the orders are in, waiting for the close, and the basket is gone: nothing to send twice
+  await expect(today).toContainText(/Orders in for today's close \(sent 14:1\d ET\)/, { timeout: 10_000 });
+  await expect(today).toContainText(/Filled 0\/\d+; \d+ working, they fill at the 16:00 ET close\./);
+  await expect(steps.locator("li")).toHaveCount(7);
+  await expect(steps.locator("li").last()).toContainText(/Fills.*filled 0\/\d+/);
+  await expect(steps.locator('li[data-state="done"]')).toHaveCount(6);
+  await expect(rebalance).toHaveCount(0);
+  await expect(page.locator("section[aria-label='Rebalance preview']")).toHaveCount(0);
 
   const blotter = page.locator("section[aria-label='Orders']");
   await ctl(page, "trading.orders.filter.working").click();
@@ -53,11 +70,9 @@ test("submitting needs SUBMIT typed; orders appear working, can be cancelled, an
   const count = await working.count();
   expect(count).toBeGreaterThan(5);
 
-  await expect(submit).toBeDisabled();
-  await expect(page.locator(".preview-submit")).toContainText("Blocked: duplicate guard");
-
   await working.first().locator('[data-control="trading.orders.cancel"]').click();
   await expect(working).toHaveCount(count - 1);
+  await expect(today).toContainText("1 cancelled or rejected");
   await ctl(page, "trading.orders.filter.cancelled").click();
   await expect(blotter.locator("tbody tr")).toHaveCount(1);
   await expect(blotter.locator("tbody tr").first()).toContainText("Cancelled");

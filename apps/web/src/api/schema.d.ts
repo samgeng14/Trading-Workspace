@@ -200,6 +200,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/trading/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Did the fund trade today? One plain answer for the session, how far the orders got, and the steps of a rebalance started from the dashboard while it runs. */
+        get: operations["getTradingDay"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ops/doctor": {
         parameters: {
             query?: never;
@@ -704,6 +721,81 @@ export interface components {
             orders: components["schemas"]["Order"][];
             message: string;
         };
+        /**
+         * @description done: a real run sent this session's orders. held: this session's run found nothing to trade. not_yet: nothing has traded for this session yet. running: a rebalance started from the dashboard is working. failed: this session's run stopped before sending orders. closed: no session today (a weekend or an NYSE holiday).
+         * @enum {string}
+         */
+        TradingDayState: "done" | "held" | "not_yet" | "running" | "failed" | "closed";
+        TradingDayStep: {
+            id: string;
+            label: string;
+            /** @enum {string} */
+            state: "pending" | "running" | "done" | "failed" | "skipped";
+            detail: string;
+        };
+        TradingDayOrders: {
+            sent: number;
+            /** @description Orders filled in full. */
+            filled: number;
+            working: number;
+            /** @description Cancelled or rejected. */
+            cancelled: number;
+            /**
+             * @description The auction the orders go to (market-on-open or market-on-close).
+             * @enum {string}
+             */
+            auction?: "open" | "close";
+            /**
+             * Format: date-time
+             * @description When that auction fills them.
+             */
+            fills_at?: string;
+            /**
+             * @description Where the fill counts come from: IBKR live, the end-of-day reconcile (fills IBKR reported), or only the submission log (fills not known on this machine).
+             * @enum {string}
+             */
+            source?: "ibkr" | "reconcile" | "submission";
+        };
+        TradingDay: {
+            /** Format: date-time */
+            as_of: string;
+            /**
+             * Format: date
+             * @description The session the answer is about; on a closed day, the next one.
+             */
+            trading_date: string;
+            state: components["schemas"]["TradingDayState"];
+            /** @description One plain sentence, e.g. "Traded at today's open (orders sent 01:35 ET)". */
+            headline: string;
+            /** @description The second line, e.g. "37 of 37 orders filled at the 09:30 ET open". */
+            detail: string;
+            /**
+             * Format: date-time
+             * @description When the run behind the answer started.
+             */
+            run_started_at?: string;
+            orders?: components["schemas"]["TradingDayOrders"];
+            /**
+             * Format: date-time
+             * @description The next automatic daily run.
+             */
+            next_run_at?: string;
+            /** @description Whether this machine's API is connected to IBKR. */
+            connected: boolean;
+            /**
+             * Format: date-time
+             * @description Not connected, the time of the saved snapshot the pages show.
+             */
+            snapshot_at?: string;
+            /** @description Not connected, where trading runs, e.g. "Trading runs on the VM". */
+            note?: string;
+            /** @description Whether "Rebalance now" may start a run: nothing sent for this session, IBKR connected, the kill switch clear and no run in progress. The rebalance preview's pre-trade checks still have to pass. */
+            can_rebalance: boolean;
+            /** @description Why it may not, in one sentence, when it may not. */
+            blocked_reason?: string;
+            /** @description A rebalance started from the dashboard, step by step, while it runs and for the rest of the session after it; empty otherwise. */
+            steps: components["schemas"]["TradingDayStep"][];
+        };
         DoctorResult: {
             name: string;
             /** @enum {string} */
@@ -1010,6 +1102,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getTradingDay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TradingDay"];
                 };
             };
         };

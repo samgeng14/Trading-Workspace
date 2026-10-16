@@ -1,20 +1,25 @@
 import { useMemo, useState } from "react";
-import { useCancelOrder, useOrders, useRebalancePreview, useSubmitRebalance } from "../api/hooks";
+import { useCancelOrder, useOrders, useRebalancePreview, useTradingDay } from "../api/hooks";
 import type { Schemas } from "../api/client";
 import { LoadError, PageHead, Panel, Segmented, Stat, StatusBadge } from "../components/bits";
-import { ConfirmDialog } from "../components/ConfirmDialog";
 import { type Column, SortableTable } from "../components/SortableTable";
 import { useToast } from "../components/Toasts";
+import { OPEN_STATES, TradingToday } from "../components/TradingToday";
 import { dateLong, dateShort, money, num, pct, price, shortTimeET } from "../lib/format";
 
 type Order = Schemas["Order"];
 type PreviewRow = Schemas["RebalancePreview"]["rows"][number];
 
 export function Trading() {
+  const day = useTradingDay().data;
+  // What a rebalance would send, only while one may still start here: once today's orders are in,
+  // or with no IBKR on this machine, a basket of trades already done (or not sendable) only misleads.
+  const showPreview = !day || (day.connected && OPEN_STATES.includes(day.state));
   return (
     <div className="page">
-      <PageHead title="Trading" sub="Rebalance preview, submission and today's blotter" />
-      <RebalancePanel />
+      <PageHead title="Trading" sub="Whether the fund traded today, the rebalance a run would send, and the blotter" />
+      <TradingToday />
+      {showPreview && <RebalancePanel />}
       <BlotterPanel />
     </div>
   );
@@ -29,10 +34,7 @@ const ROW_VIEWS = [
 
 function RebalancePanel() {
   const { data, error } = useRebalancePreview();
-  const submit = useSubmitRebalance();
-  const toast = useToast();
   const [rowsView, setRowsView] = useState<"trades" | "all">("trades");
-  const [confirming, setConfirming] = useState(false);
 
   const rows = useMemo(() => {
     const all = data?.rows ?? [];
@@ -40,7 +42,6 @@ function RebalancePanel() {
     return shown;
   }, [data, rowsView]);
 
-  const blocker = data?.checks.find((c) => c.status === "fail");
   const columns = useMemo(() => previewColumns(), []);
 
   return (
@@ -94,24 +95,6 @@ function RebalancePanel() {
                   value={<span className="num">{money(data.totals.est_cost)}</span>}
                   sub="estimated"
                 />
-                <div className="preview-submit">
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={!data.can_submit}
-                    onClick={() => setConfirming(true)}
-                    data-control="trading.preview.submit"
-                  >
-                    Submit {data.totals.orders} orders
-                  </button>
-                  <span className="stat-sub">
-                    {data.can_submit
-                      ? "Requires typed confirmation"
-                      : blocker
-                        ? `Blocked: ${blocker.label.toLowerCase()}`
-                        : "Nothing to trade"}
-                  </span>
-                </div>
               </div>
             </div>
             <SortableTable
@@ -124,25 +107,6 @@ function RebalancePanel() {
             />
           </>
         )
-      )}
-      {data && (
-        <ConfirmDialog
-          open={confirming}
-          onOpenChange={setConfirming}
-          title={`Submit ${data.totals.orders} orders?`}
-          confirmLabel="Submit orders"
-          requireText="SUBMIT"
-          control="rebalance.submit"
-          onConfirm={async () => {
-            const result = await submit.mutateAsync();
-            toast(result.message, "success");
-          }}
-        >
-          <p>
-            {data.sleeve}: buy {money(data.totals.buy_notional)}, sell {money(data.totals.sell_notional)}. Orders go to
-            the paper account as {data.execution}.
-          </p>
-        </ConfirmDialog>
       )}
     </Panel>
   );

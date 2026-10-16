@@ -20,7 +20,22 @@ from fastapi import FastAPI, Query, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.datastructures import Headers
 
-from . import engine, flex, history, mandate, nyse, ops, orders, performance, rebalance, risk, runs, stats, stream
+from . import (
+    engine,
+    flex,
+    history,
+    mandate,
+    nyse,
+    ops,
+    orders,
+    performance,
+    rebalance,
+    risk,
+    runs,
+    stats,
+    stream,
+    today,
+)
 from .broker import PER_CONTRACT, AccountSnap, Broker, PositionSnap, lookup_position
 from .universe import BENCHMARKS, BY_SYMBOL
 
@@ -595,13 +610,18 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
         return doc
 
     # ── trading ───────────────────────────────────────────────────────
-    @app.get(f"{v1}/trading/orders")
-    async def get_orders() -> dict[str, Any]:
+    async def live_orders() -> list[dict[str, Any]]:
+        """IBKR's orders, every client's, refreshed at most every 15 s."""
         b = ctx.broker
         if b.connected and time.monotonic() - ctx.orders_refreshed > 15:
             ctx.orders_refreshed = time.monotonic()
             await b.refresh_orders()
-        live = [orders.from_trade(t, sleeve(ctx)) for t in b.trades()] if b.connected else []
+        return [orders.from_trade(t, sleeve(ctx)) for t in b.trades()] if b.connected else []
+
+    @app.get(f"{v1}/trading/orders")
+    async def get_orders() -> dict[str, Any]:
+        b = ctx.broker
+        live = await live_orders()
         s = nyse.session_state(_now())
         if live:
             return {"trading_date": nyse.et_date(_now()).isoformat(), "orders": live}
@@ -638,6 +658,21 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
         snap = live if live is not None else offline_snapshot(ctx.profile)
         return await asyncio.to_thread(rebalance.preview, snap, live is not None, ctx.broker.status.error, _now())
 
+    @app.get(f"{v1}/trading/today")
+    async def get_today() -> dict[str, Any]:
+        b = ctx.broker
+        live = await live_orders() if b.connected else None
+        offline = None if b.connected else offline_snapshot(ctx.profile)
+        return await asyncio.to_thread(
+            today.trading_day,
+            profile=ctx.profile,
+            now=_now(),
+            connected=b.connected,
+            live_orders=live,
+            snapshot_at=offline.as_of if offline else None,
+            kill_armed=not ops.kill_switch_clear(),
+        )
+
     @app.post(f"{v1}/trading/rebalance")
     async def submit_rebalance(request: Request) -> dict[str, Any]:
         body = await json_body(request)
@@ -659,7 +694,7 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
             "message": (
                 f"Daily run started. The engine refreshes bars and targets, rebuilds the basket from live "
                 f"positions and, if its risk gate passes, sends about {n} orders. They appear in the blotter "
-                "as IBKR accepts them."
+                "as IBKR accepts them; its steps show under Trading today."
             ),
         }
 

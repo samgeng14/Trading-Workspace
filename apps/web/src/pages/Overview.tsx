@@ -13,6 +13,7 @@ import { StatusIcon } from "../components/icons";
 import { HistoryEmpty, isShortHistory } from "../components/HistoryEmpty";
 import { NextJob, ScheduleList } from "../components/Schedule";
 import { Figure } from "../components/Figure";
+import { TradingToday } from "../components/TradingToday";
 import { type Column, SortableTable } from "../components/SortableTable";
 import { dateLong, dateShort, money, num, pct, price, shortTimeET, timeET } from "../lib/format";
 import { ASSET_CLASS_LABEL, limitText, MIN_RATIO_OBS } from "../lib/labels";
@@ -24,6 +25,7 @@ export function Overview() {
   return (
     <div className="page">
       <CommandHead />
+      <TradingToday compact />
       <KpiBand />
       <ReadinessRow />
       {/* Two independent stacks so a tall panel never leaves a gap beside it. */}
