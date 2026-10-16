@@ -8,7 +8,9 @@
 #   tradeit flex      connect IBKR Flex: daily NAV since the account opened
 #                     (flex --refetch: load the whole history again with the saved values)
 #   tradeit schedule  install | remove | status  the weekday 15:35 ET daily run (macOS LaunchAgent)
-#   tradeit refresh   fill price-history holes, update bars and targets (dry run: no orders)
+#   tradeit switch    vm | mac | status  move the gateway, the daily run and the engine's state
+#                     between this Mac and the always-on VM (one IBKR login: one place at a time)
+#   tradeit refresh  fill price-history holes, update bars and targets (dry run: no orders)
 #   tradeit doctor    check the IBKR connection end to end
 #   tradeit kill      "why": stop the fund: arm the kill switch, cancel every working order
 #   tradeit resume    start it again, once the doctor and a reconcile pass
@@ -228,6 +230,39 @@ cmd_login() {
   say "Saved. Start it with: bin/tradeit gateway   (bin/tradeit up also starts it)"
 }
 
+# Stop this machine's IB Gateway wherever it was started from. A container
+# brought up from another checkout (~/TradingWorkstation, say) has its own
+# compose files, so `compose down` here can miss it; its service label finds it.
+gateway_stop() {
+  local ids
+  compose down 2>/dev/null || true
+  ids="$(docker ps -q --filter label=com.docker.compose.service=ib-gateway)"
+  # shellcheck disable=SC2086 # one id per word
+  [ -z "$ids" ] || docker stop $ids >/dev/null
+  for _ in $(seq 1 15); do
+    port_open "$GW_PORT" || return 0
+    sleep 1
+  done
+  die "port $GW_PORT is still open with the gateway's container stopped (the IB Gateway app?); quit it"
+}
+
+# Wait for a gateway container's IBKR login; LOGS prints its recent log.
+await_login() { # await_login LOGS...
+  say "Logging in (about a minute)"
+  for _ in $(seq 1 60); do
+    if "$@" 2>/dev/null | grep -q "Login has completed"; then
+      say "IB Gateway is logged in on 127.0.0.1:$GW_PORT"
+      return 0
+    fi
+    if "$@" 2>/dev/null | grep -qi "login failed"; then
+      "$@" 2>&1 | tail -30
+      die "login failed; check the saved login with: bin/tradeit login"
+    fi
+    sleep 2
+  done
+  echo "Still logging in; follow along with: bin/tradeit gateway logs"
+}
+
 cmd_gateway() {
   command -v docker >/dev/null 2>&1 || die "automatic login runs IB Gateway in Docker; install Docker Desktop or OrbStack"
   docker info >/dev/null 2>&1 || die "Docker isn't running; open Docker Desktop (or OrbStack) first"
@@ -238,21 +273,9 @@ cmd_gateway() {
         die "something else is already on port $GW_PORT (the IB Gateway app?); quit it or use that one"
       fi
       compose up -d
-      say "Logging in (about a minute)"
-      for _ in $(seq 1 60); do
-        if compose logs --tail 200 2>/dev/null | grep -q "Login has completed"; then
-          say "IB Gateway is logged in on 127.0.0.1:$GW_PORT"
-          return 0
-        fi
-        if compose logs --tail 200 2>/dev/null | grep -qi "login failed"; then
-          compose logs --tail 30
-          die "login failed; check the saved login with: bin/tradeit login"
-        fi
-        sleep 2
-      done
-      echo "Still logging in; follow along with: bin/tradeit gateway logs"
+      await_login compose logs --tail 200
       ;;
-    stop) compose down ;;
+    stop) gateway_stop ;;
     status) compose ps ;;
     logs) compose logs -f --tail 100 ;;
     *) die "usage: tradeit gateway start|stop|status|logs" ;;
@@ -571,7 +594,8 @@ running and logged in then. If the Mac is asleep, it runs when the Mac wakes; if
 Mac is off, that day's run is skipped (start one from the dashboard). The ET time was
 converted with this Mac's time zone today: install again if the Mac changes zone.
 TXT
-  if ! confirm "Install it?"; then
+  # DV02_YES: `switch mac` already asked
+  if [ -z "${DV02_YES:-}" ] && ! confirm "Install it?"; then
     echo "Not installed; nothing changed."
     return 0
   fi
@@ -744,6 +768,189 @@ cmd_staging() { # cmd_staging [fresh|history] [--now ISO]
   wait
 }
 
+# ── switch: which machine trades, this Mac or the always-on VM (deploy/) ──
+# IBKR allows one gateway login per username, so one machine at a time holds
+# the gateway and the daily run. `switch` moves both in one step, with the
+# engine's state (run logs, the expected book, the drift state, the kill
+# switch), so the two never trade at once and the new one carries on where the
+# old one stopped. It runs on the Mac and reaches the VM over Tailscale.
+VM_SSH="${DV02_VM_SSH:-ubuntu@dv02}"
+VM_ROOT=/opt/dv02
+STATE_DIRS=(trading-engine/artifacts trading-engine/data/broker trading-engine/data/market/cleaned)
+
+vm() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$VM_SSH" "$@" </dev/null; }
+vm_dv02() { vm "sudo -u dv02 -H bash -c 'cd $VM_ROOT && $1'"; }
+vm_reachable() { vm true 2>/dev/null; }
+
+mac_gateway_on() { port_open "$GW_PORT"; }
+mac_schedule_on() { [ "$(uname)" = Darwin ] && agent_loaded; }
+vm_gateway_on() { vm "sudo docker ps -q --filter label=com.docker.compose.service=ib-gateway | grep -q ."; }
+vm_timer_on() { vm "systemctl is-enabled --quiet dv02-runner.timer"; }
+
+# Prints where a daily run is running now, if anywhere. The [d] keeps pgrep
+# from matching the shell that runs it.
+runner_busy_on() {
+  if pgrep -f 'src.production.[d]aily_runner' >/dev/null 2>&1; then
+    echo "this Mac"
+  elif vm "pgrep -f 'src.production.[d]aily_runner' >/dev/null || systemctl is-active --quiet dv02-runner.service"; then
+    echo "the VM"
+  fi
+}
+
+# Weekdays 15:20-16:00 New York time: the daily run starts 15:35 and its
+# market-on-close orders go by 15:45. A switch then could skip or split the run.
+in_run_window() {
+  local d t
+  d="$(TZ=America/New_York date +%u)"
+  t="$(TZ=America/New_York date +%H%M)"
+  ((d <= 5 && 10#$t >= 1520 && 10#$t < 1600))
+}
+
+switch_guard() {
+  local busy
+  busy="$(runner_busy_on)"
+  [ -z "$busy" ] || die "a daily run is running on $busy; switch once it finishes"
+  if in_run_window; then
+    die "it's the daily run's window (15:20-16:00 ET on a weekday); switch before or after it"
+  fi
+}
+
+sync_state_to_vm() {
+  local d
+  for d in "${STATE_DIRS[@]}"; do
+    [ -d "$ROOT/$d" ] || continue
+    echo "  $d"
+    vm "sudo -u dv02 mkdir -p $VM_ROOT/$d" || die "couldn't create $d on the VM"
+    rsync -rlpt -e "ssh -o BatchMode=yes" --rsync-path="sudo -u dv02 rsync" \
+      "$ROOT/$d/" "$VM_SSH:$VM_ROOT/$d/" || die "copying $d to the VM failed"
+  done
+}
+
+sync_state_from_vm() {
+  local d
+  for d in "${STATE_DIRS[@]}"; do
+    vm "sudo test -d $VM_ROOT/$d" || continue
+    echo "  $d"
+    mkdir -p "$ROOT/$d"
+    rsync -rlpt -e "ssh -o BatchMode=yes" --rsync-path="sudo rsync" \
+      "$VM_SSH:$VM_ROOT/$d/" "$ROOT/$d/" || die "copying $d from the VM failed"
+  done
+}
+
+# The Mac's gateway: this checkout's saved login, else the stopped container a
+# switch to the VM left behind (started from another checkout, with its login).
+mac_gateway_start() {
+  local id
+  if [ -f "$GW_ENV" ]; then
+    cmd_gateway start
+    return
+  fi
+  id="$(docker ps -aq --filter label=com.docker.compose.service=ib-gateway | head -1)"
+  [ -n "$id" ] || die "no IB Gateway login saved on this Mac; run: bin/tradeit login, then switch again"
+  docker start "$id" >/dev/null
+  await_login docker logs --tail 200 "$id"
+}
+
+switch_status() {
+  local mg=off ms=off vg=off vt=off reach="" where
+  mac_gateway_on && mg=on
+  mac_schedule_on && ms=on
+  if vm_reachable; then
+    reach=1
+    vm_gateway_on && vg=on
+    vm_timer_on && vt=on
+  fi
+  say "Where the fund trades"
+  printf '  this Mac   gateway %-4s daily run %s\n' "$mg" "$ms"
+  if [ -n "$reach" ]; then
+    printf '  the VM     gateway %-4s daily run %s\n' "$vg" "$vt"
+  else
+    printf '  the VM     not reachable over SSH (%s): is Tailscale on?\n' "$VM_SSH"
+  fi
+  if [ -z "$reach" ]; then
+    where="unknown: the VM didn't answer"
+  elif [ "$vg$vt" = onon ] && [ "$mg$ms" = offoff ]; then
+    where="the VM, $(vm "tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//; s|^|https://|'")"
+  elif [ "$mg$ms" = onon ] && [ "$vg$vt" = offoff ]; then
+    where="this Mac"
+  else
+    where="split between the two: run bin/tradeit switch vm (or mac) to put it on one"
+  fi
+  say "Trading runs on: $where"
+}
+
+switch_to_vm() { # switch_to_vm [yes]
+  vm_reachable || die "can't reach the VM over SSH ($VM_SSH). Is Tailscale on? DV02_VM_SSH sets another address"
+  vm "sudo test -f $VM_ROOT/ibgw/.env" ||
+    die "no IBKR login saved on the VM; there: sudo -u dv02 -H bash -c 'cd $VM_ROOT && bin/tradeit login'"
+  switch_guard
+  if [ "${1:-}" != yes ]; then
+    echo "This stops this Mac's IB Gateway and daily run, copies the engine's state to the VM,"
+    echo "then starts the VM's gateway and its daily run (15:35 ET, Monday to Friday)."
+    confirm "Move trading to the VM?" || { echo "Nothing changed."; return 0; }
+  fi
+  say "1/5 This Mac: daily run off"
+  if mac_schedule_on; then schedule_remove; else echo "  (it was off)"; fi
+  say "2/5 This Mac: IB Gateway off"
+  gateway_stop
+  say "3/5 Copying the engine's state to the VM"
+  sync_state_to_vm
+  say "4/5 The VM: IB Gateway on (the first start downloads it: a few minutes)"
+  vm_dv02 "bin/tradeit gateway start" ||
+    die "the VM's gateway didn't start (above). Nothing trades now: fix it, or go back with: bin/tradeit switch mac"
+  say "5/5 The VM: daily run on"
+  vm "sudo systemctl enable --now dv02-runner.timer && systemctl list-timers dv02-runner.timer --no-pager | sed -n 2p" ||
+    die "the VM's timer didn't start; there: sudo systemctl enable --now dv02-runner.timer"
+  say "Checking the VM's IBKR connection"
+  vm_dv02 "bin/tradeit doctor" || echo "The doctor found a problem (above)."
+  switch_status
+}
+
+switch_to_mac() { # switch_to_mac [yes]
+  need_macos
+  local reach=""
+  vm_reachable && reach=1
+  if [ -n "$reach" ]; then
+    switch_guard
+  else
+    echo "The VM doesn't answer over SSH ($VM_SSH), so its state can't be copied back: this Mac"
+    echo "carries on from its own copy, as it was when trading moved to the VM. Make sure the"
+    echo "VM is really off (Oracle Cloud console), or both may trade."
+  fi
+  if [ "${1:-}" != yes ]; then
+    echo "This stops the VM's IB Gateway and daily run, copies the engine's state back here,"
+    echo "then starts this Mac's gateway and daily run (14:35 here, 15:35 ET)."
+    confirm "Move trading to this Mac?" || { echo "Nothing changed."; return 0; }
+  fi
+  if [ -n "$reach" ]; then
+    say "1/4 The VM: daily run and IB Gateway off"
+    vm "sudo systemctl disable --now dv02-runner.timer" || die "couldn't stop the VM's timer"
+    vm_dv02 "bin/tradeit gateway stop" || die "couldn't stop the VM's gateway"
+    say "2/4 Copying the engine's state from the VM"
+    sync_state_from_vm
+  fi
+  say "3/4 This Mac: IB Gateway on"
+  mac_gateway_start
+  say "4/4 This Mac: daily run on"
+  DV02_YES=1 schedule_install
+  say "Checking this Mac's IBKR connection"
+  (cd "$ROOT/trading-engine" && "$PY" -m src.broker.ibkr.doctor) || echo "The doctor found a problem (above)."
+  switch_status
+}
+
+cmd_switch() { # cmd_switch vm|mac|status [--yes]
+  local yes=""
+  [ "${2:-}" = --yes ] && yes=yes
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 ||
+    die "Docker isn't running here; open Docker Desktop (or OrbStack) first"
+  case "${1:-status}" in
+    vm) switch_to_vm "$yes" ;;
+    mac) switch_to_mac "$yes" ;;
+    status) switch_status ;;
+    *) die "usage: tradeit switch vm|mac|status [--yes]" ;;
+  esac
+}
+
 case "${1:-help}" in
   setup) shift; cmd_setup "$@" ;;
   engine) shift; cmd_engine "$@" ;;
@@ -760,5 +967,6 @@ case "${1:-help}" in
   api) shift; cmd_api "$@" ;;
   demo) shift; cmd_demo "$@" ;;
   staging) shift; cmd_staging "$@" ;;
-  *) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  switch) shift; cmd_switch "$@" ;;
+  *) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
