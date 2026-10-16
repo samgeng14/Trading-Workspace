@@ -73,6 +73,7 @@ GETS = [
     ("/risk", "/risk"),
     ("/trading/orders", "/trading/orders"),
     ("/trading/rebalance/preview", "/trading/rebalance/preview"),
+    ("/trading/today", "/trading/today"),
     ("/ops/doctor", "/ops/doctor"),
     ("/ops/runs", "/ops/runs"),
 ]

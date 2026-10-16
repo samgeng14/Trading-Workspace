@@ -42,6 +42,7 @@ export const CONTROLS = [
   "overview.movers.sort.*",
   "overview.readiness.*",
   "overview.issue.*",
+  "overview.trading-day.more",
   // positions
   "positions.search",
   "positions.asset-class",
@@ -60,7 +61,7 @@ export const CONTROLS = [
   "risk.scenarios.plot",
   // trading
   "trading.preview.rows.*",
-  "trading.preview.submit",
+  "trading.today.rebalance",
   "trading.preview.table.sort.*",
   "rebalance.submit.text",
   "rebalance.submit.cancel",
