@@ -1,7 +1,9 @@
 # Handoff: where DV02 stands and what to do next
 
-Last updated 2026-10-13 (evening) by the session that finished Phase 0's safety
-work on PR [samgeng14/Trading-Workspace#12](https://github.com/samgeng14/Trading-Workspace/pull/12)
+Last updated 2026-10-16 by the session that wired `execution.yaml` (the owner
+said the scheduled run sends paper orders) and put the signals on total-return
+prices. It also moved the Flex walk off the API's upkeep loop and wrote
+`deploy/` for the VM. All of it is on PR [samgeng14/Trading-Workspace#12](https://github.com/samgeng14/Trading-Workspace/pull/12)
 (branch `claude/serene-babbage-0204ht`, draft). `CLAUDE.md` has the owner's
 rules; this file has the state. Keep both current as you work.
 
