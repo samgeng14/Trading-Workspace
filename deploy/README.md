@@ -149,7 +149,33 @@ Compare the VM's newest targets
 (`trading-engine/data/market/cleaned/targets/etf_targets_monthly.csv`) with the
 Mac's from the same day. They should match.
 
-## Cut over (one trading day, before 15:35 ET)
+## Switching between the Mac and the VM
+
+IBKR allows one gateway login per username, so one machine at a time holds
+the gateway and the daily run. From the Mac (it reaches the VM over
+Tailscale as `ubuntu@dv02`; `DV02_VM_SSH` sets another address):
+
+```bash
+bin/tradeit switch status   # where the gateway and the daily run are on now
+bin/tradeit switch vm       # trading moves to the VM
+bin/tradeit switch mac      # and back
+```
+
+A switch turns off the old machine's daily run and gateway, copies the
+engine's state (`trading-engine/artifacts`, `data/broker`,
+`data/market/cleaned`) to the new one, then starts the new one's gateway and
+daily run and runs the doctor. It refuses while a daily run is running, and
+on weekdays from 15:20 to 16:00 ET. `switch mac` works with the VM
+unreachable too: the Mac then carries on from its own copy of the state.
+
+The VM needs its own saved login (`bin/tradeit login` there). It is the
+**paper** username, which is not the live one: a wrong one fails with
+"invalid username or password" in `/home/ibgateway/Jts/launcher.log`
+inside the container.
+
+## Cut over by hand (one trading day, before 15:35 ET)
+
+What `switch vm` does, step by step:
 
 1. On the Mac: `bin/tradeit schedule remove` and `bin/tradeit gateway stop`.
    IBKR allows one session per username. The Mac's container restarts by

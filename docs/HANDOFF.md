@@ -137,9 +137,25 @@ Then try `bin/tradeit kill "test"` with a working order and `bin/tradeit resume`
 
 ### 2. The always-on host: the owner's Oracle Cloud VM
 
-Until the cutover the Mac runs the fund and must be awake at 14:35 Central.
-The plan (`docs/PLAN.md` §12, Phase 2) moves the gateway, runner, API and
-Postgres to the VM below.
+**Since 2026-10-16 (evening) the fund trades from the VM.** The VM holds the
+gateway, and its `dv02-runner.timer` does the 15:35 ET run, first on Monday
+2026-10-19. The Mac's gateway and LaunchAgent are off. `bin/tradeit switch
+vm|mac|status`, run on the Mac, moves trading between the two
+(`deploy/README.md`, "Switching between the Mac and the VM"). Check the
+first VM run that evening: the run log, and the dashboard at
+https://dv02.tail30c53b.ts.net.
+
+- **The Mac's login.** The Mac's own IB Gateway login lives in
+  `~/TradingWorkstation/ibgw/.env`, not in this checkout (`ibgw/.env` is
+  absent here). Its stopped container (`ibgw-ib-gateway-1`, started from
+  there) is what `switch mac` restarts. The VM's `ibgw/.env` is a copy of
+  that file, streamed over SSH unread, because the first login typed on the
+  VM had the live username in it.
+- **The 17:42 dry run.** A dry run (`bin/tradeit refresh`) on the Mac at
+  17:42 Central refreshed prices and targets from the 2026-10-16 close. Its
+  drift gate said no rebalance: the composition changed, but the cooldown had
+  3 days left. The dashboard's preview shows the 20 small trades those
+  targets imply. The daily run decides again on Monday.
 
 **The VM, `dv02` (built 2026-10-16 with `deploy/bin/bootstrap`):**
 - Oracle Cloud us-chicago-1, AD-3, in the root compartment, subnet
@@ -151,10 +167,10 @@ Postgres to the VM below.
   `~/.ssh/id_ed25519`, or `ssh ubuntu@dv02` over Tailscale
 - Tailscale name `dv02.tail30c53b.ts.net`. `tailscale serve` puts the
   dashboard at https://dv02.tail30c53b.ts.net, on the tailnet only
-- running: `dv02-api` (127.0.0.1:8000, foreign Hosts get 400) and
-  `dv02-api-check.timer`
-- not running yet: the gateway, `dv02-runner.timer`, backups (no
-  `DV02_BACKUP_REMOTE`), heartbeats, Postgres
+- running: `dv02-api` (127.0.0.1:8000, foreign Hosts get 400),
+  `dv02-api-check.timer`, IB Gateway (paper DUP317554; the doctor passes)
+  and `dv02-runner.timer`
+- not running yet: backups (no `DV02_BACKUP_REMOTE`), heartbeats, Postgres
 - the Mac's state (artifacts, data/broker, data/market/cleaned) was copied
   on 2026-10-16 after the close
 
@@ -321,11 +337,10 @@ Docs: https://code.claude.com/docs/en/chrome
   ../../.venv/bin/python -m dv02_api.portfolio_analyst ~/Downloads/<the daily PortfolioAnalyst CSV>
   ```
 - Delete any `DV02_INCEPTION_*` lines from `.env` (the import replaces them).
-- The Mac's schedule is installed (launchd, 14:35 Central) and stays until
-  the VM takes over.
-- The VM (step 2): install Tailscale on the phone and Mac (same account),
-  then over SSH, `bin/tradeit login` and `bin/tradeit flex` as `dv02`. After
-  that, the gateway move and the cutover, both on a trading day.
+- Trading runs on the VM (step 2). To move it back to the Mac:
+  `bin/tradeit switch mac`. Optionally, save this checkout's own login with
+  `bin/tradeit login` (the **paper** username), so the Mac's gateway no
+  longer depends on `~/TradingWorkstation`.
 - The limits in `config/risk_limits.yaml` were confirmed on 2026-10-16: one name
   at most 20%, net between 50% and 100%, at least 5 holdings.
 - Market data and permissions (`docs/PLAN.md` §7, §15):
