@@ -3,7 +3,37 @@
 Today the fund runs on the owner's Mac, which must be awake at 14:35 Central.
 These files move it to the owner's Oracle Cloud VM (`docs/PLAN.md` §12,
 Phase 2). Everything still binds to 127.0.0.1. The only way in from outside is
-a Cloudflare tunnel with Cloudflare Access in front.
+Tailscale, your own devices only (the quick start), or a Cloudflare tunnel with
+Cloudflare Access in front (the manual setup below).
+
+## Quick start: one command (Tailscale)
+
+1. **The VM.** Oracle Cloud → Compute → Create instance:
+   - Shape: **VM.Standard.A1.Flex** (Ampere, ARM). It's in the Always Free
+     allowance: 4 OCPUs and 24 GB in total, across all your A1 VMs. 3 OCPUs and
+     18 GB is plenty. Paid x86 shapes (E5.Flex) work too.
+   - Image: Canonical **Ubuntu 24.04** (Oracle Linux 9 also works).
+   - SSH key: paste your Mac's **public** key
+     (`cat ~/.ssh/id_ed25519.pub`; no key yet: `ssh-keygen -t ed25519`). Without
+     one you can't log in.
+   - No ports to open: Tailscale connects out.
+
+   "Out of host capacity" on A1 is common: try another availability domain,
+   or fewer OCPUs, and retry later.
+2. **Tailscale** on your phone and Mac (the app, one account), and turn on
+   HTTPS certificates for the tailnet
+   (login.tailscale.com/admin/dns → HTTPS Certificates).
+3. **On the VM** (`ssh ubuntu@<public IP>`):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/samgeng14/Trading-Workspace/claude/serene-babbage-0204ht/deploy/bin/bootstrap | sudo bash
+   ```
+   It takes about 10 minutes. Partway through, it prints a Tailscale login
+   link: open it and approve the machine. At the end it prints the dashboard's
+   address (`https://dv02.<tailnet>.ts.net`) and the remaining steps: the IBKR
+   login, copying the Mac's state, the gateway, and the cutover below.
+
+`deploy/bin/setup-app` updates the VM to the branch's latest commit:
+`sudo /opt/dv02/deploy/bin/setup-app && sudo systemctl restart dv02-api`.
 
 | File | What |
 |---|---|
@@ -13,7 +43,9 @@ a Cloudflare tunnel with Cloudflare Access in front.
 | `systemd/dv02-backup.service`, `.timer` | Daily 18:30 ET: the engine's state (and Postgres) to R2 |
 | `systemd/dv02-alert@.service` | Any DV02 unit that fails pings its heartbeat's `/fail` |
 | `bin/heartbeat`, `bin/backup`, `bin/migrate` | What those units run |
-| `bin/install` | Installs the units; starts the API, its check and the backup, **not** the daily run |
+| `bin/bootstrap` | A fresh Ubuntu 24.04 / Oracle Linux 9 VM to a running dashboard on Tailscale, in one command |
+| `bin/setup-app` | The `dv02` user, the checkout, its Python env, C++ engine and dashboard build (run again to update) |
+| `bin/install` | Installs the units; starts the API and its check (and the backup once it has a remote), **not** the daily run |
 | `bin/check` | Checks the files: script syntax, calendar specs, `systemd-analyze verify` |
 | `dv02.env.example` | `/etc/dv02/dv02.env`: allowed host, heartbeat URLs, backup remote, DB user |
 | `cloudflared/config.yml.example` | The tunnel: one hostname to 127.0.0.1:8000 |
@@ -32,7 +64,7 @@ The owner signs in to Oracle Cloud in Chrome; Claude reads Compute → Instances
 
 The architecture decides the first check below.
 
-## Set up (the owner, over SSH)
+## Manual setup (the owner, over SSH; Cloudflare instead of Tailscale)
 
 1. **Packages:**
    - Python 3.12 with venv
@@ -47,7 +79,7 @@ The architecture decides the first check below.
    doesn't, stop: the gateway needs another image, and that is a code change.
 3. **The checkout:**
    ```bash
-   sudo useradd --system --home-dir /opt/dv02 --shell /bin/bash dv02
+   sudo useradd --system --create-home --home-dir /var/lib/dv02 --shell /bin/bash dv02
    sudo usermod -aG docker dv02                         # the gateway and Postgres run in Docker
    sudo install -d -o dv02 -g dv02 /opt/dv02            # empty, so the clone can go in it
    sudo -u dv02 git clone https://github.com/samgeng14/Trading-Workspace.git /opt/dv02

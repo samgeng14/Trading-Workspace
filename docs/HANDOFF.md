@@ -154,6 +154,13 @@ these here:
 - the VCN security list's ingress rules
 - anything else already running there (the plan mentions a Kalshi desk)
 
+**One command (2026-10-16):** on a fresh Ubuntu 24.04 VM (the free Ampere
+A1 shape; the IB Gateway image has an arm64 build), run `deploy/bin/bootstrap`
+(`deploy/README.md`, Quick start). It installs everything and serves the
+dashboard to the owner's Tailscale devices. The owner already has one free A1
+VM, `deskd-recorder` (1 OCPU, 6 GB), so a new one of 3 OCPU and 18 GB fills the
+free allowance.
+
 **The files are ready (2026-10-16): [`deploy/README.md`](../deploy/README.md)**
 is the runbook (setup, dry run, cut over, rollback), with:
 - systemd units: the API, which now serves the built dashboard itself

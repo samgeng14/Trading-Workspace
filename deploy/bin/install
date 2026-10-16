@@ -12,6 +12,12 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 [ -f /opt/dv02/apps/web/dist/index.html ] || { echo "no dashboard build: (cd /opt/dv02/apps/web && npm run build) first" >&2; exit 1; }
 install -m 644 "$here"/systemd/*.service "$here"/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now dv02-api.service dv02-api-check.timer dv02-backup.timer
+systemctl enable --now dv02-api.service dv02-api-check.timer
+# the backup only once it has somewhere to go (else it fails every day)
+if grep -q '^DV02_BACKUP_REMOTE=.' /etc/dv02/dv02.env && command -v rclone >/dev/null 2>&1; then
+  systemctl enable --now dv02-backup.timer
+else
+  echo "Backups are off: set DV02_BACKUP_REMOTE in /etc/dv02/dv02.env (rclone config first), then run this again."
+fi
 echo "Installed. The API is on 127.0.0.1:8000; check it: systemctl status dv02-api"
 echo "The daily run is NOT scheduled yet. At cutover: sudo systemctl enable --now dv02-runner.timer"
