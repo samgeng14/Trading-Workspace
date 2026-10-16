@@ -13,7 +13,7 @@ type PreviewRow = Schemas["RebalancePreview"]["rows"][number];
 export function Trading() {
   return (
     <div className="page">
-      <PageHead title="Trading" sub="Rebalance preview, submission and today's blotter" />
+      <PageHead eyebrow="Execution" title="Trading" sub="Rebalance preview, submission and today's blotter" />
       <RebalancePanel />
       <BlotterPanel />
     </div>
@@ -75,21 +75,25 @@ function RebalancePanel() {
                 ))}
               </ul>
               <div className="preview-totals">
-                <Stat label="Orders" value={<span className="num">{data.totals.orders}</span>} />
+                <Stat className="tile" label="Orders" value={<span className="num">{data.totals.orders}</span>} />
                 <Stat
+                  className="tile"
                   label="Buy"
                   value={<span className="num">{money(data.totals.buy_notional, { compact: true })}</span>}
                 />
                 <Stat
+                  className="tile"
                   label="Sell"
                   value={<span className="num">{money(data.totals.sell_notional, { compact: true })}</span>}
                 />
                 <Stat
+                  className="tile"
                   label="Turnover"
                   value={<span className="num">{pct(data.totals.turnover, 1)}</span>}
                   sub="of NAV"
                 />
                 <Stat
+                  className="tile"
                   label="Est. cost"
                   value={<span className="num">{money(data.totals.est_cost)}</span>}
                   sub="estimated"
@@ -97,7 +101,7 @@ function RebalancePanel() {
                 <div className="preview-submit">
                   <button
                     type="button"
-                    className="btn btn-primary"
+                    className="btn btn-primary btn-cta"
                     disabled={!data.can_submit}
                     onClick={() => setConfirming(true)}
                     data-control="trading.preview.submit"
@@ -120,6 +124,7 @@ function RebalancePanel() {
               control="trading.preview.table"
               rowKey={(r) => r.symbol}
               initialSort={[{ id: "est_notional", desc: true }]}
+              stickyFirst
               empty="Book is on target: nothing to trade"
             />
           </>
@@ -149,12 +154,35 @@ function RebalancePanel() {
 }
 
 function previewColumns(): Column<PreviewRow>[] {
+  // the trade and its size first, then the weights that explain it
   return [
     {
       id: "symbol",
       header: "Symbol",
       accessorKey: "symbol",
       cell: ({ row }) => <span className="sym">{row.original.symbol}</span>,
+    },
+    {
+      id: "trade_qty",
+      header: "Trade",
+      accessorKey: "trade_qty",
+      meta: { align: "right" },
+      cell: ({ row }) => {
+        const q = row.original.trade_qty;
+        if (q === 0) return <span className="muted">&mdash;</span>;
+        return (
+          <span className="num">
+            <span className={q > 0 ? "side-buy" : "side-sell"}>{q > 0 ? "BUY" : "SELL"}</span> {num(Math.abs(q))}
+          </span>
+        );
+      },
+    },
+    {
+      id: "est_notional",
+      header: "Notional",
+      accessorFn: (r) => Math.abs(r.est_notional),
+      meta: { align: "right" },
+      cell: ({ row }) => (row.original.est_notional === 0 ? "—" : money(row.original.est_notional, { sign: true })),
     },
     {
       id: "current_weight",
@@ -183,28 +211,6 @@ function previewColumns(): Column<PreviewRow>[] {
       accessorKey: "current_qty",
       meta: { align: "right" },
       cell: ({ row }) => num(row.original.current_qty),
-    },
-    {
-      id: "trade_qty",
-      header: "Trade",
-      accessorKey: "trade_qty",
-      meta: { align: "right" },
-      cell: ({ row }) => {
-        const q = row.original.trade_qty;
-        if (q === 0) return <span className="muted">&mdash;</span>;
-        return (
-          <span className="num">
-            <span className={q > 0 ? "side-buy" : "side-sell"}>{q > 0 ? "BUY" : "SELL"}</span> {num(Math.abs(q))}
-          </span>
-        );
-      },
-    },
-    {
-      id: "est_notional",
-      header: "Notional",
-      accessorFn: (r) => Math.abs(r.est_notional),
-      meta: { align: "right" },
-      cell: ({ row }) => (row.original.est_notional === 0 ? "—" : money(row.original.est_notional, { sign: true })),
     },
     {
       id: "est_cost",
@@ -386,6 +392,7 @@ function BlotterPanel() {
           control="trading.orders.table"
           rowKey={(o) => o.id}
           initialSort={[{ id: "submitted_at", desc: true }]}
+          stickyFirst
           empty={filter === "all" ? "No orders this session." : "No orders with this status"}
         />
       )}

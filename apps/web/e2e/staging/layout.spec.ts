@@ -15,7 +15,7 @@ const PAGES = [
   { path: "/ops", title: "Operations", ready: '[aria-label="Schedule"] .schedule-row' },
 ];
 const WIDTHS = [1440, 390];
-const THEMES = ["light", "dark"] as const;
+const THEMES = ["dark", "light"] as const;
 
 // the real schedule's wording (services/api/dv02_api/runs.py)
 const DAILY_RUN = "Daily run: data, targets, rebalance if drift > 5%; orders go market-on-close";
@@ -89,11 +89,11 @@ function overflow(page: Page): Promise<string[]> {
 if (STAGING) {
   test("chart labels fit when figures render wider than the mono's 0.6em", async ({ page }) => {
     // CI's Chromium drew the y labels about 8% wider than locally (hinting rounds glyph advances
-    // up), past the Journal theme's unpadded panels. The chart measures what it drew; widen the
-    // figures on purpose and nothing may run past its panel.
+    // up), past the panel. The chart measures what it drew; widen the figures on purpose and
+    // nothing may run past its panel, in either theme's fonts.
     await page.setViewportSize({ width: 390, height: 900 });
     await page.addInitScript(() => {
-      localStorage.setItem("dv02.theme", "light");
+      localStorage.setItem("dv02.ui-theme", "light");
       document.addEventListener("DOMContentLoaded", () => {
         const style = document.createElement("style");
         style.textContent = ".chart .tick { letter-spacing: 0.15em; }";
@@ -121,7 +121,7 @@ if (STAGING) {
       test.describe(`${theme} theme at ${width}px`, () => {
         test.use({ viewport: { width, height: 900 } });
         test.beforeEach(async ({ page }) => {
-          await page.addInitScript((t) => localStorage.setItem("dv02.theme", t), theme);
+          await page.addInitScript((t) => localStorage.setItem("dv02.ui-theme", t), theme);
         });
 
         for (const p of PAGES) {

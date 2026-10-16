@@ -22,6 +22,8 @@ interface Props<T> {
   rowKey: (row: T) => string;
   showFooter?: boolean;
   maxHeight?: number | string;
+  /** Keep the first column (the symbol) in view while a wide table scrolls sideways. */
+  stickyFirst?: boolean;
 }
 
 /** Dense, sortable table. Headers are buttons (keyboard-sortable); numbers are right-aligned. */
@@ -34,6 +36,7 @@ export function SortableTable<T>({
   rowKey,
   showFooter,
   maxHeight,
+  stickyFirst = false,
 }: Props<T>) {
   const [sorting, setSorting] = useState<SortingState>(initialSort);
   const table = useReactTable({
@@ -49,7 +52,7 @@ export function SortableTable<T>({
 
   return (
     <div className="table-wrap" style={{ maxHeight }}>
-      <table className="table">
+      <table className={`table ${stickyFirst ? "sticky-first" : ""}`}>
         <thead>
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>

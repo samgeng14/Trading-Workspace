@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MotionConfig } from "motion/react";
 import { useEffect } from "react";
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Route, Routes, useLocation } from "react-router";
 import { applyFrame } from "./api/hooks";
 import { startStream } from "./api/stream";
 import { ToastProvider } from "./components/Toasts";
@@ -22,34 +23,53 @@ const queryClient = new QueryClient({
   },
 });
 
+function Shell() {
+  const { pathname } = useLocation();
+  // a new section starts at the top, whichever box scrolls (the main column, or the page on a phone)
+  useEffect(() => {
+    document.querySelector(".main")?.scrollTo({ top: 0 });
+    window.scrollTo({ top: 0 });
+  }, [pathname]);
+
+  return (
+    <div className="app">
+      <SideNav />
+      <TopBar />
+      <KillBanner />
+      <main className="main">
+        <Routes>
+          <Route path="/" element={<Overview />} />
+          <Route path="/positions" element={<Positions />} />
+          <Route path="/performance" element={<Performance />} />
+          <Route path="/risk" element={<Risk />} />
+          <Route path="/trading" element={<Trading />} />
+          <Route path="/ops" element={<Operations />} />
+        </Routes>
+      </main>
+      <TickerStrip />
+    </div>
+  );
+}
+
 export function App() {
   // one WebSocket for the whole dashboard; its frames land in the cache the hooks read
   useEffect(() => startStream((frame) => applyFrame(queryClient, frame)), []);
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <ServerClockProvider>
-          <BrowserRouter>
-            <div className="app">
-              <SideNav />
-              <TopBar />
-              <KillBanner />
-              <main className="main">
-                <Routes>
-                  <Route path="/" element={<Overview />} />
-                  <Route path="/positions" element={<Positions />} />
-                  <Route path="/performance" element={<Performance />} />
-                  <Route path="/risk" element={<Risk />} />
-                  <Route path="/trading" element={<Trading />} />
-                  <Route path="/ops" element={<Operations />} />
-                </Routes>
-              </main>
-              <TickerStrip />
-            </div>
-          </BrowserRouter>
-        </ServerClockProvider>
-      </ToastProvider>
+      <MotionConfig reducedMotion="user">
+        <ToastProvider>
+          <ServerClockProvider>
+            <BrowserRouter>
+              <div className="backdrop" aria-hidden="true">
+                <div className="backdrop-grid" />
+                <div className="backdrop-floor" />
+              </div>
+              <Shell />
+            </BrowserRouter>
+          </ServerClockProvider>
+        </ToastProvider>
+      </MotionConfig>
     </QueryClientProvider>
   );
 }

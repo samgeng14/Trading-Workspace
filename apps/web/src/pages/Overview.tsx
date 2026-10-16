@@ -6,15 +6,17 @@ import { DivergingBars } from "../charts/DivergingBars";
 import { sessionMinutes } from "../charts/axis";
 import { EquityChart } from "../charts/EquityChart";
 import { EQUITY_MODES, type EquityMode, equityLines } from "../charts/equity";
+import { Gauge } from "../charts/Gauge";
 import { LineChart } from "../charts/LineChart";
 import { Sparkline } from "../charts/Sparkline";
+import { AnimatedNumber } from "../components/AnimatedNumber";
 import { Delta, LoadError, Meter, Panel, Segmented, Stat } from "../components/bits";
 import { StatusIcon } from "../components/icons";
 import { HistoryEmpty, isShortHistory } from "../components/HistoryEmpty";
 import { NextJob, ScheduleList } from "../components/Schedule";
 import { Figure } from "../components/Figure";
 import { type Column, SortableTable } from "../components/SortableTable";
-import { dateLong, dateShort, money, num, pct, price, shortTimeET, timeET } from "../lib/format";
+import { dateLong, dateShort, datelineET, money, num, pct, price, shortTimeET, timeET } from "../lib/format";
 import { ASSET_CLASS_LABEL, limitText, MIN_RATIO_OBS } from "../lib/labels";
 import { type CheckState, type Issue, VERDICT_TEXT } from "../lib/readiness";
 import { useReadiness } from "../lib/useReadiness";
@@ -24,14 +26,14 @@ export function Overview() {
   return (
     <div className="page">
       <CommandHead />
-      <KpiBand />
+      <HeroBand />
       <ReadinessRow />
       {/* Two independent stacks so a tall panel never leaves a gap beside it. */}
       <div className="overview-cols">
         <div className="stack">
           <IntradayPanel className="" />
-          <MoversPanel className="" />
           <PerformancePanel className="" />
+          <MoversPanel className="" />
         </div>
         <div className="stack">
           <ExposurePanel className="" />
@@ -48,7 +50,6 @@ export function Overview() {
 const VERDICT_TONE = { clear: "good", review: "warn", blocked: "bad", loading: "neutral" } as const;
 
 function CommandHead() {
-  const status = useStatus().data;
   const ready = useReadiness();
   const now = useServerNow();
   const counts = [
@@ -57,22 +58,20 @@ function CommandHead() {
   ].filter(Boolean);
   return (
     <header className="page-head">
-      <div>
+      <div className="page-head-text">
+        <p className="page-eyebrow">{datelineET(now)}</p>
         <h1 className="page-title">Command Center</h1>
         <p className="page-sub">
           Daily cockpit. Is the book safe to act on today, what changed, and what needs a person to look at.
         </p>
-        <p className="action-line" aria-live="polite" data-testid="verdict">
-          <span className={`tone-${VERDICT_TONE[ready.verdict]}`}>
-            <span className="action-dot" aria-hidden="true">
-              ●
-            </span>{" "}
-            {VERDICT_TEXT[ready.verdict]}
-          </span>
-          {counts.length > 0 && <span>{counts.join(" · ")}</span>}
-          <span className="num">{timeET(now)} ET</span>
-          {status && <span className="tone-accent">{status.mode}</span>}
-        </p>
+      </div>
+      <div className="verdict" data-tone={VERDICT_TONE[ready.verdict]} aria-live="polite" data-testid="verdict">
+        <span className="verdict-orb" aria-hidden="true" />
+        <span className="verdict-text">
+          <span className="verdict-label">Verdict · {timeET(now)} ET</span>
+          <strong>{VERDICT_TEXT[ready.verdict]}</strong>
+        </span>
+        {counts.length > 0 && <span className="verdict-counts">{counts.join(" · ")}</span>}
       </div>
     </header>
   );
@@ -89,13 +88,15 @@ const STATE_ICON: Record<CheckState, "ok" | "warning" | "error" | "unknown"> = {
 
 function ReadinessRow() {
   const ready = useReadiness();
+  const ok = ready.checks.filter((c) => c.state === "ok").length;
   return (
     <div className="readiness-row">
-      <Panel
-        title="Readiness"
-        meta={`${ready.checks.filter((c) => c.state === "ok").length} of ${ready.checks.length} ok`}
-        flush
-      >
+      <Panel title="Readiness" meta={`${ok} of ${ready.checks.length} ok`}>
+        <div className="readiness-score" aria-hidden="true">
+          {ready.checks.map((c) => (
+            <span key={c.id} data-state={c.state} />
+          ))}
+        </div>
         <ul className="checklist">
           {ready.checks.map((c) => (
             <li key={c.id}>
@@ -140,6 +141,7 @@ function IssuePanel({
   return (
     <Panel
       title={title}
+      className={`issue-panel ${issues.length ? `has-${tone}` : ""}`}
       actions={
         <span
           className="tag"
@@ -157,7 +159,7 @@ function IssuePanel({
         <ul className="issues">
           {issues.map((i) => (
             <li key={i.id}>
-              <Link to={i.to} className="issue" data-control={`overview.issue.${i.id}`}>
+              <Link to={i.to} className="issue" data-tone={tone} data-control={`overview.issue.${i.id}`}>
                 <span className="tag" data-tone={tone}>
                   {tag}
                 </span>
@@ -173,53 +175,67 @@ function IssuePanel({
   );
 }
 
-// ── KPI band ───────────────────────────────────────────────────────────
+// ── hero: NAV, today, and the headline numbers ─────────────────────────
 
-function KpiBand() {
+function HeroBand() {
   const { data: s, error } = useSummary();
   const status = useStatus().data;
   if (error) return <LoadError error={error} />;
-  if (!s) return <div className="kpi-band panel" aria-busy="true" style={{ minHeight: 150 }} />;
+  if (!s) return <div className="hero panel skeleton" aria-busy="true" style={{ minHeight: 260 }} />;
   const live = status?.market.session === "open";
+  // the mandate's ceiling is 100% gross: the ring turns red only past it
+  const grossTone = s.gross_exposure > 1 ? "bad" : "accent";
   return (
-    <section className="kpi-band panel" aria-label="Portfolio summary">
-      <div className="kpi-hero">
-        <span className="stat-label">Net liquidation value</span>
-        <div className="kpi-hero-row">
-          <span className="hero-value" data-testid="nav">
-            {money(s.nav)}
-          </span>
-          <Sparkline values={s.nav_history.map((p) => p.value)} label="NAV, last 30 sessions" />
-        </div>
-        <span className="stat-sub">
-          {live ? `Live, ${shortTimeET(s.as_of)} ET` : `Close, ${status ? dateLong(status.market.trading_date) : ""}`} ·
-          since {dateShort(s.inception_date)}, {s.inception_date.slice(0, 4)}
-          {!s.history.complete && (
-            <span className="history-note">
-              {" "}
-              · history so far: {s.history.days} days. Load the rest: bin/tradeit flex
+    <section className="hero panel" aria-label="Portfolio summary">
+      <div className="hero-top">
+        <div className="hero-main">
+          <div className="hero-kicker">
+            <span className="stat-label">Net liquidation value</span>
+            <span className={`hero-live ${live ? "is-live" : ""}`}>
+              {live && <span className="live-dot" aria-hidden="true" />}
+              {live
+                ? `Live ${shortTimeET(s.as_of)} ET`
+                : `Close, ${status ? dateLong(status.market.trading_date) : ""}`}
             </span>
-          )}
-        </span>
+          </div>
+          <div className="hero-value" data-testid="nav">
+            <AnimatedNumber value={s.nav} format={(v) => money(v)} />
+          </div>
+          <div className="hero-deltas" data-testid="kpi-day">
+            <Delta value={s.day_pnl} kind="money" chip />
+            <Delta value={s.day_return} chip />
+            <span className="muted">today</span>
+          </div>
+          <span className="stat-sub hero-since">
+            Since {dateShort(s.inception_date)}, {s.inception_date.slice(0, 4)}
+            {!s.history.complete && (
+              <span className="history-note">
+                {" "}
+                · history so far: {s.history.days} days. Load the rest: bin/tradeit flex
+              </span>
+            )}
+          </span>
+        </div>
+        <div className="hero-spark">
+          <Sparkline values={s.nav_history.map((p) => p.value)} height={92} label="NAV, last 30 sessions" />
+          <span className="hero-spark-caption">NAV · last {s.nav_history.length} sessions</span>
+        </div>
       </div>
       <div className="kpi-grid">
         <Stat
-          label="Day P&L"
-          value={<Delta value={s.day_pnl} kind="money" />}
-          sub={<Delta value={s.day_return} />}
-          testId="kpi-day"
-        />
-        <Stat
+          className="tile"
           label="Month to date"
           value={<Delta value={s.mtd_return} />}
           sub={s.mtd_return === null ? "history doesn't reach the month start" : undefined}
         />
         <Stat
+          className="tile"
           label="Year to date"
           value={<Delta value={s.ytd_return} />}
           sub={s.ytd_return === null ? "history doesn't reach the year start" : undefined}
         />
         <Stat
+          className="tile"
           label="Since inception"
           value={<Delta value={s.itd_return} />}
           sub={
@@ -233,6 +249,7 @@ function KpiBand() {
           }
         />
         <Stat
+          className="tile"
           label="Gross exposure"
           value={<span className="num">{pct(s.gross_exposure, 0)}</span>}
           sub={
@@ -241,9 +258,16 @@ function KpiBand() {
               <span className="num">{pct(s.short_exposure, 0)}</span>
             </>
           }
+          visual={<Gauge value={s.gross_exposure} max={1} tone={grossTone} />}
         />
-        <Stat label="Beta" value={<span className="num">{num(s.beta, 2)}</span>} sub="to S&P 500, hedged" />
         <Stat
+          className="tile"
+          label="Beta"
+          value={<span className="num">{num(s.beta, 2)}</span>}
+          sub="to S&P 500, hedged"
+        />
+        <Stat
+          className="tile"
           label="Sharpe, inception"
           value={<span className="num">{num(s.sharpe_itd?.value, 2)}</span>}
           sub={
@@ -257,9 +281,20 @@ function KpiBand() {
           }
         />
         <Stat
+          className="tile"
           label="Cash"
-          value={<span className="num">{money(s.cash)}</span>}
-          sub={`${s.positions_count} positions`}
+          value={<span className="num">{money(s.cash, { compact: true })}</span>}
+          sub={`${pct(s.cash / s.nav, 1)} of NAV`}
+        />
+        <Stat
+          className="tile"
+          label="Positions"
+          value={<span className="num">{s.positions_count}</span>}
+          sub={
+            <>
+              long <span className="num">{pct(s.long_exposure, 0)}</span> of NAV
+            </>
+          }
         />
       </div>
     </section>
@@ -320,18 +355,20 @@ function IntradayPanel({ className }: { className: string }) {
                 id: "pnl",
                 label: "Day P&L",
                 color: "var(--ink-1)",
+                glow: true,
                 values: view.points.map((p) => p.pnl),
                 endText: money(view.last, { sign: true }),
               },
             ]}
             baseline={0}
             signedFill
+            live={data?.live}
             x={view.x}
             yFormat={(v) => money(v, { compact: true, sign: true })}
             tipFormat={(v) => money(v, { sign: true })}
             xLabel={(i) => `${sampleTime(view.points[i]!.t)} ET`}
             xTicks={view.ticks}
-            height={220}
+            height={230}
             ariaLabel="Profit and loss through today's session"
             control="overview.intraday.plot"
           />
@@ -382,7 +419,7 @@ function ExposurePanel({ className }: { className: string }) {
       control="overview.exposure"
       actions={
         <Link to="/risk" className="btn btn-ghost" data-control="overview.exposure.more">
-          Risk →
+          Risk <span className="btn-arrow">→</span>
         </Link>
       }
       chart={
@@ -412,7 +449,7 @@ const moverColumns: Column<Position>[] = [
     header: "Symbol",
     accessorKey: "symbol",
     cell: ({ row }) => (
-      <span>
+      <span className="sym-cell">
         <span className="sym">{row.original.symbol}</span> <span className="sub">{row.original.name}</span>
       </span>
     ),
@@ -436,7 +473,7 @@ const moverColumns: Column<Position>[] = [
     header: "Day %",
     accessorKey: "day_return",
     meta: { align: "right" },
-    cell: ({ row }) => <Delta value={row.original.day_return} />,
+    cell: ({ row }) => <Delta value={row.original.day_return} chip />,
   },
   {
     id: "day_pnl",
@@ -468,7 +505,7 @@ function MoversPanel({ className }: { className: string }) {
       flush
       actions={
         <Link to="/positions" className="btn btn-ghost" data-control="overview.movers.more">
-          All positions →
+          All positions <span className="btn-arrow">→</span>
         </Link>
       }
     >
@@ -481,6 +518,7 @@ function MoversPanel({ className }: { className: string }) {
           control="overview.movers"
           rowKey={(p) => p.symbol}
           initialSort={[{ id: "day_pnl", desc: true }]}
+          stickyFirst
         />
       )}
     </Panel>
@@ -562,7 +600,7 @@ function PerformancePanel({ className }: { className: string }) {
             control="overview.performance.mode"
           />
           <Link to="/performance" className="btn btn-ghost" data-control="overview.performance.more">
-            Performance →
+            Performance <span className="btn-arrow">→</span>
           </Link>
         </div>
       }
@@ -571,7 +609,7 @@ function PerformancePanel({ className }: { className: string }) {
           <EquityChart
             data={data}
             mode={mode}
-            height={220}
+            height={240}
             maxTicks={7}
             ariaLabel={
               mode === "nav"
@@ -624,7 +662,7 @@ function TodayPanel({ className }: { className: string }) {
       flush
       actions={
         <Link to="/trading" className="btn btn-ghost" data-control="overview.today.more">
-          Trading →
+          Trading <span className="btn-arrow">→</span>
         </Link>
       }
       foot={

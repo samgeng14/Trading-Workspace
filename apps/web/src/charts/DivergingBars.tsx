@@ -17,10 +17,10 @@ interface Props {
   control: string;
 }
 
-const ROW = 30;
-const BAR = 14;
-const LABEL_W = 104;
-const VALUE_W = 64;
+const ROW = 32;
+const BAR = 12;
+const LABEL_WIDE = 104;
+const VALUE_WIDE = 64;
 
 /**
  * Long exposure to the right of zero, short to the left, net as a tick.
@@ -29,6 +29,11 @@ const VALUE_W = 64;
 export function DivergingBars({ rows, format, ariaLabel, control }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<string | null>(null);
+  const gid = control.replace(/[^a-zA-Z0-9-]/g, "-");
+  // a phone-width panel gives the bars the room the labels can spare
+  const narrow = width > 0 && width < 480;
+  const LABEL_W = narrow ? 92 : LABEL_WIDE;
+  const VALUE_W = narrow ? 52 : VALUE_WIDE;
   const plotW = Math.max(40, width - LABEL_W - VALUE_W * 2);
   // Fit the data: the long side usually dominates, so don't reserve equal room for shorts.
   const hi = Math.max(0.05, ...rows.map((r) => r.long));
@@ -62,6 +67,17 @@ export function DivergingBars({ rows, format, ariaLabel, control }: Props) {
           data-control={control}
           onPointerLeave={() => setHover(null)}
         >
+          <defs>
+            {/* each bar brightens toward its end, away from zero */}
+            <linearGradient id={`${gid}-long`} x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0" style={{ stopColor: "var(--series-1)", stopOpacity: 0.55 }} />
+              <stop offset="1" style={{ stopColor: "var(--series-1)", stopOpacity: 1 }} />
+            </linearGradient>
+            <linearGradient id={`${gid}-short`} x1="1" x2="0" y1="0" y2="0">
+              <stop offset="0" style={{ stopColor: "var(--series-2)", stopOpacity: 0.55 }} />
+              <stop offset="1" style={{ stopColor: "var(--series-2)", stopOpacity: 1 }} />
+            </linearGradient>
+          </defs>
           <g transform={`translate(${LABEL_W + VALUE_W},4)`}>
             <line x1={x(0)} x2={x(0)} y1={0} y2={rows.length * ROW} className="axis-base" />
             {rows.map((r, i) => {
@@ -82,9 +98,21 @@ export function DivergingBars({ rows, format, ariaLabel, control }: Props) {
                   <text x={-LABEL_W - VALUE_W} y={cy + 4} className="bar-label">
                     {r.label}
                   </text>
-                  {r.long > 0 && <path d={roundedRight(x(0), cy - BAR / 2, longW, BAR)} fill="var(--series-1)" />}
+                  {r.long > 0 && (
+                    <path
+                      d={roundedRight(x(0), cy - BAR / 2, longW, BAR)}
+                      fill={`url(#${gid}-long)`}
+                      className="bar from-left"
+                      style={{ animationDelay: `${i * 40}ms` }}
+                    />
+                  )}
                   {r.short < 0 && (
-                    <path d={roundedLeft(x(0) - shortW, cy - BAR / 2, shortW, BAR)} fill="var(--series-2)" />
+                    <path
+                      d={roundedLeft(x(0) - shortW, cy - BAR / 2, shortW, BAR)}
+                      fill={`url(#${gid}-short)`}
+                      className="bar from-right"
+                      style={{ animationDelay: `${i * 40}ms` }}
+                    />
                   )}
                   <line x1={x(r.net)} x2={x(r.net)} y1={cy - BAR / 2 - 3} y2={cy + BAR / 2 + 3} className="net-tick" />
                   {r.long > 0 && (

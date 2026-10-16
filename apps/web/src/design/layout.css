@@ -1,8 +1,11 @@
 /* ── application frame ───────────────────────────────────────────────── */
 
 .app {
+  position: relative;
+  z-index: 1;
   display: grid;
   height: 100vh;
+  height: 100dvh;
   grid-template-columns: var(--nav-w) minmax(0, 1fr);
   grid-template-rows: var(--topbar-h) auto minmax(0, 1fr) var(--ticker-h);
   grid-template-areas:
@@ -12,38 +15,77 @@
     "nav ticker";
 }
 
-/* ── status strip (top) ──────────────────────────────────────────────── */
+/* ── status strip (top): glass, one chip per fact ────────────────────── */
 
 .topbar {
   grid-area: top;
+  z-index: 20;
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
-  background: var(--bg-nav);
-  border-bottom: 1px solid var(--rule);
+  padding: 0 14px 0 18px;
+  background: var(--bg-chrome);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+/* the phone header's nameplate; the rail carries it on wider screens */
+.mobile-mark {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-1);
+}
+
+.mobile-mark:hover {
+  text-decoration: none;
+}
+
+.mobile-mark-text {
+  font-size: 17px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
 }
 
 .topbar-segs {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
 }
 
 .seg {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 0 14px;
-  border-right: 1px solid var(--rule);
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--bg-chip);
   white-space: nowrap;
   color: inherit;
+  overflow: hidden;
+  transition:
+    border-color 0.2s var(--ease-out),
+    background 0.2s var(--ease-out);
 }
 
 .seg-label {
   font-size: var(--fs-2xs);
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
@@ -51,26 +93,80 @@
 .seg-value {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   color: var(--ink-1);
 }
 
 .topbar-session .session-label {
-  font-weight: 500;
+  font-family: var(--font-sans);
+  font-weight: 560;
+}
+
+/* how far through the regular session the exchange is */
+.seg-progress {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.seg-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.topbar-stream .live-dot {
+  color: var(--status-good);
 }
 
 .topbar-health .seg-value {
-  gap: 12px;
+  gap: 10px;
   font-family: var(--font-sans);
 }
 
 .topbar-health .badge {
+  gap: 5px;
   color: var(--ink-2);
 }
 
+.health-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+/* below 1600px the system lights drop their names (still read out, and in the tooltips) */
+@media (max-width: 1600px) {
+  .topbar-health .seg-value {
+    gap: 7px;
+  }
+  .topbar-health .badge-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+@media (min-width: 1601px) {
+  .health-count {
+    display: none;
+  }
+}
+
 a.seg:hover {
+  border-color: var(--border-lit);
   background: var(--bg-hover);
   text-decoration: none;
 }
@@ -78,83 +174,150 @@ a.seg:hover {
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 8px;
+  flex: none;
   margin-left: auto;
-  padding: 0 var(--space-3) 0 var(--space-4);
 }
 
 .topbar-clock {
-  margin-right: var(--space-2);
-  font-size: var(--fs-sm);
-  font-weight: 500;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-right: 6px;
+  font-size: var(--fs-lg);
+  font-weight: 560;
+  color: var(--ink-1);
 }
+
+.topbar-clock .muted {
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.08em;
+}
+
+.halt-btn svg {
+  flex: none;
+}
+
+/* ── halt banner: a hazard band that can't be missed ────────────────── */
 
 .kill-banner {
   grid-area: banner;
+  position: relative;
+  z-index: 15;
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: 7px var(--space-5);
-  background: var(--halt-bg);
+  flex-wrap: wrap;
+  gap: 8px var(--space-3);
+  padding: 10px var(--space-5) 10px 34px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--halt-bg) 92%, #000), var(--halt-bg));
   color: var(--halt-ink);
   font-size: var(--fs-md);
+  box-shadow: 0 10px 40px -10px var(--down-glow);
+  overflow: hidden;
+}
+
+.kill-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 18px;
+  background: repeating-linear-gradient(-45deg, #ffd34d 0 7px, #1c0208 7px 14px);
+  background-size: 200% 200%;
+  animation: hazard 1.2s linear infinite;
+}
+
+@keyframes hazard {
+  to {
+    background-position: 0 -20px;
+  }
 }
 
 .kill-banner strong {
-  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: var(--fs-sm);
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-weight: 750;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.kill-banner .live-dot {
+  color: #fff;
 }
 
 .kill-banner-btn {
   margin-left: auto;
-  border-color: var(--halt-ink);
-  background: transparent;
+  border-color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.12);
   color: var(--halt-ink);
 }
 
 .kill-banner-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.15);
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.22);
 }
 
-/* ── ticker (bottom) ─────────────────────────────────────────────────── */
+/* ── ticker (bottom): a slow tape, paused under the pointer ──────────── */
 
 .ticker {
   grid-area: ticker;
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: var(--space-4);
   min-width: 0;
-  padding: 0 var(--space-5);
-  background: var(--bg-nav);
-  border-top: 1px solid var(--rule);
+  padding: 0 var(--space-4) 0 0;
+  background: var(--bg-chrome);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-top: 1px solid var(--border);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   overflow: hidden;
 }
 
-/* Items that don't fit wrap onto a hidden second line, so none is cut in half. */
-.ticker-items {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  column-gap: 22px;
+.ticker-viewport {
+  position: relative;
   flex: 1;
   min-width: 0;
   height: var(--ticker-h);
-  margin: 0;
-  padding: 0;
-  list-style: none;
   overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%);
+}
+
+.ticker-tape {
+  display: flex;
+  width: max-content;
+  height: 100%;
+  animation: tape var(--tape-duration, 60s) linear infinite;
+}
+
+.ticker:hover .ticker-tape {
+  animation-play-state: paused;
+}
+
+@keyframes tape {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.ticker-items {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 26px;
+  height: 100%;
+  margin: 0;
+  padding: 0 13px;
+  list-style: none;
 }
 
 .ticker-item {
   display: flex;
   align-items: center;
   gap: 7px;
-  height: var(--ticker-h);
   white-space: nowrap;
 }
 
@@ -163,28 +326,34 @@ a.seg:hover {
 }
 
 .ticker-sym {
-  font-weight: 600;
+  font-weight: 650;
   color: var(--ink-1);
 }
 
 .ticker-tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-chip);
   font-family: var(--font-sans);
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
 
 .ticker-sep {
-  width: 1px;
-  height: 12px;
-  margin-top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
   background: var(--rule-strong);
 }
 
 .ticker-note {
-  margin-left: auto;
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
   font-family: var(--font-sans);
   font-size: var(--fs-2xs);
   letter-spacing: 0.08em;
@@ -193,64 +362,114 @@ a.seg:hover {
   white-space: nowrap;
 }
 
-/* ── side navigation ─────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .ticker-tape > [aria-hidden="true"] {
+    display: none;
+  }
+}
+
+/* ── side rail ───────────────────────────────────────────────────────── */
 
 .sidenav {
   grid-area: nav;
+  z-index: 25;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--bg-nav);
-  border-right: 1px solid var(--rule);
+  background: var(--bg-chrome);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-right: 1px solid var(--border);
   overflow-y: auto;
 }
 
 .brand {
   display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 20px 18px;
+}
+
+.brand-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  background: linear-gradient(140deg, #22c3ee 0%, #3b82f6 55%, #8b7bff 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16) inset,
+    0 8px 24px -6px var(--accent-glow);
+  color: #fff;
+}
+
+.mobile-mark .brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+}
+
+.brand-text {
+  display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 20px 20px 16px;
-  border-bottom: 1px solid var(--rule);
+  min-width: 0;
 }
 
 .wordmark {
-  font-family: var(--font-serif);
-  font-size: 25px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 780;
   line-height: 1;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.06em;
   color: var(--ink-1);
   white-space: nowrap;
 }
 
 .brand-sub {
   font-size: var(--fs-2xs);
-  font-weight: 600;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
+  font-weight: 560;
+  letter-spacing: 0.04em;
   color: var(--ink-3);
+  white-space: nowrap;
 }
 
-.side-section {
+.rail-card {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--rule);
+  gap: 8px;
+  margin: 0 14px 6px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-chip);
 }
 
-.side-label {
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
-.side-mode {
+.rail-mode {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
+}
+
+.rail-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
+  font-size: var(--fs-2xs);
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.rail-mode-badge[data-mode="live"] {
+  background: var(--halt-bg);
+  color: var(--halt-ink);
 }
 
 .side-note {
@@ -258,18 +477,27 @@ a.seg:hover {
   color: var(--ink-3);
 }
 
+.side-label {
+  margin-bottom: 2px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
 .side-status {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-size: var(--fs-sm);
-  color: var(--ink-2);
+  color: var(--ink-1);
 }
 
 .side-dl {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 4px var(--space-3);
+  gap: 5px var(--space-3);
   margin: 0;
   font-size: var(--fs-xs);
 }
@@ -289,40 +517,100 @@ a.seg:hover {
   flex-direction: column;
   gap: 2px;
   margin: 0;
-  padding: 12px 10px;
+  padding: 12px 12px;
   list-style: none;
-  border-bottom: 1px solid var(--rule);
 }
 
 .sidenav-link {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: var(--radius);
+  gap: 11px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 11px;
   color: var(--ink-2);
   font-size: var(--fs-md);
+  font-weight: 520;
+  transition: color 0.18s var(--ease-out);
 }
 
 .sidenav-link:hover {
-  background: var(--bg-hover);
   color: var(--ink-1);
+  background: var(--bg-hover);
   text-decoration: none;
 }
 
 .sidenav-link.active {
-  background: var(--accent-fill);
-  color: var(--accent-fill-ink);
-  font-weight: 600;
+  color: var(--ink-1);
+  font-weight: 620;
+}
+
+/* flex items stack by z-index without being positioned, so the labels can still be hidden absolutely */
+.sidenav-link > :not(.nav-pill) {
+  z-index: 1;
+}
+
+.nav-pill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 11px;
+  background: linear-gradient(90deg, var(--accent-wash), transparent 120%);
+  box-shadow: 0 0 0 1px var(--border-lit) inset;
+}
+
+.nav-pill::before {
+  content: "";
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: -12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+}
+
+.nav-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--ink-3);
+  transition: color 0.18s var(--ease-out);
+}
+
+.sidenav-link:hover .nav-icon {
+  color: var(--ink-2);
+}
+
+.sidenav-link.active .nav-icon {
+  color: var(--accent);
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+}
+
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.nav-short {
+  display: none;
 }
 
 .sidenav-key {
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
   font-family: var(--font-mono);
-  font-size: var(--fs-2xs);
-  font-weight: 400;
+  font-size: 9.5px;
+  font-weight: 500;
   color: var(--ink-3);
   opacity: 0;
+  transition: opacity 0.2s var(--ease-out);
 }
 
 .sidenav:hover .sidenav-key,
@@ -330,19 +618,23 @@ a.seg:hover {
   opacity: 1;
 }
 
-.sidenav-link.active .sidenav-key {
-  color: var(--accent-fill-ink);
-  opacity: 0.65;
+.side-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding: 0 14px 16px;
 }
 
-.side-facts .side-section:last-child {
-  border-bottom: 1px solid var(--rule);
+.side-facts .rail-card {
+  margin: 0;
 }
 
 /* ── page ────────────────────────────────────────────────────────────── */
 
 .main {
   grid-area: main;
+  position: relative;
   min-width: 0;
   overflow-y: auto;
 }
@@ -350,36 +642,78 @@ a.seg:hover {
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  max-width: 1720px;
-  padding: var(--space-5) var(--space-5) var(--space-6);
+  gap: 16px;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 26px 28px 44px;
+}
+
+/* sections rise into place one after another */
+.page > * {
+  animation: rise 0.55s var(--ease-out) both;
+}
+
+.page > :nth-child(2) {
+  animation-delay: 0.05s;
+}
+.page > :nth-child(3) {
+  animation-delay: 0.1s;
+}
+.page > :nth-child(4) {
+  animation-delay: 0.15s;
+}
+.page > :nth-child(n + 5) {
+  animation-delay: 0.2s;
 }
 
 .page-head {
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-  padding-bottom: var(--space-3);
-  margin-bottom: var(--space-1);
-  border-bottom: 1px solid var(--rule);
+  gap: var(--space-3) var(--space-4);
+  padding-bottom: 4px;
+}
+
+.page-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: var(--fs-2xs);
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+.page-eyebrow::before {
+  content: "";
+  width: 18px;
+  height: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
 }
 
 .page-title {
-  font-family: var(--font-serif);
-  font-size: 34px;
-  font-weight: 500;
+  font-size: 32px;
+  font-weight: 680;
   line-height: 1.05;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.035em;
   color: var(--ink-1);
 }
 
+:root:not([data-theme="light"]) .page-title {
+  background: linear-gradient(180deg, #ffffff 10%, #9fb2c8 120%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
 .page-sub {
-  margin-top: 6px;
+  margin-top: 8px;
   max-width: 90ch;
-  font-family: var(--font-serif);
-  font-size: var(--fs-lg);
-  line-height: 1.35;
+  font-size: var(--fs-md);
+  line-height: 1.5;
   color: var(--ink-2);
 }
 
@@ -390,7 +724,7 @@ a.seg:hover {
 .grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: var(--space-3);
+  gap: 16px;
 }
 
 .span-3 {
@@ -415,17 +749,43 @@ a.seg:hover {
   grid-column: span 12;
 }
 
-/* the status strip fits every health badge from 1600px, and from 1360px
-   without the stream segment; otherwise IBKR and Data */
-@media (max-width: 1360px), (min-width: 1401px) and (max-width: 1600px) {
-  .topbar-health .badge:nth-child(n + 3) {
+/* the stream chip goes first when the strip runs short */
+@media (max-width: 1439px) {
+  .topbar-stream {
     display: none;
   }
 }
 
-/* below 1400px no stream segment, until the strip wraps and scrolls */
-@media (min-width: 901px) and (max-width: 1400px) {
-  .topbar-stream {
+/* a narrower laptop: the rail folds to icons, the chips drop their labels */
+@media (min-width: 901px) and (max-width: 1279px) {
+  .app {
+    --nav-w: 76px;
+  }
+  .brand {
+    justify-content: center;
+    padding: 18px 0 16px;
+  }
+  .brand-text,
+  .rail-card,
+  .side-facts,
+  .sidenav-key {
+    display: none;
+  }
+  .sidenav-link {
+    justify-content: center;
+    padding: 0;
+  }
+  .nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .nav-pill::before {
+    left: -12px;
+  }
+  .topbar .seg-label {
     display: none;
   }
 }
@@ -441,67 +801,172 @@ a.seg:hover {
   }
 }
 
+/* ── phone: a header with the status chips under it, a tab bar at the bottom ── */
+
 @media (max-width: 900px) {
   .app {
     height: auto;
-    min-height: 100vh;
+    min-height: 100dvh;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto auto 1fr auto;
-    grid-template-areas: "nav" "top" "banner" "main" "ticker";
+    grid-template-rows: auto auto auto 1fr;
+    grid-template-areas: "top" "ticker" "banner" "main";
   }
-  .sidenav {
-    flex-direction: row;
-    align-items: stretch;
-    border-right: 0;
-    border-bottom: 1px solid var(--rule);
-    overflow-x: auto;
-  }
-  .brand {
-    justify-content: center;
-    padding: 8px 16px;
+
+  .topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "id right" "segs segs";
+    gap: 10px;
+    padding: calc(10px + env(safe-area-inset-top)) 14px 0;
     border-bottom: 0;
-    border-right: 1px solid var(--rule);
   }
-  .wordmark {
-    font-size: 19px;
+  .topbar-id {
+    grid-area: id;
   }
-  .brand-sub,
-  .side-section,
+  .mobile-mark {
+    display: inline-flex;
+  }
+  .topbar-right {
+    grid-area: right;
+    gap: 6px;
+  }
+  .topbar-clock {
+    margin-right: 2px;
+    font-size: var(--fs-sm);
+  }
+  .clock-sec {
+    display: none;
+  }
+  .halt-btn {
+    height: 32px;
+    padding: 0 10px;
+  }
+  .halt-btn-more {
+    display: none;
+  }
+  .topbar-segs {
+    grid-area: segs;
+    margin: 0 -14px;
+    padding: 0 14px 10px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    /* the row fades at the right edge: there is more to swipe to */
+    mask-image: linear-gradient(90deg, #000 calc(100% - 36px), transparent);
+  }
+  .topbar-segs::-webkit-scrollbar {
+    display: none;
+  }
+  .seg {
+    flex: none;
+    height: 34px;
+  }
+  .topbar-stream {
+    display: flex;
+  }
+
+  .ticker {
+    padding: 0;
+    border-top: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .ticker-note {
+    display: none;
+  }
+
+  .sidenav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    flex-direction: row;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: color-mix(in srgb, var(--bg-page) 88%, transparent);
+    border-right: 0;
+    border-top: 1px solid var(--border);
+    overflow: visible;
+  }
+  .brand,
+  .rail-card,
   .side-facts,
   .sidenav-key {
     display: none;
   }
-  .sidenav-list {
-    flex-direction: row;
-    padding: 6px;
-    border-bottom: 0;
-  }
-  .sidenav-link {
+  /* the full name stays the link's accessible name; the short one is what shows */
+  .nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
     white-space: nowrap;
   }
-  .topbar {
-    flex-wrap: wrap;
+  .sidenav-list {
+    flex: 1;
+    flex-direction: row;
+    gap: 0;
+    height: var(--tabbar-h);
+    padding: 0 4px;
   }
-  .topbar-segs {
-    width: 100%;
-    overflow-x: auto;
-    border-bottom: 1px solid var(--rule);
+  .sidenav-list li {
+    flex: 1;
+    min-width: 0;
   }
-  .seg {
-    height: 32px;
+  .sidenav-link {
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    height: 100%;
+    padding: 0;
+    border-radius: 0;
+    font-size: 10.5px;
+    font-weight: 560;
+    color: var(--ink-3);
   }
-  .topbar-right {
-    width: 100%;
-    justify-content: flex-end;
-    padding: 4px 16px;
+  .sidenav-link:hover {
+    background: transparent;
   }
+  .sidenav-link.active {
+    color: var(--accent-ink);
+  }
+  .nav-short {
+    display: block;
+    white-space: nowrap;
+  }
+  .nav-icon {
+    width: 22px;
+    height: 22px;
+  }
+  .nav-pill {
+    inset: 0 18% auto;
+    height: 2px;
+    border-radius: 0 0 3px 3px;
+    background: var(--accent);
+    box-shadow: 0 0 14px 1px var(--accent-glow);
+  }
+  .nav-pill::before {
+    display: none;
+  }
+
   .main {
     overflow: visible;
   }
   .page {
-    padding: var(--space-4) var(--space-4) var(--space-5);
+    gap: 14px;
+    padding: 18px 14px calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 28px);
   }
   .page-title {
-    font-size: 28px;
+    font-size: 27px;
+  }
+  .page-head .filters {
+    margin-left: 0;
+  }
+  .toasts {
+    left: 14px;
+    right: 14px;
+    bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 12px);
+  }
+  .toast {
+    max-width: none;
   }
 }

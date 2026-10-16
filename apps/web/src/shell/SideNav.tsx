@@ -1,19 +1,44 @@
-import { useMemo } from "react";
+import { motion } from "motion/react";
+import { type ComponentType, useMemo } from "react";
 import { NavLink, useNavigate } from "react-router";
 import { useMarketStrip, useOrders, useRebalancePreview, useStatus } from "../api/hooks";
-import { StatusIcon } from "../components/icons";
+import {
+  BrandGlyph,
+  CommandIcon,
+  OpsIcon,
+  PerformanceIcon,
+  PositionsIcon,
+  RiskIcon,
+  StatusIcon,
+  TradingIcon,
+} from "../components/icons";
 import { dateShort, datelineET, shortTimeET } from "../lib/format";
 import { useServerNow } from "../lib/serverClock";
 import { useGoHotkeys } from "../lib/useHotkeys";
 
-export const NAV = [
-  { to: "/", label: "Command Center", key: "c", control: "nav.overview" },
-  { to: "/positions", label: "Positions", key: "p", control: "nav.positions" },
-  { to: "/performance", label: "Performance", key: "f", control: "nav.performance" },
-  { to: "/risk", label: "Risk", key: "r", control: "nav.risk" },
-  { to: "/trading", label: "Trading", key: "t", control: "nav.trading" },
-  { to: "/ops", label: "Operations", key: "s", control: "nav.operations" },
-] as const;
+export const NAV: readonly {
+  to: string;
+  label: string;
+  /** The phone tab bar's label. */
+  short: string;
+  key: string;
+  control: string;
+  icon: ComponentType;
+}[] = [
+  { to: "/", label: "Command Center", short: "Command", key: "c", control: "nav.overview", icon: CommandIcon },
+  { to: "/positions", label: "Positions", short: "Book", key: "p", control: "nav.positions", icon: PositionsIcon },
+  {
+    to: "/performance",
+    label: "Performance",
+    short: "Returns",
+    key: "f",
+    control: "nav.performance",
+    icon: PerformanceIcon,
+  },
+  { to: "/risk", label: "Risk", short: "Risk", key: "r", control: "nav.risk", icon: RiskIcon },
+  { to: "/trading", label: "Trading", short: "Trade", key: "t", control: "nav.trading", icon: TradingIcon },
+  { to: "/ops", label: "Operations", short: "Ops", key: "s", control: "nav.operations", icon: OpsIcon },
+];
 
 const MODE_TEXT = { demo: "Demo", paper: "Paper", live: "Live" } as const;
 const MODE_NOTE = {
@@ -22,6 +47,7 @@ const MODE_NOTE = {
   live: "Real money",
 } as const;
 
+/** The rail on wider screens; on a phone its section list becomes the tab bar at the bottom. */
 export function SideNav() {
   const navigate = useNavigate();
   const now = useServerNow();
@@ -42,20 +68,23 @@ export function SideNav() {
   return (
     <nav className="sidenav" aria-label="Sections">
       <div className="brand">
-        <span className="wordmark">DV02</span>
-        <span className="brand-sub">
-          <span className="brand-name">Dashboard</span>
-          <time className="brand-date" dateTime={now.toISOString().slice(0, 10)}>
+        <span className="brand-mark">
+          <BrandGlyph />
+        </span>
+        <span className="brand-text">
+          <span className="wordmark">DV02</span>
+          <time className="brand-sub" dateTime={now.toISOString().slice(0, 10)}>
             {datelineET(now)}
           </time>
         </span>
       </div>
 
       {status && (
-        <div className="side-section">
-          <p className="side-label">Mode</p>
-          <div className="side-mode">
-            <span className={`mode-badge mode-${status.mode}`}>{MODE_TEXT[status.mode]}</span>
+        <div className="rail-card">
+          <div className="rail-mode">
+            <span className="rail-mode-badge" data-mode={status.mode}>
+              {MODE_TEXT[status.mode]}
+            </span>
             <span className="side-note">{MODE_NOTE[status.mode]}</span>
           </div>
           <dl className="side-dl">
@@ -69,17 +98,34 @@ export function SideNav() {
         {NAV.map((n) => (
           <li key={n.to}>
             <NavLink to={n.to} end={n.to === "/"} className="sidenav-link" data-control={n.control}>
-              <span>{n.label}</span>
-              <kbd className="sidenav-key" aria-label={`Shortcut g then ${n.key}`}>
-                g {n.key}
-              </kbd>
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <motion.span
+                      layoutId="nav-pill"
+                      className="nav-pill"
+                      transition={{ type: "spring", stiffness: 480, damping: 38 }}
+                    />
+                  )}
+                  <span className="nav-icon">
+                    <n.icon />
+                  </span>
+                  <span className="nav-label">{n.label}</span>
+                  <span className="nav-short" aria-hidden="true">
+                    {n.short}
+                  </span>
+                  <kbd className="sidenav-key" aria-label={`Shortcut g then ${n.key}`}>
+                    g {n.key}
+                  </kbd>
+                </>
+              )}
             </NavLink>
           </li>
         ))}
       </ul>
 
       <div className="side-facts">
-        <div className="side-section">
+        <div className="rail-card">
           <p className="side-label">Data</p>
           <dl className="side-dl">
             <dt>Latest close</dt>
@@ -91,20 +137,20 @@ export function SideNav() {
           </dl>
         </div>
 
-        <div className="side-section">
+        <div className="rail-card">
           <p className="side-label">Gateway</p>
           {gateway ? (
             <p className="side-status">
               <StatusIcon status={gateway.status} size={8} />
               <span>{gateway.status === "ok" ? "Running" : gateway.status === "error" ? "Down" : "Degraded"}</span>
-              {endpoint && <span className="num muted">· {endpoint}</span>}
+              {endpoint && <span className="num muted">{endpoint}</span>}
             </p>
           ) : (
             <p className="side-status muted">…</p>
           )}
         </div>
 
-        <div className="side-section">
+        <div className="rail-card">
           <p className="side-label">Orders</p>
           <dl className="side-dl">
             <dt>{orders ? dateShort(orders.trading_date) : "Today"}</dt>

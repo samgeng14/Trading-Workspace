@@ -81,6 +81,7 @@ export function Performance() {
   return (
     <div className="page">
       <PageHead
+        eyebrow="Analytics"
         title="Performance"
         sub={data ? `${dateLong(data.start)} to ${dateLong(data.end)} · total return, after costs` : undefined}
       >
@@ -113,11 +114,12 @@ export function Performance() {
 
       {s && (
         <section
-          className="panel summary-strip"
+          className="panel summary-strip tiles"
           aria-label="Statistics"
           style={{ opacity: isPlaceholderData ? 0.55 : 1 }}
         >
           <Stat
+            className="tile"
             label="Total return"
             value={<Delta value={s.total_return} />}
             sub={
@@ -127,11 +129,13 @@ export function Performance() {
             }
           />
           <Stat
+            className="tile"
             label="Annualized"
             value={<Delta value={s.ann_return} />}
             sub={s.ann_return === null ? "not annualized under a year" : `vol ${pct(s.ann_vol, 1)}`}
           />
           <Stat
+            className="tile"
             label="Sharpe"
             value={<span className="num">{num(s.sharpe?.value, 2)}</span>}
             sub={
@@ -141,12 +145,14 @@ export function Performance() {
             }
           />
           <Stat
+            className="tile"
             label="Sortino"
             value={<span className="num">{num(s.sortino, 2)}</span>}
             sub={s.sortino === null ? `needs ${MIN_RATIO_OBS}+ days` : undefined}
           />
-          <Stat label="Max drawdown" value={<Delta value={s.max_drawdown} decimals={1} />} />
+          <Stat className="tile" label="Max drawdown" value={<Delta value={s.max_drawdown} decimals={1} />} />
           <Stat
+            className="tile"
             label={`Beta to ${benchLabel}`}
             value={<span className="num">{num(s.beta, 2)}</span>}
             sub={
@@ -160,6 +166,7 @@ export function Performance() {
             }
           />
           <Stat
+            className="tile"
             label="Tracking error"
             value={<span className="num">{pct(s.tracking_error, 1)}</span>}
             sub={
@@ -167,6 +174,7 @@ export function Performance() {
             }
           />
           <Stat
+            className="tile"
             label="Up days"
             value={<span className="num">{pct(s.hit_rate, 0)}</span>}
             sub={
@@ -204,7 +212,7 @@ export function Performance() {
             <EquityChart
               data={data}
               mode={mode}
-              height={300}
+              height={340}
               maxTicks={9}
               ariaLabel={
                 mode === "nav"
@@ -240,7 +248,7 @@ export function Performance() {
               yFormat={(v, ticks) => `${num(v, tickDecimals(ticks))}%`}
               xLabel={(i) => dateLong(view.dates[i]!)}
               xTicks={view.ticks}
-              height={160}
+              height={180}
               ariaLabel="Portfolio drawdown from its running peak"
               control="performance.drawdown.plot"
             />
@@ -289,7 +297,7 @@ function MonthlyGrid({ monthly, benchLabel }: { monthly: Schemas["Performance"][
       flush
     >
       <div className="table-wrap">
-        <table className="table monthly">
+        <table className="table monthly sticky-first">
           <thead>
             <tr>
               <th>Year</th>
@@ -316,16 +324,18 @@ function MonthlyGrid({ monthly, benchLabel }: { monthly: Schemas["Performance"][
                     const m = months.find((x) => x.month === i + 1);
                     if (!m) return <td key={i} className="r muted" />;
                     const v = value(m);
-                    const alpha = Math.min(1, Math.abs(v) / maxAbs) * 0.28;
+                    const alpha = 0.06 + Math.min(1, Math.abs(v) / maxAbs) * 0.4;
                     return (
-                      <td
-                        key={i}
-                        className="r heat"
-                        style={{
-                          background: `color-mix(in srgb, ${v >= 0 ? "var(--up)" : "var(--down)"} ${Math.round(alpha * 100)}%, transparent)`,
-                        }}
-                      >
-                        {pct(v, 1, true)}
+                      <td key={i} className="r heat">
+                        <span
+                          className="heat-cell"
+                          data-sign={v >= 0 ? "up" : "down"}
+                          style={{
+                            background: `color-mix(in srgb, ${v >= 0 ? "var(--up)" : "var(--down)"} ${Math.round(alpha * 100)}%, transparent)`,
+                          }}
+                        >
+                          {pct(v, 1, true)}
+                        </span>
                       </td>
                     );
                   })}

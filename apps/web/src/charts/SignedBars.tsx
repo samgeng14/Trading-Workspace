@@ -8,10 +8,10 @@ export interface SignedRow {
   value: number;
 }
 
-const ROW = 30;
-const BAR = 14;
-const LABEL_W = 150;
-const VALUE_W = 76;
+const ROW = 32;
+const BAR = 12;
+const LABEL_WIDE = 150;
+const VALUE_WIDE = 76;
 
 /** One signed value per row: gains right of zero (up colour), losses left (down colour). */
 export function SignedBars({
@@ -27,7 +27,15 @@ export function SignedBars({
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<string | null>(null);
-  const plotW = Math.max(40, width - LABEL_W - VALUE_W * 2);
+  const gid = control.replace(/[^a-zA-Z0-9-]/g, "-");
+  // a phone-width panel gives the bars the room the labels can spare
+  const narrow = width > 0 && width < 480;
+  const LABEL_W = narrow ? 112 : LABEL_WIDE;
+  const VALUE_W = narrow ? 56 : VALUE_WIDE;
+  // value labels sit at the bar ends: a side with no bars needs no room for them
+  const leftV = rows.some((r) => r.value < 0) ? VALUE_W : 8;
+  const rightV = rows.some((r) => r.value > 0) ? VALUE_W : 8;
+  const plotW = Math.max(40, width - LABEL_W - leftV - rightV);
   // Domain fits the data (always including zero), so one-sided data uses the full width.
   const lo = Math.min(0, ...rows.map((r) => r.value));
   const hi = Math.max(0, ...rows.map((r) => r.value));
@@ -48,7 +56,18 @@ export function SignedBars({
           data-control={control}
           onPointerLeave={() => setHover(null)}
         >
-          <g transform={`translate(${LABEL_W + VALUE_W},2)`}>
+          <defs>
+            {/* each bar brightens toward its end, away from zero */}
+            <linearGradient id={`${gid}-up`} x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0" style={{ stopColor: "var(--up)", stopOpacity: 0.5 }} />
+              <stop offset="1" style={{ stopColor: "var(--up)", stopOpacity: 1 }} />
+            </linearGradient>
+            <linearGradient id={`${gid}-down`} x1="1" x2="0" y1="0" y2="0">
+              <stop offset="0" style={{ stopColor: "var(--down)", stopOpacity: 0.5 }} />
+              <stop offset="1" style={{ stopColor: "var(--down)", stopOpacity: 1 }} />
+            </linearGradient>
+          </defs>
+          <g transform={`translate(${LABEL_W + leftV},2)`}>
             <line x1={x(0)} x2={x(0)} y1={0} y2={rows.length * ROW} className="axis-base" />
             {rows.map((r, i) => {
               const cy = i * ROW + ROW / 2;
@@ -69,11 +88,18 @@ export function SignedBars({
                   tabIndex={0}
                   aria-label={`${r.label}: ${format(r.value)}`}
                 >
-                  <rect x={-LABEL_W - VALUE_W} y={i * ROW} width={width} height={ROW} className="bar-hit" />
-                  <text x={-LABEL_W - VALUE_W} y={cy + 4} className="bar-label">
+                  <rect x={-LABEL_W - leftV} y={i * ROW} width={width} height={ROW} className="bar-hit" />
+                  <text x={-LABEL_W - leftV} y={cy + 4} className="bar-label">
                     {r.label}
                   </text>
-                  {w > 0.5 && <path d={d} fill={pos ? "var(--up)" : "var(--down)"} />}
+                  {w > 0.5 && (
+                    <path
+                      d={d}
+                      fill={`url(#${gid}-${pos ? "up" : "down"})`}
+                      className={`bar ${pos ? "from-left" : "from-right"}`}
+                      style={{ animationDelay: `${i * 40}ms` }}
+                    />
+                  )}
                   <text
                     x={pos ? x(r.value) + 6 : x(r.value) - 6}
                     y={cy + 4}

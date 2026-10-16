@@ -1,14 +1,23 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#05070b" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="DV02" />
     <title>DV02 Fund</title>
     <script>
-      // Apply a remembered theme before first paint so the page never flashes.
+      // Apply a remembered theme before first paint so the page never flashes. Dark (the
+      // Terminal theme) unless the viewer picked light.
       try {
-        document.documentElement.dataset.theme = localStorage.getItem("dv02.theme") === "dark" ? "dark" : "light";
+        if (localStorage.getItem("dv02.ui-theme") === "light") {
+          document.documentElement.dataset.theme = "light";
+          document.querySelector('meta[name="theme-color"]').content = "#eef1f6";
+        }
       } catch (e) {}
     </script>
   </head>

@@ -2,14 +2,17 @@ import { useStatus } from "../api/hooks";
 import { useKillSwitchDialogs } from "../components/KillSwitch";
 import { shortTimeET } from "../lib/format";
 
-/** Full-width banner while the kill switch is armed. It can't be missed or dismissed. */
+/** Full-width hazard band while the kill switch is armed. It can't be missed or dismissed. */
 export function KillBanner() {
   const ks = useStatus().data?.kill_switch;
   const killSwitch = useKillSwitchDialogs();
   if (!ks?.armed) return null;
   return (
     <div className="kill-banner" role="alert">
-      <strong>Trading halted</strong>
+      <strong>
+        <span className="live-dot" aria-hidden="true" />
+        Trading halted
+      </strong>
       <span>
         Kill switch armed{ks.changed_at ? ` at ${shortTimeET(ks.changed_at)} ET` : ""}
         {ks.changed_by ? ` by ${ks.changed_by}` : ""}

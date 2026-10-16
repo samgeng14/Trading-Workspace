@@ -10,15 +10,23 @@ body {
   height: 100%;
 }
 
+html {
+  background: var(--bg-page);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
   background: var(--bg-page);
   color: var(--ink-1);
   font-family: var(--font-sans);
   font-size: var(--fs-md);
-  line-height: 1.4;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: "lnum" 1;
+  font-feature-settings:
+    "lnum" 1,
+    "ss01" 1;
 }
 
 #root {
@@ -47,24 +55,97 @@ a {
 
 a:hover {
   text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline-offset: 2px;
 }
 
 ::selection {
   background: var(--accent-wash);
 }
 
-/* Figures are set in the mono so columns line up and digits never shift as
-   they tick. Slightly smaller, because a mono's digits run wide. */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* ── the lit backdrop: two slow glows and a faint grid, fixed behind everything ── */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.backdrop::before,
+.backdrop::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(20px);
+}
+
+.backdrop::before {
+  top: -30vh;
+  left: -10vw;
+  width: 70vw;
+  height: 70vh;
+  background: radial-gradient(closest-side, var(--glow-a), transparent);
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+
+.backdrop::after {
+  top: -20vh;
+  right: -15vw;
+  width: 60vw;
+  height: 65vh;
+  background: radial-gradient(closest-side, var(--glow-b), transparent);
+  animation: drift-b 32s ease-in-out infinite alternate;
+}
+
+.backdrop-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 75%);
+}
+
+.backdrop-floor {
+  position: absolute;
+  right: 10vw;
+  bottom: -30vh;
+  width: 60vw;
+  height: 60vh;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--glow-c), transparent);
+}
+
+@keyframes drift-a {
+  to {
+    transform: translate(8vw, 6vh) scale(1.08);
+  }
+}
+
+@keyframes drift-b {
+  to {
+    transform: translate(-6vw, 8vh) scale(1.12);
+  }
+}
+
+/* Figures: tabular so columns line up and digits never shift as they tick. */
 .num {
   font-family: var(--font-mono);
-  font-size: 0.94em;
-  font-variant-numeric: tabular-nums lining-nums;
-  letter-spacing: -0.01em;
+  font-size: 0.95em;
+  font-variant-numeric: tabular-nums lining-nums slashed-zero;
+  letter-spacing: -0.015em;
   white-space: nowrap;
 }
 
@@ -88,11 +169,11 @@ a:hover {
   color: var(--ink-2);
 }
 
-/* small-caps label used for panel titles, column groups and kickers */
+/* micro label for kickers, column groups and stat labels */
 .kicker {
   font-size: var(--fs-2xs);
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
@@ -111,8 +192,80 @@ a:hover {
   scrollbar-color: var(--rule-strong) transparent;
 }
 
+/* ── shared motion ───────────────────────────────────────────────────── */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+@keyframes breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* a live indicator: a dot with a ring that keeps expanding */
+.live-dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse-ring 1.8s var(--ease-out) infinite;
+}
+
+.live-dot[data-still="true"]::after {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *,
+  *::before,
+  *::after {
     transition: none !important;
     animation: none !important;
   }

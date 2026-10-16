@@ -12,8 +12,10 @@ export interface LineSeries {
   /** CSS colour, usually a token like var(--series-1). */
   color: string;
   values: (number | null)[];
-  /** Soft 10% wash under the line (single-series charts). */
+  /** Soft gradient wash between the line and the baseline (single-series charts). */
   area?: boolean;
+  /** A soft glow under the line: the chart's main series. */
+  glow?: boolean;
   /** With the chart's signedFill, whether this line gets the up/down washes (default yes). */
   fill?: boolean;
   /** Text shown after the label at the line's end, e.g. "+9.8%". */
@@ -36,6 +38,8 @@ interface Props {
   signedFill?: boolean;
   /** Upper bound for the y axis (0 for drawdowns). */
   yMax?: number;
+  /** The latest point pulses: the data is still coming in. */
+  live?: boolean;
   ariaLabel: string;
   control: string;
 }
@@ -53,6 +57,7 @@ export function LineChart({
   baseline,
   signedFill = false,
   yMax,
+  live = false,
   ariaLabel,
   control,
 }: Props) {
@@ -162,6 +167,7 @@ export function LineChart({
   };
 
   const zeroY = baseline !== undefined ? y(baseline) : null;
+  const baseY = y(baseline ?? y.domain()[0]!);
   const clipId = control.replace(/[^a-zA-Z0-9-]/g, "-");
   const hx = hover !== null ? xOf(hover) : 0;
   const tipLeft = hx + left > width / 2;
@@ -194,17 +200,54 @@ export function LineChart({
             onPointerMove={(e) => move(e.clientX, e.currentTarget.getBoundingClientRect())}
             onPointerLeave={() => setHover(null)}
           >
-            {signedFill && zeroY !== null && (
-              // Clip paths take the coordinates of the plot group that uses them.
-              <defs>
-                <clipPath id={`${clipId}-above`}>
-                  <rect x={-left} y={-M.top} width={width} height={M.top + zeroY} />
-                </clipPath>
-                <clipPath id={`${clipId}-below`}>
-                  <rect x={-left} y={zeroY} width={width} height={height} />
-                </clipPath>
-              </defs>
-            )}
+            {/* Clip paths and gradients take the coordinates of the plot group that uses them. */}
+            <defs>
+              {signedFill && zeroY !== null && (
+                <>
+                  <clipPath id={`${clipId}-above`}>
+                    <rect x={-left} y={-M.top} width={width} height={M.top + zeroY} />
+                  </clipPath>
+                  <clipPath id={`${clipId}-below`}>
+                    <rect x={-left} y={zeroY} width={width} height={height} />
+                  </clipPath>
+                  <linearGradient id={`${clipId}-up`} gradientUnits="userSpaceOnUse" x1={0} y1={0} x2={0} y2={zeroY}>
+                    <stop offset="0" style={{ stopColor: "var(--up)", stopOpacity: 0.34 }} />
+                    <stop offset="1" style={{ stopColor: "var(--up)", stopOpacity: 0.02 }} />
+                  </linearGradient>
+                  <linearGradient
+                    id={`${clipId}-down`}
+                    gradientUnits="userSpaceOnUse"
+                    x1={0}
+                    y1={zeroY}
+                    x2={0}
+                    y2={innerH}
+                  >
+                    <stop offset="0" style={{ stopColor: "var(--down)", stopOpacity: 0.02 }} />
+                    <stop offset="1" style={{ stopColor: "var(--down)", stopOpacity: 0.34 }} />
+                  </linearGradient>
+                </>
+              )}
+              {series
+                .filter((s) => s.area)
+                .map((s) => (
+                  // strongest at the far side of the line from the baseline, fading into it
+                  <linearGradient
+                    key={s.id}
+                    id={`${clipId}-wash-${s.id}`}
+                    gradientUnits="userSpaceOnUse"
+                    x1={0}
+                    y1={baseY}
+                    x2={0}
+                    y2={baseY > innerH / 2 ? 0 : innerH}
+                  >
+                    <stop offset="0" style={{ stopColor: s.color, stopOpacity: 0.02 }} />
+                    <stop offset="1" style={{ stopColor: s.color, stopOpacity: 0.32 }} />
+                  </linearGradient>
+                ))}
+              <filter id={`${clipId}-glow`} x="-10%" y="-30%" width="120%" height="160%">
+                <feGaussianBlur stdDeviation="4" />
+              </filter>
+            </defs>
             <g transform={`translate(${left},${M.top})`}>
               {yTicks.map((t, k) => (
                 <g key={t} transform={`translate(0,${y(t)})`}>
@@ -229,12 +272,37 @@ export function LineChart({
                 signedFill && zeroY !== null ? (
                   s.fill === false ? null : (
                     <g key={`a-${s.id}`}>
-                      <path d={area} className="fill-up" clipPath={`url(#${clipId}-above)`} />
-                      <path d={area} className="fill-down" clipPath={`url(#${clipId}-below)`} />
+                      <path
+                        d={area}
+                        className="fill-up"
+                        fill={`url(#${clipId}-up)`}
+                        clipPath={`url(#${clipId}-above)`}
+                      />
+                      <path
+                        d={area}
+                        className="fill-down"
+                        fill={`url(#${clipId}-down)`}
+                        clipPath={`url(#${clipId}-below)`}
+                      />
                     </g>
                   )
                 ) : s.area ? (
-                  <path key={`a-${s.id}`} d={area} fill={s.color} fillOpacity={0.1} />
+                  <path key={`a-${s.id}`} d={area} className="area-wash" fill={`url(#${clipId}-wash-${s.id})`} />
+                ) : null,
+              )}
+              {paths.map(({ s, line }) =>
+                s.glow ? (
+                  <path
+                    key={`h-${s.id}`}
+                    d={line}
+                    fill="none"
+                    stroke={s.color}
+                    strokeWidth={6}
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    className="series-halo"
+                    filter={`url(#${clipId}-glow)`}
+                  />
                 ) : null,
               )}
               {paths.map(({ s, line }) => (
@@ -243,11 +311,27 @@ export function LineChart({
                   d={line}
                   fill="none"
                   stroke={s.color}
-                  strokeWidth={2}
+                  strokeWidth={s.glow ? 2.25 : 1.75}
                   strokeLinejoin="round"
                   strokeLinecap="round"
+                  pathLength={1}
+                  className="series-line"
                 />
               ))}
+              {live &&
+                series.slice(0, 1).map((s) => {
+                  const i = lastIndex(s);
+                  return i < 0 ? null : (
+                    <circle
+                      key={`p-${s.id}`}
+                      cx={xOf(i)}
+                      cy={y(s.values[i]!)}
+                      r={4}
+                      fill={s.color}
+                      className="end-pulse"
+                    />
+                  );
+                })}
               {ends.map(({ s, i, py, ly }) => (
                 <g key={`e-${s.id}`}>
                   <circle cx={xOf(i)} cy={py} r={4} fill={s.color} stroke="var(--bg-panel)" strokeWidth={2} />
@@ -260,20 +344,38 @@ export function LineChart({
                   </text>
                 </g>
               ))}
+              {live &&
+                !endLabels &&
+                series.slice(0, 1).map((s) => {
+                  const i = lastIndex(s);
+                  return i < 0 ? null : (
+                    <circle
+                      key={`d-${s.id}`}
+                      cx={xOf(i)}
+                      cy={y(s.values[i]!)}
+                      r={3.5}
+                      fill={s.color}
+                      stroke="var(--bg-panel)"
+                      strokeWidth={2}
+                    />
+                  );
+                })}
               {hover !== null && (
                 <g>
                   <line x1={hx} x2={hx} y1={0} y2={innerH} className="crosshair" />
                   {series.map((s) =>
                     s.values[hover] !== null && s.values[hover] !== undefined ? (
-                      <circle
-                        key={s.id}
-                        cx={hx}
-                        cy={y(s.values[hover]!)}
-                        r={4}
-                        fill={s.color}
-                        stroke="var(--bg-panel)"
-                        strokeWidth={2}
-                      />
+                      <g key={s.id}>
+                        <circle cx={hx} cy={y(s.values[hover]!)} r={9} fill={s.color} fillOpacity={0.18} />
+                        <circle
+                          cx={hx}
+                          cy={y(s.values[hover]!)}
+                          r={4}
+                          fill={s.color}
+                          stroke="var(--bg-panel)"
+                          strokeWidth={2}
+                        />
+                      </g>
                     ) : null,
                   )}
                 </g>

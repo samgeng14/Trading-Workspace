@@ -49,6 +49,7 @@ export function EquityChart({
             label: "Portfolio",
             legend: nav ? "Portfolio NAV" : undefined,
             color: "var(--series-1)",
+            glow: true,
             values: view.portfolio,
             endText: endText(view.portfolio, data.stats.total_return),
           },
