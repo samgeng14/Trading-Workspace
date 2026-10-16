@@ -135,31 +135,42 @@ Once, send a small paper order after 15:45 ET to confirm IBKR accepts and
 holds the market-on-open (MKT, tif OPG) order that `auction.py`'s late path sends.
 Then try `bin/tradeit kill "test"` with a working order and `bin/tradeit resume`.
 
-### 2. The always-on host: the owner's Oracle Cloud VM (needs Chrome)
+### 2. The always-on host: the owner's Oracle Cloud VM
 
-Today everything runs on the Mac, which must be awake at 14:35 Central. The
-plan (`docs/PLAN.md` §12, Phase 2) moves the gateway, runner, API and
-Postgres to the owner's Oracle VM. On 2026-10-13 Claude in Chrome was not
-connected on the Mac, so this did not start.
+Until the cutover the Mac runs the fund and must be awake at 14:35 Central.
+The plan (`docs/PLAN.md` §12, Phase 2) moves the gateway, runner, API and
+Postgres to the VM below.
 
-**Read the console through Claude in Chrome** (setup below). The owner signs
-in to Oracle Cloud in Chrome; Claude only reads. Never type, store or ask for
-the password or MFA code. From Compute → Instances → the instance, record
-these here:
-- region
-- shape (e.g. VM.Standard.A1.Flex is ARM64 Ampere; VM.Standard.E2.1.Micro is x86)
-- OCPUs and memory
-- boot volume size and OS image
-- public IP
-- the VCN security list's ingress rules
-- anything else already running there (the plan mentions a Kalshi desk)
+**The VM, `dv02` (built 2026-10-16 with `deploy/bin/bootstrap`):**
+- Oracle Cloud us-chicago-1, AD-3, in the root compartment, subnet
+  `deskd-public` of `deskd-vcn` (10.0.0.0/16)
+- VM.Standard.A1.Flex (arm64 Ampere), 3 OCPU, 18 GB
+- 50 GB boot volume, Canonical Ubuntu 24.04 (image 2026.09.18)
+- public IP 64.181.195.172. The security list allows 22/tcp from anywhere,
+  plus ICMP. The login is `ssh ubuntu@64.181.195.172` with the Mac's
+  `~/.ssh/id_ed25519`, or `ssh ubuntu@dv02` over Tailscale
+- Tailscale name `dv02.tail30c53b.ts.net`. `tailscale serve` puts the
+  dashboard at https://dv02.tail30c53b.ts.net, on the tailnet only
+- running: `dv02-api` (127.0.0.1:8000, foreign Hosts get 400) and
+  `dv02-api-check.timer`
+- not running yet: the gateway, `dv02-runner.timer`, backups (no
+  `DV02_BACKUP_REMOTE`), heartbeats, Postgres
+- the Mac's state (artifacts, data/broker, data/market/cleaned) was copied
+  on 2026-10-16 after the close
 
-**One command (2026-10-16):** on a fresh Ubuntu 24.04 VM (the free Ampere
-A1 shape; the IB Gateway image has an arm64 build), run `deploy/bin/bootstrap`
-(`deploy/README.md`, Quick start). It installs everything and serves the
-dashboard to the owner's Tailscale devices. The owner already has one free A1
-VM, `deskd-recorder` (1 OCPU, 6 GB), so a new one of 3 OCPU and 18 GB fills the
-free allowance.
+Also on the account: `deskd-recorder` (A1, 1 OCPU, 6 GB, 150 GB boot,
+64.181.211.165, AD-3). Together the two VMs use exactly the Always Free
+allowance: 4 OCPU, 24 GB and 200 GB of block storage. The account is Pay As
+You Go (its A1 limit is 250 cores), so anything beyond that is billed.
+
+Learned while setting it up:
+- Tailscale's login link fails in an embedded browser. Open it in your own
+  browser.
+- `tailscale serve` waits until Serve is enabled for the tailnet once, at
+  the link it prints.
+- The VM's checkout carries the Mac's newer copies of the tracked files in
+  `data/market/cleaned`. `setup-app`'s `--ff-only` update stops if the
+  branch changes those files: commit or reset them on the VM first.
 
 **The files are ready (2026-10-16): [`deploy/README.md`](../deploy/README.md)**
 is the runbook (setup, dry run, cut over, rollback), with:
@@ -330,8 +341,11 @@ Docs: https://code.claude.com/docs/en/chrome
   ../../.venv/bin/python -m dv02_api.portfolio_analyst ~/Downloads/<the daily PortfolioAnalyst CSV>
   ```
 - Delete any `DV02_INCEPTION_*` lines from `.env` (the import replaces them).
-- `bin/tradeit schedule install`, for the 15:35 ET time, until the VM takes
-  over. Nothing is scheduled on the Mac today.
+- The Mac's schedule is installed (launchd, 14:35 Central) and stays until
+  the VM takes over.
+- The VM (step 2): install Tailscale on the phone and Mac (same account),
+  then over SSH, `bin/tradeit login` and `bin/tradeit flex` as `dv02`. After
+  that, the gateway move and the cutover, both on a trading day.
 - The limits in `config/risk_limits.yaml` were confirmed on 2026-10-16: one name
   at most 20%, net between 50% and 100%, at least 5 holdings.
 - Market data and permissions (`docs/PLAN.md` §7, §15):
@@ -339,4 +353,3 @@ Docs: https://code.claude.com/docs/en/chrome
     Bundle, and share market data with the paper user
   - keep the live login closed while the VM's gateway runs
   - confirm the account is a margin account with permission to short
-- Connect Claude in Chrome and sign in to Oracle Cloud there when Claude asks (step 2).
