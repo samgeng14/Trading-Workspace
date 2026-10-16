@@ -7,22 +7,20 @@ export function NextJob({ job, now }: { job: Schemas["ScheduledJob"] | undefined
   return (
     <div className="next-job">
       <span className="kicker">Next</span>
-      <span className="next-job-label">{job.label}</span>
+      <span>{job.label}</span>
       <span className="num next-job-time">
-        {shortTimeET(job.at)} ET · in <strong>{countdown(Date.parse(job.at) - now.getTime())}</strong>
+        {shortTimeET(job.at)} ET · in {countdown(Date.parse(job.at) - now.getTime())}
       </span>
     </div>
   );
 }
 
-/** The day's jobs as a timeline: a node per job, filled once it ran, lit while it runs. */
 export function ScheduleList({ jobs }: { jobs: Schemas["ScheduledJob"][] }) {
   return (
     <ol className="schedule">
       {jobs.map((j) => (
         <li key={j.id} className="schedule-row" data-status={j.status}>
           <span className="num schedule-time">{shortTimeET(j.at)}</span>
-          <span className="schedule-node" aria-hidden="true" />
           <span className="schedule-main">
             <span className="schedule-label">{j.label}</span>
             <span className="schedule-status">

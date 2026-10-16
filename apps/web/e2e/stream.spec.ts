@@ -13,36 +13,26 @@ test("the demo build polls and never opens the live stream", async ({ page }) =>
   expect(sockets.filter((url) => url.includes("/api/v1/stream"))).toEqual([]);
 });
 
-test("the status line fits every desktop width: all five system lights, names from 1500px, the stream from 1280px", async ({
+test("the status strip shows whole segments: all health badges where they fit, the stream where it fits", async ({
   page,
 }) => {
   await open(page);
-  const lights = page.locator(".topbar-health .badge");
+  const badges = page.locator(".topbar-health .badge").filter({ visible: true });
   const stream = page.locator(".topbar-stream");
   const cases = [
-    [1024, false, false],
-    [1180, false, false],
-    [1279, false, false],
-    [1280, true, false],
-    [1440, true, false],
-    [1499, true, false],
-    [1500, true, true],
-    [1920, true, true],
+    [1280, 2, false],
+    [1366, 5, false],
+    [1400, 5, false],
+    [1440, 2, true],
+    [1600, 2, true],
+    [1601, 5, true],
+    [1920, 5, true],
   ] as const;
-  for (const [width, streamShown, named] of cases) {
+  for (const [width, shown, streamShown] of cases) {
     await page.setViewportSize({ width, height: 900 });
-    await expect(lights.filter({ visible: true }), `${width}px`).toHaveCount(5);
+    await expect(badges, `${width}px`).toHaveCount(shown);
     await expect(stream, `${width}px`).toBeVisible({ visible: streamShown });
-    // a light's short name stays in its text either way; below 1500px it is only read out
-    const nameWidth = await lights
-      .first()
-      .locator(".badge-text")
-      .evaluate((el) => el.getBoundingClientRect().width);
-    expect(nameWidth > 1, `${width}px: names shown`).toBe(named);
-    await expect(page.locator(".topbar-health .health-count"), `${width}px`).toBeVisible({ visible: !named });
     const clipped = await page.locator(".topbar-segs").evaluate((el) => el.scrollWidth - el.clientWidth);
     expect(clipped, `${width}px`).toBe(0);
-    const line = await page.locator(".topbar").evaluate((el) => el.scrollWidth - el.clientWidth);
-    expect(line, `${width}px`).toBe(0);
   }
 });

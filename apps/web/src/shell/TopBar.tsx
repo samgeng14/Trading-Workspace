@@ -2,16 +2,14 @@ import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { useRebalancePreview, useStatus } from "../api/hooks";
 import { useStream } from "../api/stream";
-import { HaltIcon, MoonIcon, SessionIcon, StatusIcon, SunIcon } from "../components/icons";
+import { MoonIcon, SessionIcon, StatusIcon, SunIcon } from "../components/icons";
 import { useKillSwitchDialogs } from "../components/KillSwitch";
 import { countdown, timeET, weekdayTimeET } from "../lib/format";
 import { gate } from "../lib/readiness";
 import { useServerNow } from "../lib/serverClock";
-import { sessionProgress } from "../lib/session";
 import { useTheme } from "../lib/useTheme";
 
 const SESSION_LABEL = { pre: "Pre-market", open: "Market open", post: "After hours", closed: "Market closed" };
-const MODE_TEXT = { demo: "Demo", paper: "Paper", live: "Live" } as const;
 const HEALTH_SHORT: Record<string, string> = {
   gateway: "IBKR",
   market_data: "Data",
@@ -35,7 +33,7 @@ function since(ms: number): string {
   return s < 60 ? `${s}s ago` : `${Math.floor(s / 60)}m ago`;
 }
 
-/** The status line over the nameplate: what mode, is the market open, can we trade, is everything up, and the halt. */
+/** The status strip: what mode, which account, is the market open, can we trade, is everything up. */
 export function TopBar() {
   const { data: status } = useStatus();
   const stream = useStream();
@@ -52,28 +50,23 @@ export function TopBar() {
       : market
         ? `Opens ${weekdayTimeET(market.next_change_at)} ET`
         : "";
-  const progress = sessionProgress(market, now);
   const g = gate(status, preview);
-  const clock = timeET(now);
-  const healthy = status?.components.filter((c) => c.status === "ok").length ?? 0;
 
   return (
     <header className="topbar">
-      <div className="topbar-id">
-        {status && <span className={`mode-badge mode-${status.mode}`}>{MODE_TEXT[status.mode]}</span>}
-      </div>
-
       <div className="topbar-segs">
+        {status && (
+          <Seg label="Mode">
+            <span className="tone-accent" data-mode={status.mode}>
+              {status.mode === "demo" ? "Demo" : status.mode === "paper" ? "Paper" : "Live"}
+            </span>
+          </Seg>
+        )}
         {market && (
           <Seg label="Market" className="topbar-session">
             <SessionIcon session={market.session} />
             <span className="session-label">{SESSION_LABEL[market.session]}</span>
             <span className="muted">· {changeLabel}</span>
-            {progress !== null && (
-              <span className="seg-progress" aria-hidden="true">
-                <span style={{ width: `${progress * 100}%` }} />
-              </span>
-            )}
           </Seg>
         )}
         <Seg label="Gate">
@@ -116,12 +109,9 @@ export function TopBar() {
                   <span className="badge-icon">
                     <StatusIcon status={c.status} />
                   </span>
-                  <span className="badge-text">{HEALTH_SHORT[c.id] ?? c.label}</span>
+                  {HEALTH_SHORT[c.id] ?? c.label}
                 </span>
               ))}
-              <span className="health-count">
-                {healthy}/{status.components.length}
-              </span>
             </span>
           </Link>
         )}
@@ -129,22 +119,16 @@ export function TopBar() {
 
       <div className="topbar-right">
         <span className="topbar-clock num" aria-label="Exchange time">
-          <span>
-            {clock.slice(0, 5)}
-            <span className="clock-sec">{clock.slice(5)}</span>
-          </span>
-          <span className="muted">ET</span>
+          {timeET(now)} <span className="muted">ET</span>
         </span>
         {status && !status.kill_switch.armed && (
           <button
             type="button"
-            className="btn btn-danger halt-btn"
+            className="btn btn-danger"
             onClick={killSwitch.openArm}
-            aria-label="Halt trading"
             data-control="topbar.kill-switch"
           >
-            <HaltIcon />
-            Halt<span className="halt-btn-more"> trading</span>
+            Halt trading
           </button>
         )}
         <button

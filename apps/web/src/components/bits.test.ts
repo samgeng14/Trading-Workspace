@@ -49,19 +49,4 @@ describe("Meter", () => {
     expect(html).toContain('aria-valuenow="100"');
     expect(html).toContain('aria-valuetext="−0.04%, limit 0.0%"');
   });
-
-  it("prints the limit beside the value and the share used under the bar", () => {
-    const html = renderToStaticMarkup(
-      createElement(Meter, {
-        label: "Gross exposure",
-        value: 0.963,
-        limit: 1,
-        status: "ok",
-        valueText: "96.3%",
-        limitText: "100.0%",
-      }),
-    );
-    expect(html).toMatch(/class="meter-value num">96\.3%<span class="meter-limit"> \/ 100\.0%<\/span>/);
-    expect(html).toContain('<span class="num meter-used">96% used</span>');
-  });
 });

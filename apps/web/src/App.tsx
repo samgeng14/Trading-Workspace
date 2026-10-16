@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { BrowserRouter, Route, Routes } from "react-router";
 import { applyFrame } from "./api/hooks";
 import { startStream } from "./api/stream";
 import { ToastProvider } from "./components/Toasts";
@@ -12,7 +12,6 @@ import { Positions } from "./pages/Positions";
 import { Risk } from "./pages/Risk";
 import { Trading } from "./pages/Trading";
 import { KillBanner } from "./shell/KillBanner";
-import { Masthead } from "./shell/Masthead";
 import { SideNav } from "./shell/SideNav";
 import { TickerStrip } from "./shell/TickerStrip";
 import { TopBar } from "./shell/TopBar";
@@ -23,34 +22,6 @@ const queryClient = new QueryClient({
   },
 });
 
-function Shell() {
-  const { pathname } = useLocation();
-  // a new section starts at the top of the page
-  useEffect(() => {
-    window.scrollTo({ top: 0 });
-  }, [pathname]);
-
-  return (
-    <div className="app">
-      <TopBar />
-      <Masthead />
-      <SideNav />
-      <TickerStrip />
-      <KillBanner />
-      <main className="main">
-        <Routes>
-          <Route path="/" element={<Overview />} />
-          <Route path="/positions" element={<Positions />} />
-          <Route path="/performance" element={<Performance />} />
-          <Route path="/risk" element={<Risk />} />
-          <Route path="/trading" element={<Trading />} />
-          <Route path="/ops" element={<Operations />} />
-        </Routes>
-      </main>
-    </div>
-  );
-}
-
 export function App() {
   // one WebSocket for the whole dashboard; its frames land in the cache the hooks read
   useEffect(() => startStream((frame) => applyFrame(queryClient, frame)), []);
@@ -60,7 +31,22 @@ export function App() {
       <ToastProvider>
         <ServerClockProvider>
           <BrowserRouter>
-            <Shell />
+            <div className="app">
+              <SideNav />
+              <TopBar />
+              <KillBanner />
+              <main className="main">
+                <Routes>
+                  <Route path="/" element={<Overview />} />
+                  <Route path="/positions" element={<Positions />} />
+                  <Route path="/performance" element={<Performance />} />
+                  <Route path="/risk" element={<Risk />} />
+                  <Route path="/trading" element={<Trading />} />
+                  <Route path="/ops" element={<Operations />} />
+                </Routes>
+              </main>
+              <TickerStrip />
+            </div>
           </BrowserRouter>
         </ServerClockProvider>
       </ToastProvider>

@@ -18,9 +18,9 @@ interface Props {
 }
 
 const ROW = 30;
-const BAR = 12;
-const LABEL_WIDE = 104;
-const VALUE_WIDE = 64;
+const BAR = 14;
+const LABEL_W = 104;
+const VALUE_W = 64;
 
 /**
  * Long exposure to the right of zero, short to the left, net as a tick.
@@ -29,20 +29,13 @@ const VALUE_WIDE = 64;
 export function DivergingBars({ rows, format, ariaLabel, control }: Props) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<string | null>(null);
-  // a row with keyboard focus stays lit even when the page scrolls a different row under the mouse
-  const [focused, setFocused] = useState<string | null>(null);
-  const active = focused ?? hover;
-  // a phone-width panel gives the bars the room the labels can spare
-  const narrow = width > 0 && width < 480;
-  const LABEL_W = narrow ? 92 : LABEL_WIDE;
-  const VALUE_W = narrow ? 52 : VALUE_WIDE;
   const plotW = Math.max(40, width - LABEL_W - VALUE_W * 2);
   // Fit the data: the long side usually dominates, so don't reserve equal room for shorts.
   const hi = Math.max(0.05, ...rows.map((r) => r.long));
   const lo = Math.min(-0.02, ...rows.map((r) => r.short));
   const x = scaleLinear().domain([lo, hi]).range([0, plotW]);
   const height = rows.length * ROW + 8;
-  const hovered = rows.find((r) => r.id === active);
+  const hovered = rows.find((r) => r.id === hover);
 
   return (
     <div ref={ref} className="chart">
@@ -79,11 +72,11 @@ export function DivergingBars({ rows, format, ariaLabel, control }: Props) {
                 <g
                   key={r.id}
                   onPointerEnter={() => setHover(r.id)}
-                  onFocus={() => setFocused(r.id)}
-                  onBlur={() => setFocused(null)}
+                  onFocus={() => setHover(r.id)}
+                  onBlur={() => setHover(null)}
                   tabIndex={0}
                   aria-label={`${r.label}: long ${format(r.long)}, short ${format(r.short)}, net ${format(r.net)}`}
-                  className={active === r.id ? "bar-row is-hover" : "bar-row"}
+                  className={hover === r.id ? "bar-row is-hover" : "bar-row"}
                 >
                   <rect x={-LABEL_W - VALUE_W} y={i * ROW} width={width} height={ROW} className="bar-hit" />
                   <text x={-LABEL_W - VALUE_W} y={cy + 4} className="bar-label">

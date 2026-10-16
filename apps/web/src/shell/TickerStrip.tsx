@@ -21,7 +21,7 @@ function QuoteItem({ q }: { q: Schemas["Quote"] }) {
   );
 }
 
-/** The markets strip under the section bar: headline markets, the book's biggest gainers and losers today, then the other markets. */
+/** Bottom ticker: headline markets, the book's biggest gainers and losers today, then the other markets. */
 export function TickerStrip() {
   const { data } = useMarketStrip();
   const positions = usePositions().data?.positions;

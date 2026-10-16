@@ -62,7 +62,7 @@ export function ConfirmDialog({
     <Dialog.Root open={open} onOpenChange={reset}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className="dialog" data-tone={tone} aria-describedby={undefined}>
+        <Dialog.Content className="dialog" aria-describedby={undefined}>
           <form
             onSubmit={(e) => {
               e.preventDefault();

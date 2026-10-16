@@ -7,24 +7,22 @@
 html,
 body {
   margin: 0;
-}
-
-html {
-  background: var(--bg-page);
-  -webkit-text-size-adjust: 100%;
-  -webkit-tap-highlight-color: transparent;
+  height: 100%;
 }
 
 body {
-  min-height: 100vh;
   background: var(--bg-page);
   color: var(--ink-1);
   font-family: var(--font-sans);
   font-size: var(--fs-md);
-  line-height: 1.45;
+  line-height: 1.4;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-feature-settings: "lnum" 1;
+}
+
+#root {
+  height: 100%;
 }
 
 h1,
@@ -49,7 +47,6 @@ a {
 
 a:hover {
   text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 :focus-visible {
@@ -61,16 +58,13 @@ a:hover {
   background: var(--accent-wash);
 }
 
-code {
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-}
-
-/* Figures are set in the condensed face, whose digits are all one width, so columns
-   line up and a ticking number never shifts. */
+/* Figures are set in the mono so columns line up and digits never shift as
+   they tick. Slightly smaller, because a mono's digits run wide. */
 .num {
-  font-family: var(--font-data);
+  font-family: var(--font-mono);
+  font-size: 0.94em;
   font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 
@@ -94,12 +88,11 @@ code {
   color: var(--ink-2);
 }
 
-/* condensed capitals for kickers, column groups and stat labels */
+/* small-caps label used for panel titles, column groups and kickers */
 .kicker {
-  font-family: var(--font-label);
   font-size: var(--fs-2xs);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
@@ -119,9 +112,7 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  * {
     transition: none !important;
     animation: none !important;
   }

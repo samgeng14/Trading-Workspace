@@ -24,14 +24,14 @@ export function Overview() {
   return (
     <div className="page">
       <CommandHead />
-      <HeroBand />
+      <KpiBand />
       <ReadinessRow />
       {/* Two independent stacks so a tall panel never leaves a gap beside it. */}
       <div className="overview-cols">
         <div className="stack">
           <IntradayPanel className="" />
-          <PerformancePanel className="" />
           <MoversPanel className="" />
+          <PerformancePanel className="" />
         </div>
         <div className="stack">
           <ExposurePanel className="" />
@@ -48,6 +48,7 @@ export function Overview() {
 const VERDICT_TONE = { clear: "good", review: "warn", blocked: "bad", loading: "neutral" } as const;
 
 function CommandHead() {
+  const status = useStatus().data;
   const ready = useReadiness();
   const now = useServerNow();
   const counts = [
@@ -56,20 +57,22 @@ function CommandHead() {
   ].filter(Boolean);
   return (
     <header className="page-head">
-      <div className="page-head-text">
-        <p className="page-eyebrow">Front page</p>
+      <div>
         <h1 className="page-title">Command Center</h1>
         <p className="page-sub">
           Daily cockpit. Is the book safe to act on today, what changed, and what needs a person to look at.
         </p>
-      </div>
-      <div className="verdict" data-tone={VERDICT_TONE[ready.verdict]} aria-live="polite" data-testid="verdict">
-        <span className="verdict-orb" aria-hidden="true" />
-        <span className="verdict-text">
-          <span className="verdict-label">Verdict · {timeET(now)} ET</span>
-          <strong>{VERDICT_TEXT[ready.verdict]}</strong>
-        </span>
-        {counts.length > 0 && <span className="verdict-counts">{counts.join(" · ")}</span>}
+        <p className="action-line" aria-live="polite" data-testid="verdict">
+          <span className={`tone-${VERDICT_TONE[ready.verdict]}`}>
+            <span className="action-dot" aria-hidden="true">
+              ●
+            </span>{" "}
+            {VERDICT_TEXT[ready.verdict]}
+          </span>
+          {counts.length > 0 && <span>{counts.join(" · ")}</span>}
+          <span className="num">{timeET(now)} ET</span>
+          {status && <span className="tone-accent">{status.mode}</span>}
+        </p>
       </div>
     </header>
   );
@@ -86,15 +89,13 @@ const STATE_ICON: Record<CheckState, "ok" | "warning" | "error" | "unknown"> = {
 
 function ReadinessRow() {
   const ready = useReadiness();
-  const ok = ready.checks.filter((c) => c.state === "ok").length;
   return (
     <div className="readiness-row">
-      <Panel title="Readiness" meta={`${ok} of ${ready.checks.length} ok`}>
-        <div className="readiness-score" aria-hidden="true">
-          {ready.checks.map((c) => (
-            <span key={c.id} data-state={c.state} />
-          ))}
-        </div>
+      <Panel
+        title="Readiness"
+        meta={`${ready.checks.filter((c) => c.state === "ok").length} of ${ready.checks.length} ok`}
+        flush
+      >
         <ul className="checklist">
           {ready.checks.map((c) => (
             <li key={c.id}>
@@ -139,7 +140,6 @@ function IssuePanel({
   return (
     <Panel
       title={title}
-      className={`issue-panel ${issues.length ? `has-${tone}` : ""}`}
       actions={
         <span
           className="tag"
@@ -157,7 +157,7 @@ function IssuePanel({
         <ul className="issues">
           {issues.map((i) => (
             <li key={i.id}>
-              <Link to={i.to} className="issue" data-tone={tone} data-control={`overview.issue.${i.id}`}>
+              <Link to={i.to} className="issue" data-control={`overview.issue.${i.id}`}>
                 <span className="tag" data-tone={tone}>
                   {tag}
                 </span>
@@ -173,64 +173,53 @@ function IssuePanel({
   );
 }
 
-// ── hero: NAV, today, and the headline numbers ─────────────────────────
+// ── KPI band ───────────────────────────────────────────────────────────
 
-function HeroBand() {
+function KpiBand() {
   const { data: s, error } = useSummary();
   const status = useStatus().data;
   if (error) return <LoadError error={error} />;
-  if (!s) return <div className="hero panel" aria-busy="true" style={{ minHeight: 260 }} />;
+  if (!s) return <div className="kpi-band panel" aria-busy="true" style={{ minHeight: 150 }} />;
   const live = status?.market.session === "open";
   return (
-    <section className="hero panel" aria-label="Portfolio summary">
-      <div className="hero-top">
-        <div className="hero-main">
-          <div className="hero-kicker">
-            <span className="stat-label">Net liquidation value</span>
-            <span className={`hero-live ${live ? "is-live" : ""}`}>
-              {live
-                ? `Live ${shortTimeET(s.as_of)} ET`
-                : `Close, ${status ? dateLong(status.market.trading_date) : ""}`}
-            </span>
-          </div>
-          <div className="hero-value" data-testid="nav">
+    <section className="kpi-band panel" aria-label="Portfolio summary">
+      <div className="kpi-hero">
+        <span className="stat-label">Net liquidation value</span>
+        <div className="kpi-hero-row">
+          <span className="hero-value" data-testid="nav">
             {money(s.nav)}
-          </div>
-          <div className="hero-deltas" data-testid="kpi-day">
-            <Delta value={s.day_pnl} kind="money" chip />
-            <Delta value={s.day_return} chip />
-            <span className="muted">today</span>
-          </div>
-          <span className="stat-sub hero-since">
-            Since {dateShort(s.inception_date)}, {s.inception_date.slice(0, 4)}
-            {!s.history.complete && (
-              <span className="history-note">
-                {" "}
-                · history so far: {s.history.days} days. Load the rest: bin/tradeit flex
-              </span>
-            )}
           </span>
+          <Sparkline values={s.nav_history.map((p) => p.value)} label="NAV, last 30 sessions" />
         </div>
-        <div className="hero-spark">
-          <Sparkline values={s.nav_history.map((p) => p.value)} height={72} label="NAV, last 30 sessions" />
-          <span className="hero-spark-caption">NAV · last {s.nav_history.length} sessions</span>
-        </div>
+        <span className="stat-sub">
+          {live ? `Live, ${shortTimeET(s.as_of)} ET` : `Close, ${status ? dateLong(status.market.trading_date) : ""}`} ·
+          since {dateShort(s.inception_date)}, {s.inception_date.slice(0, 4)}
+          {!s.history.complete && (
+            <span className="history-note">
+              {" "}
+              · history so far: {s.history.days} days. Load the rest: bin/tradeit flex
+            </span>
+          )}
+        </span>
       </div>
       <div className="kpi-grid">
         <Stat
-          className="tile"
+          label="Day P&L"
+          value={<Delta value={s.day_pnl} kind="money" />}
+          sub={<Delta value={s.day_return} />}
+          testId="kpi-day"
+        />
+        <Stat
           label="Month to date"
           value={<Delta value={s.mtd_return} />}
           sub={s.mtd_return === null ? "history doesn't reach the month start" : undefined}
         />
         <Stat
-          className="tile"
           label="Year to date"
           value={<Delta value={s.ytd_return} />}
           sub={s.ytd_return === null ? "history doesn't reach the year start" : undefined}
         />
         <Stat
-          className="tile"
           label="Since inception"
           value={<Delta value={s.itd_return} />}
           sub={
@@ -244,7 +233,6 @@ function HeroBand() {
           }
         />
         <Stat
-          className="tile"
           label="Gross exposure"
           value={<span className="num">{pct(s.gross_exposure, 0)}</span>}
           sub={
@@ -254,14 +242,8 @@ function HeroBand() {
             </>
           }
         />
+        <Stat label="Beta" value={<span className="num">{num(s.beta, 2)}</span>} sub="to S&P 500, hedged" />
         <Stat
-          className="tile"
-          label="Beta"
-          value={<span className="num">{num(s.beta, 2)}</span>}
-          sub="to S&P 500, hedged"
-        />
-        <Stat
-          className="tile"
           label="Sharpe, inception"
           value={<span className="num">{num(s.sharpe_itd?.value, 2)}</span>}
           sub={
@@ -275,20 +257,9 @@ function HeroBand() {
           }
         />
         <Stat
-          className="tile"
           label="Cash"
-          value={<span className="num">{money(s.cash, { compact: true })}</span>}
-          sub={`${pct(s.cash / s.nav, 1)} of NAV`}
-        />
-        <Stat
-          className="tile"
-          label="Positions"
-          value={<span className="num">{s.positions_count}</span>}
-          sub={
-            <>
-              long <span className="num">{pct(s.long_exposure, 0)}</span> of NAV
-            </>
-          }
+          value={<span className="num">{money(s.cash)}</span>}
+          sub={`${s.positions_count} positions`}
         />
       </div>
     </section>
@@ -360,7 +331,7 @@ function IntradayPanel({ className }: { className: string }) {
             tipFormat={(v) => money(v, { sign: true })}
             xLabel={(i) => `${sampleTime(view.points[i]!.t)} ET`}
             xTicks={view.ticks}
-            height={230}
+            height={220}
             ariaLabel="Profit and loss through today's session"
             control="overview.intraday.plot"
           />
@@ -411,7 +382,7 @@ function ExposurePanel({ className }: { className: string }) {
       control="overview.exposure"
       actions={
         <Link to="/risk" className="btn btn-ghost" data-control="overview.exposure.more">
-          Risk <span className="btn-arrow">→</span>
+          Risk →
         </Link>
       }
       chart={
@@ -441,7 +412,7 @@ const moverColumns: Column<Position>[] = [
     header: "Symbol",
     accessorKey: "symbol",
     cell: ({ row }) => (
-      <span className="sym-cell">
+      <span>
         <span className="sym">{row.original.symbol}</span> <span className="sub">{row.original.name}</span>
       </span>
     ),
@@ -465,7 +436,7 @@ const moverColumns: Column<Position>[] = [
     header: "Day %",
     accessorKey: "day_return",
     meta: { align: "right" },
-    cell: ({ row }) => <Delta value={row.original.day_return} chip />,
+    cell: ({ row }) => <Delta value={row.original.day_return} />,
   },
   {
     id: "day_pnl",
@@ -497,7 +468,7 @@ function MoversPanel({ className }: { className: string }) {
       flush
       actions={
         <Link to="/positions" className="btn btn-ghost" data-control="overview.movers.more">
-          All positions <span className="btn-arrow">→</span>
+          All positions →
         </Link>
       }
     >
@@ -510,7 +481,6 @@ function MoversPanel({ className }: { className: string }) {
           control="overview.movers"
           rowKey={(p) => p.symbol}
           initialSort={[{ id: "day_pnl", desc: true }]}
-          stickyFirst
         />
       )}
     </Panel>
@@ -592,7 +562,7 @@ function PerformancePanel({ className }: { className: string }) {
             control="overview.performance.mode"
           />
           <Link to="/performance" className="btn btn-ghost" data-control="overview.performance.more">
-            Performance <span className="btn-arrow">→</span>
+            Performance →
           </Link>
         </div>
       }
@@ -601,7 +571,7 @@ function PerformancePanel({ className }: { className: string }) {
           <EquityChart
             data={data}
             mode={mode}
-            height={240}
+            height={220}
             maxTicks={7}
             ariaLabel={
               mode === "nav"
@@ -654,7 +624,7 @@ function TodayPanel({ className }: { className: string }) {
       flush
       actions={
         <Link to="/trading" className="btn btn-ghost" data-control="overview.today.more">
-          Trading <span className="btn-arrow">→</span>
+          Trading →
         </Link>
       }
       foot={

@@ -1,23 +1,14 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" content="#faf9f5" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="DV02" />
     <title>DV02 Fund</title>
     <script>
-      // Apply a remembered theme before first paint so the page never flashes: the
-      // Journal (light) unless the viewer picked the night edition.
+      // Apply a remembered theme before first paint so the page never flashes.
       try {
-        if (localStorage.getItem("dv02.theme") === "dark") {
-          document.documentElement.dataset.theme = "dark";
-          document.querySelector('meta[name="theme-color"]').content = "#0e0d0c";
-        }
+        document.documentElement.dataset.theme = localStorage.getItem("dv02.theme") === "dark" ? "dark" : "light";
       } catch (e) {}
     </script>
   </head>

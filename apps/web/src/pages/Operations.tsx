@@ -12,7 +12,7 @@ const DOCTOR_STATUS = { PASS: "pass", WARN: "warn", FAIL: "fail", SKIP: "skip" }
 export function Operations() {
   return (
     <div className="page">
-      <PageHead eyebrow="Systems" title="Operations" sub="System health, IBKR connection, schedule and run history" />
+      <PageHead title="Operations" sub="System health, IBKR connection, schedule and run history" />
       <div className="grid">
         <HealthPanel />
         <KillSwitchPanel />
@@ -40,7 +40,7 @@ function HealthPanel() {
       ) : (
         <ul className="health-list">
           {data?.components.map((c) => (
-            <li key={c.id} data-status={c.status}>
+            <li key={c.id}>
               <StatusBadge status={c.status} label={c.label} />
               <span className="secondary">{c.detail}</span>
             </li>
@@ -55,9 +55,9 @@ function KillSwitchPanel() {
   const ks = useStatus().data?.kill_switch;
   const killSwitch = useKillSwitchDialogs();
   return (
-    <Panel title="Kill switch" className="span-5 killswitch-panel">
+    <Panel title="Kill switch" className="span-5">
       {ks && (
-        <div className="killswitch" data-armed={ks.armed}>
+        <div className="killswitch">
           {ks.armed ? (
             <>
               <StatusBadge status="error" label="Armed: trading halted" />

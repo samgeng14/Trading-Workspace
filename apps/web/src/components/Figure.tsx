@@ -1,5 +1,4 @@
 import { type ReactNode, useState } from "react";
-import { Segmented } from "./bits";
 
 export interface TableView {
   head: string[];
@@ -20,29 +19,38 @@ interface Props {
   stale?: boolean;
 }
 
-const VIEWS = [
-  { value: "view-chart", label: "Chart" },
-  { value: "view-table", label: "Table" },
-] as const;
-
 /** Panel holding a chart, with a Chart / Table switch (the table is the accessible twin). */
 export function Figure({ title, meta, actions, chart, table, control, className = "", stale = false }: Props) {
-  const [view, setView] = useState<"view-chart" | "view-table">("view-chart");
+  const [view, setView] = useState<"chart" | "table">("chart");
   return (
-    <section className={`panel figure ${className}`} aria-label={title}>
+    <section className={`panel ${className}`} aria-label={title}>
       <header className="panel-head">
         <h2 className="panel-title">{title}</h2>
         {meta && <span className="panel-meta">{meta}</span>}
         <div className="panel-actions">
           {actions}
-          <Segmented value={view} options={VIEWS} onChange={setView} label={`${title} view`} control={control} />
+          <div className="segmented" role="group" aria-label={`${title} view`}>
+            <button
+              type="button"
+              aria-pressed={view === "chart"}
+              onClick={() => setView("chart")}
+              data-control={`${control}.view-chart`}
+            >
+              Chart
+            </button>
+            <button
+              type="button"
+              aria-pressed={view === "table"}
+              onClick={() => setView("table")}
+              data-control={`${control}.view-table`}
+            >
+              Table
+            </button>
+          </div>
         </div>
       </header>
-      <div
-        className={`panel-body ${view === "view-table" ? "flush" : ""}`}
-        style={{ opacity: stale ? 0.55 : 1, transition: "opacity 0.25s" }}
-      >
-        {view === "view-chart" ? (
+      <div className={`panel-body ${view === "table" ? "flush" : ""}`} style={{ opacity: stale ? 0.55 : 1 }}>
+        {view === "chart" ? (
           chart
         ) : (
           <div className="table-wrap figure-table">

@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { usePositions, useStatus } from "../api/hooks";
 import type { Schemas } from "../api/client";
 import { Delta, LoadError, PageHead, Panel, Segmented, Stat } from "../components/bits";
-import { SearchIcon } from "../components/icons";
 import { type Column, SortableTable } from "../components/SortableTable";
 import { money, num, pct, price, shortTimeET } from "../lib/format";
 import { ASSET_CLASS_LABEL } from "../lib/labels";
@@ -15,10 +14,6 @@ const SIDES = [
   { value: "long", label: "Long" },
   { value: "short", label: "Short" },
 ] as const;
-
-// Colour follows the asset class, in this fixed order, never its rank (dataviz palette slots 1-7).
-const CLASS_ORDER = Object.keys(ASSET_CLASS_LABEL) as Schemas["AssetClass"][];
-const classColor = (c: Schemas["AssetClass"]) => `var(--cat-${CLASS_ORDER.indexOf(c) + 1})`;
 
 export function Positions() {
   const { data, error } = usePositions();
@@ -55,15 +50,12 @@ export function Positions() {
     };
   }, [rows]);
 
-  // the largest |weight| sets the scale of the in-cell weight bars
-  const maxWeight = useMemo(() => Math.max(0.01, ...all.map((p) => Math.abs(p.weight))), [all]);
-  const columns = useMemo(() => buildColumns(totals, maxWeight), [totals, maxWeight]);
+  const columns = useMemo(() => buildColumns(totals), [totals]);
   const filtered = rows.length !== all.length;
 
   return (
     <div className="page">
       <PageHead
-        eyebrow="Portfolio"
         title="Positions"
         sub={
           data
@@ -71,18 +63,16 @@ export function Positions() {
             : undefined
         }
       >
-        <span className="search">
-          <SearchIcon />
-          <input
-            className="input"
-            type="search"
-            placeholder="Search symbol or name"
-            aria-label="Search positions"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            data-control="positions.search"
-          />
-        </span>
+        <input
+          className="input"
+          type="search"
+          placeholder="Search symbol or name"
+          aria-label="Search positions"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          data-control="positions.search"
+          style={{ width: 200 }}
+        />
         <label className="field">
           Asset class
           <select
@@ -119,37 +109,27 @@ export function Positions() {
       </PageHead>
 
       {data && (
-        <section className="panel summary-strip tiles" aria-label="Totals for the positions shown">
+        <section className="panel summary-strip" aria-label="Totals for the positions shown">
           <Stat
-            className="tile"
             label={filtered ? "Long (filtered)" : "Long"}
             value={<span className="num">{money(totals.long, { compact: true })}</span>}
             sub={pct(data ? totals.long / data.nav : 0, 1)}
           />
           <Stat
-            className="tile"
             label="Short"
             value={<span className="num">{money(totals.short, { compact: true })}</span>}
             sub={pct(data ? totals.short / data.nav : 0, 1)}
           />
           <Stat
-            className="tile"
             label="Net"
             value={<span className="num">{money(totals.mv, { compact: true })}</span>}
             sub={pct(totals.weight, 1)}
           />
-          <Stat className="tile" label="Day P&L" value={<Delta value={totals.dayPnl} kind="money" />} />
-          <Stat className="tile" label="Unrealized P&L" value={<Delta value={totals.unrealized} kind="money" />} />
-          <Stat
-            className="tile"
-            label="Shown"
-            value={<span className="num">{rows.length}</span>}
-            sub={`of ${all.length}`}
-          />
+          <Stat label="Day P&L" value={<Delta value={totals.dayPnl} kind="money" />} />
+          <Stat label="Unrealized P&L" value={<Delta value={totals.unrealized} kind="money" />} />
+          <Stat label="Shown" value={<span className="num">{rows.length}</span>} sub={`of ${all.length}`} />
         </section>
       )}
-
-      {data && <AllocationPanel positions={rows} />}
 
       <Panel title="Book" meta="futures shown at notional; drift = weight minus target" flush>
         {error ? (
@@ -163,7 +143,6 @@ export function Positions() {
             initialSort={[{ id: "market_value", desc: true }]}
             empty={all.length === 0 ? "No positions" : "No positions match the filters"}
             showFooter
-            stickyFirst
           />
         )}
       </Panel>
@@ -171,79 +150,55 @@ export function Positions() {
   );
 }
 
-/** Gross exposure by asset class as one bar of NAV, every class labelled with its share. */
-function AllocationPanel({ positions }: { positions: Position[] }) {
-  const parts = useMemo(() => {
-    const by = new Map<Schemas["AssetClass"], number>();
-    for (const p of positions) by.set(p.asset_class, (by.get(p.asset_class) ?? 0) + Math.abs(p.weight));
-    return CLASS_ORDER.filter((c) => (by.get(c) ?? 0) > 0).map((c) => ({ id: c, value: by.get(c)! }));
-  }, [positions]);
-  const gross = parts.reduce((a, p) => a + p.value, 0);
-  const scale = Math.max(1, gross);
-  return (
-    <Panel title="Allocation" meta={`gross ${pct(gross, 1)} of NAV, by asset class`}>
-      <div className="alloc">
-        <div
-          className="alloc-bar"
-          role="img"
-          aria-label={`Gross exposure by asset class: ${parts.map((p) => `${ASSET_CLASS_LABEL[p.id]} ${pct(p.value, 1)}`).join(", ")}`}
-        >
-          {parts.map((p, i) => (
-            <span
-              key={p.id}
-              className="alloc-seg"
-              title={`${ASSET_CLASS_LABEL[p.id]}: ${pct(p.value, 1)} of NAV`}
-              style={{
-                width: `${(p.value / scale) * 100}%`,
-                background: classColor(p.id),
-                animationDelay: `${i * 60}ms`,
-              }}
-            />
-          ))}
-        </div>
-        <ul className="alloc-legend">
-          {parts.map((p) => (
-            <li key={p.id}>
-              <span className="legend-swatch" style={{ background: classColor(p.id) }} />
-              {ASSET_CLASS_LABEL[p.id]} <span className="num">{pct(p.value, 1)}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </Panel>
-  );
-}
-
-function WeightCell({ weight, max }: { weight: number; max: number }) {
-  return (
-    <span className="weight-cell">
-      <span
-        className="weight-bar"
-        data-side={weight < 0 ? "short" : "long"}
-        style={{ width: `${(Math.abs(weight) / max) * 100}%` }}
-      />
-      <span className="weight-text">{pct(weight, 1)}</span>
-    </span>
-  );
-}
-
-function buildColumns(
-  t: { mv: number; weight: number; dayPnl: number; unrealized: number },
-  maxWeight: number,
-): Column<Position>[] {
-  // the figures read first sit next to the symbol; descriptive columns go last
+function buildColumns(t: { mv: number; weight: number; dayPnl: number; unrealized: number }): Column<Position>[] {
   return [
     {
       id: "symbol",
       header: "Symbol",
       accessorKey: "symbol",
       cell: ({ row }) => (
-        <span className="sym-cell">
-          <span className="sym-dot" style={{ background: classColor(row.original.asset_class) }} aria-hidden="true" />
+        <span>
           <span className="sym">{row.original.symbol}</span> <span className="sub">{row.original.name}</span>
         </span>
       ),
       meta: { footer: "Total" },
+    },
+    { id: "sleeve", header: "Sleeve", accessorKey: "sleeve" },
+    { id: "asset_class", header: "Class", accessorFn: (p) => ASSET_CLASS_LABEL[p.asset_class] },
+    {
+      id: "quantity",
+      header: "Qty",
+      accessorKey: "quantity",
+      meta: { align: "right" },
+      cell: ({ row }) => num(row.original.quantity),
+    },
+    {
+      id: "avg_cost",
+      header: "Avg cost",
+      accessorKey: "avg_cost",
+      meta: { align: "right" },
+      cell: ({ row }) => price(row.original.avg_cost),
+    },
+    {
+      id: "last",
+      header: "Last",
+      accessorKey: "last",
+      meta: { align: "right" },
+      cell: ({ row }) => price(row.original.last),
+    },
+    {
+      id: "day_return",
+      header: "Day %",
+      accessorKey: "day_return",
+      meta: { align: "right" },
+      cell: ({ row }) => <Delta value={row.original.day_return} />,
+    },
+    {
+      id: "day_pnl",
+      header: "Day P&L",
+      accessorKey: "day_pnl",
+      meta: { align: "right", footer: <Delta value={t.dayPnl} kind="money" /> },
+      cell: ({ row }) => <Delta value={row.original.day_pnl} kind="money" />,
     },
     {
       id: "market_value",
@@ -257,7 +212,7 @@ function buildColumns(
       header: "Weight",
       accessorKey: "weight",
       meta: { align: "right", footer: pct(t.weight, 1) },
-      cell: ({ row }) => <WeightCell weight={row.original.weight} max={maxWeight} />,
+      cell: ({ row }) => pct(row.original.weight, 1),
     },
     {
       id: "target",
@@ -279,20 +234,6 @@ function buildColumns(
       },
     },
     {
-      id: "day_return",
-      header: "Day %",
-      accessorKey: "day_return",
-      meta: { align: "right" },
-      cell: ({ row }) => <Delta value={row.original.day_return} chip />,
-    },
-    {
-      id: "day_pnl",
-      header: "Day P&L",
-      accessorKey: "day_pnl",
-      meta: { align: "right", footer: <Delta value={t.dayPnl} kind="money" /> },
-      cell: ({ row }) => <Delta value={row.original.day_pnl} kind="money" />,
-    },
-    {
       id: "unrealized_pnl",
       header: "Unrealized",
       accessorKey: "unrealized_pnl",
@@ -306,28 +247,5 @@ function buildColumns(
       meta: { align: "right" },
       cell: ({ row }) => <Delta value={row.original.unrealized_return} decimals={1} />,
     },
-    {
-      id: "quantity",
-      header: "Qty",
-      accessorKey: "quantity",
-      meta: { align: "right" },
-      cell: ({ row }) => num(row.original.quantity),
-    },
-    {
-      id: "last",
-      header: "Last",
-      accessorKey: "last",
-      meta: { align: "right" },
-      cell: ({ row }) => price(row.original.last),
-    },
-    {
-      id: "avg_cost",
-      header: "Avg cost",
-      accessorKey: "avg_cost",
-      meta: { align: "right" },
-      cell: ({ row }) => price(row.original.avg_cost),
-    },
-    { id: "sleeve", header: "Sleeve", accessorKey: "sleeve" },
-    { id: "asset_class", header: "Class", accessorFn: (p) => ASSET_CLASS_LABEL[p.asset_class] },
   ];
 }

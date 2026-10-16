@@ -1,8 +1,6 @@
 // Small inline icons. Status icons differ by shape as well as colour, so
 // state never depends on colour alone.
 
-import type { ReactNode } from "react";
-
 type Health = "ok" | "warning" | "error" | "unknown";
 
 export function StatusIcon({
@@ -32,7 +30,7 @@ export function StatusIcon({
   if (norm === "warning")
     return (
       <svg width={s} height={s} viewBox="0 0 10 10" aria-hidden="true">
-        <path d="M5 0.6 L9.6 9.2 H0.4 Z" fill="var(--status-warning)" strokeLinejoin="round" />
+        <path d="M5 0.6 L9.6 9.2 H0.4 Z" fill="var(--status-warning)" />
       </svg>
     );
   if (norm === "error")
@@ -70,94 +68,11 @@ export function SessionIcon({ session }: { session: "pre" | "open" | "post" | "c
   );
 }
 
-/** A 16px line icon on a 24px grid, drawn in the current text colour. */
-function Line({ children, size = 18 }: { children: ReactNode; size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {children}
-    </svg>
-  );
-}
-
-export const CommandIcon = () => (
-  <Line>
-    <rect x="3" y="3" width="7.5" height="7.5" rx="2" />
-    <rect x="13.5" y="3" width="7.5" height="5" rx="2" />
-    <rect x="13.5" y="11" width="7.5" height="10" rx="2" />
-    <rect x="3" y="13.5" width="7.5" height="7.5" rx="2" />
-  </Line>
-);
-
-export const PositionsIcon = () => (
-  <Line>
-    <path d="M12 3 3 7.5l9 4.5 9-4.5L12 3Z" />
-    <path d="m3 12 9 4.5 9-4.5" />
-    <path d="m3 16.5 9 4.5 9-4.5" />
-  </Line>
-);
-
-export const PerformanceIcon = () => (
-  <Line>
-    <path d="M3 3v18h18" />
-    <path d="m7 15 4-4 3 3 6-7" />
-    <path d="M16 7h4v4" />
-  </Line>
-);
-
-export const RiskIcon = () => (
-  <Line>
-    <path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6L12 3Z" />
-    <path d="M12 8v4.5" />
-    <path d="M12 16h.01" />
-  </Line>
-);
-
-export const TradingIcon = () => (
-  <Line>
-    <path d="M7 4v16" />
-    <path d="m3.5 7.5 3.5-3.5 3.5 3.5" />
-    <path d="M17 20V4" />
-    <path d="m20.5 16.5-3.5 3.5-3.5-3.5" />
-  </Line>
-);
-
-export const OpsIcon = () => (
-  <Line>
-    <rect x="5" y="5" width="14" height="14" rx="3" />
-    <rect x="9" y="9" width="6" height="6" rx="1" />
-    <path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" />
-  </Line>
-);
-
-export const HaltIcon = () => (
-  <Line size={15}>
-    <path d="M8.2 2.5h7.6l5.7 5.7v7.6l-5.7 5.7H8.2l-5.7-5.7V8.2l5.7-5.7Z" />
-    <path d="M9.5 9.5v5M14.5 9.5v5" />
-  </Line>
-);
-
-export const SearchIcon = () => (
-  <Line size={15}>
-    <circle cx="11" cy="11" r="6.5" />
-    <path d="m20 20-4.2-4.2" />
-  </Line>
-);
-
 export function SunIcon() {
   return (
     <svg
-      width="16"
-      height="16"
+      width="14"
+      height="14"
       viewBox="0 0 16 16"
       aria-hidden="true"
       fill="none"
@@ -174,8 +89,8 @@ export function SunIcon() {
 export function MoonIcon() {
   return (
     <svg
-      width="16"
-      height="16"
+      width="14"
+      height="14"
       viewBox="0 0 16 16"
       aria-hidden="true"
       fill="none"

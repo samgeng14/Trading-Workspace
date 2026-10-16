@@ -9,9 +9,9 @@ export interface SignedRow {
 }
 
 const ROW = 30;
-const BAR = 12;
-const LABEL_WIDE = 150;
-const VALUE_WIDE = 76;
+const BAR = 14;
+const LABEL_W = 150;
+const VALUE_W = 76;
 
 /** One signed value per row: gains right of zero (up colour), losses left (down colour). */
 export function SignedBars({
@@ -27,17 +27,7 @@ export function SignedBars({
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<string | null>(null);
-  // a row with keyboard focus stays lit even when the page scrolls a different row under the mouse
-  const [focused, setFocused] = useState<string | null>(null);
-  const active = focused ?? hover;
-  // a phone-width panel gives the bars the room the labels can spare
-  const narrow = width > 0 && width < 480;
-  const LABEL_W = narrow ? 112 : LABEL_WIDE;
-  const VALUE_W = narrow ? 56 : VALUE_WIDE;
-  // value labels sit at the bar ends: a side with no bars needs no room for them
-  const leftV = rows.some((r) => r.value < 0) ? VALUE_W : 8;
-  const rightV = rows.some((r) => r.value > 0) ? VALUE_W : 8;
-  const plotW = Math.max(40, width - LABEL_W - leftV - rightV);
+  const plotW = Math.max(40, width - LABEL_W - VALUE_W * 2);
   // Domain fits the data (always including zero), so one-sided data uses the full width.
   const lo = Math.min(0, ...rows.map((r) => r.value));
   const hi = Math.max(0, ...rows.map((r) => r.value));
@@ -58,7 +48,7 @@ export function SignedBars({
           data-control={control}
           onPointerLeave={() => setHover(null)}
         >
-          <g transform={`translate(${LABEL_W + leftV},2)`}>
+          <g transform={`translate(${LABEL_W + VALUE_W},2)`}>
             <line x1={x(0)} x2={x(0)} y1={0} y2={rows.length * ROW} className="axis-base" />
             {rows.map((r, i) => {
               const cy = i * ROW + ROW / 2;
@@ -72,15 +62,15 @@ export function SignedBars({
               return (
                 <g
                   key={r.id}
-                  className={active === r.id ? "bar-row is-hover" : "bar-row"}
+                  className={hover === r.id ? "bar-row is-hover" : "bar-row"}
                   onPointerEnter={() => setHover(r.id)}
-                  onFocus={() => setFocused(r.id)}
-                  onBlur={() => setFocused(null)}
+                  onFocus={() => setHover(r.id)}
+                  onBlur={() => setHover(null)}
                   tabIndex={0}
                   aria-label={`${r.label}: ${format(r.value)}`}
                 >
-                  <rect x={-LABEL_W - leftV} y={i * ROW} width={width} height={ROW} className="bar-hit" />
-                  <text x={-LABEL_W - leftV} y={cy + 4} className="bar-label">
+                  <rect x={-LABEL_W - VALUE_W} y={i * ROW} width={width} height={ROW} className="bar-hit" />
+                  <text x={-LABEL_W - VALUE_W} y={cy + 4} className="bar-label">
                     {r.label}
                   </text>
                   {w > 0.5 && <path d={d} fill={pos ? "var(--up)" : "var(--down)"} />}

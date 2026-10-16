@@ -36,7 +36,7 @@ export function Risk() {
   if (error) {
     return (
       <div className="page">
-        <PageHead eyebrow="Risk book" title="Risk" />
+        <PageHead title="Risk" />
         <LoadError error={error} />
       </div>
     );
@@ -48,49 +48,30 @@ export function Risk() {
   return (
     <div className="page">
       <PageHead
-        eyebrow="Risk book"
         title="Risk"
         sub={data ? `Central risk book · all sleeves netted · as of ${shortTimeET(data.as_of)} ET` : undefined}
       />
 
       {data && (
-        <section className="panel summary-strip tiles" aria-label="Risk summary">
+        <section className="panel summary-strip" aria-label="Risk summary">
+          <Stat label="Beta to S&P 500" value={<span className="num">{num(data.beta, 2)}</span>} sub="after hedges" />
           <Stat
-            className="tile"
-            label="Beta to S&P 500"
-            value={<span className="num">{num(data.beta, 2)}</span>}
-            sub="after hedges"
-          />
-          <Stat
-            className="tile"
             label="Forecast volatility"
             value={<span className="num">{pct(data.forecast_vol, 1)}</span>}
             sub={`target ${pct(data.target_vol, 0)}, annualized`}
           />
           <Stat
-            className="tile"
             label="1-day VaR, 95%"
             value={<span className="num">{money(data.var_95_1d * data.nav)}</span>}
             sub={`${pct(data.var_95_1d, 2)} of NAV, historical`}
           />
           <Stat
-            className="tile"
             label="Expected shortfall, 97.5%"
             value={<span className="num">{money(data.es_975_1d * data.nav)}</span>}
             sub={`${pct(data.es_975_1d, 2)} of NAV`}
           />
-          <Stat
-            className="tile"
-            label="Gross / net"
-            value={<span className="num">{pct(gross, 0)}</span>}
-            sub={`net ${pct(net, 0)}`}
-          />
-          <Stat
-            className="tile"
-            label="Top 5 positions"
-            value={<span className="num">{pct(data.top5_weight, 0)}</span>}
-            sub="of NAV"
-          />
+          <Stat label="Gross / net" value={<span className="num">{pct(gross, 0)}</span>} sub={`net ${pct(net, 0)}`} />
+          <Stat label="Top 5 positions" value={<span className="num">{pct(data.top5_weight, 0)}</span>} sub="of NAV" />
         </section>
       )}
 
@@ -142,28 +123,6 @@ export function Risk() {
               </table>
             </div>
           </Panel>
-          <Figure
-            title="Stress scenarios"
-            meta="instant shock to today's book, P&L in $"
-            control="risk.scenarios"
-            chart={
-              <SignedBars
-                rows={scenarioRows}
-                format={(v) => money(v, { sign: true, compact: true })}
-                ariaLabel="Profit and loss under stress scenarios"
-                control="risk.scenarios.plot"
-              />
-            }
-            table={{
-              head: ["Scenario", "P&L", "% of NAV"],
-              numeric: [1, 2],
-              rows: (data?.scenarios ?? []).map((s) => [
-                s.label,
-                money(s.pnl, { sign: true }),
-                pct(s.pnl_pct, 2, true),
-              ]),
-            }}
-          />
         </div>
         <div className="stack">
           <Panel
@@ -185,6 +144,25 @@ export function Risk() {
           </Panel>
         </div>
       </div>
+
+      <Figure
+        title="Stress scenarios"
+        meta="instant shock to today's book, P&L in $"
+        control="risk.scenarios"
+        chart={
+          <SignedBars
+            rows={scenarioRows}
+            format={(v) => money(v, { sign: true, compact: true })}
+            ariaLabel="Profit and loss under stress scenarios"
+            control="risk.scenarios.plot"
+          />
+        }
+        table={{
+          head: ["Scenario", "P&L", "% of NAV"],
+          numeric: [1, 2],
+          rows: (data?.scenarios ?? []).map((s) => [s.label, money(s.pnl, { sign: true }), pct(s.pnl_pct, 2, true)]),
+        }}
+      />
     </div>
   );
 }

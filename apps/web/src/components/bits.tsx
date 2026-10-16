@@ -8,19 +8,15 @@ export function Delta({
   kind = "pct",
   decimals,
   className = "",
-  chip = false,
 }: {
   value: number | null | undefined;
   kind?: "pct" | "money";
   decimals?: number;
   className?: string;
-  /** Set on a tinted pill (headline changes). */
-  chip?: boolean;
 }) {
   const text =
     kind === "money" ? money(value, { sign: true, decimals: decimals ?? 0 }) : pct(value, decimals ?? 2, true);
-  const dir = direction(value, kind === "money" ? 0.5 : 5e-7);
-  return <span className={`num ${dir} ${chip ? "chip-delta" : ""} ${className}`}>{text}</span>;
+  return <span className={`num ${direction(value, kind === "money" ? 0.5 : 5e-7)} ${className}`}>{text}</span>;
 }
 
 export function Stat({
@@ -28,35 +24,17 @@ export function Stat({
   value,
   sub,
   testId,
-  className = "",
-  visual,
 }: {
   label: string;
   value: ReactNode;
   sub?: ReactNode;
   testId?: string;
-  /** "tile" sets the stat on its own small card. */
-  className?: string;
-  /** A small picture beside the figures (a gauge). */
-  visual?: ReactNode;
 }) {
-  const body = (
-    <>
+  return (
+    <div className="stat" data-testid={testId}>
       <span className="stat-label">{label}</span>
       <span className="stat-value">{value}</span>
       {sub !== undefined && <span className="stat-sub">{sub}</span>}
-    </>
-  );
-  return (
-    <div className={`stat ${className} ${visual ? "has-visual" : ""}`} data-testid={testId}>
-      {visual ? (
-        <>
-          <div className="stat-text">{body}</div>
-          {visual}
-        </>
-      ) : (
-        body
-      )}
     </div>
   );
 }
@@ -116,10 +94,7 @@ export function Meter({
   return (
     <div className="meter-row" data-status={status}>
       <span className="meter-label">{label}</span>
-      <span className="meter-value num">
-        {valueText}
-        <span className="meter-limit"> / {limitText}</span>
-      </span>
+      <span className="meter-value num">{valueText}</span>
       <div
         className="meter-track"
         role="meter"
@@ -135,7 +110,7 @@ export function Meter({
         <span>
           {status !== "ok" ? <StatusBadge status={status} /> : null} {detail}
         </span>
-        <span className="num meter-used">{Math.round(used * 100)}% used</span>
+        <span className="num">limit {limitText}</span>
       </span>
     </div>
   );
@@ -171,22 +146,10 @@ export function Panel({
   );
 }
 
-export function PageHead({
-  title,
-  eyebrow,
-  sub,
-  children,
-}: {
-  title: string;
-  /** The small accent line over the title: what part of the desk this is. */
-  eyebrow?: string;
-  sub?: ReactNode;
-  children?: ReactNode;
-}) {
+export function PageHead({ title, sub, children }: { title: string; sub?: ReactNode; children?: ReactNode }) {
   return (
     <div className="page-head">
-      <div className="page-head-text">
-        {eyebrow && <p className="page-eyebrow">{eyebrow}</p>}
+      <div>
         <h1 className="page-title">{title}</h1>
         {sub && <p className="page-sub">{sub}</p>}
       </div>

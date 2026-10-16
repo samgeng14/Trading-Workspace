@@ -43,12 +43,11 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
   (`trading-engine/src/broker/ibkr/auction.py`).
 - WRDS is limited and needs a Duo prompt: don't automate it. Data comes from
   IBKR plus free sources.
-- The dashboard's default theme is the Journal (WSJ-like) theme; dark (the
-  night edition) is the alternative (`dv02.theme` in localStorage). The
-  wordmark reads "DV02". On 2026-10-16 the owner rejected a dark neon
-  "trading terminal" look outright and asked for the WSJ style, redesigned:
-  keep the broadsheet (newsprint, black ink, serif headlines, rules not boxes,
-  no glow, gradients or animation).
+- The dashboard's default theme is the Journal (WSJ-like) theme; dark is the
+  alternative (`dv02.theme` in localStorage). The wordmark reads "DV02".
+- Keep the dashboard's look as it is. On 2026-10-16 the owner rejected two
+  redesigns (a dark neon "trading terminal" look, then a new WSJ-style front
+  page) and had the original put back. New features use the existing styles.
 - The equity curve's default view is return since inception, like the IBKR app.
 
 ## Layout

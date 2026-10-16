@@ -23,7 +23,7 @@ a fixed API contract. That way nothing built early gets thrown away.
 | Languages | **C++ and Python only**; TypeScript only for the dashboard UI (`apps/web`). No Rust in our code: the Rust `hawk-backtester` has been ported to C++ as `dv02_engine.backtest`. *Decided.* | Fewer toolchains to build, test and review. Bindings already share the C++ math with Python, so a third language adds nothing. |
 | Universe | **Anything IBKR trades**, subject to the mandate and the account's permissions: stocks, ETFs, futures, options, bonds, FX, crypto. *Decided.* | Each sleeve trades where its edge is. Permissions (Section 7) and the no-leverage check decide what can actually trade. |
 | Frontend language | **TypeScript + React + Vite**, hand-built design system, no UI kit theme. *Decided.* | Best tooling for dense, live, data-heavy screens. The "vibe-coded" look comes from default kits (Tailwind/shadcn gradients, glows, rounded cards), not from React. |
-| Look | **DV02, Journal theme by default**: a WSJ-style financial page. Warm-white newsprint, black ink, black rules instead of boxed cards, a masthead with the nameplate between two ears and the dateline under a thick-and-thin rule, condensed capitals for section heads, a news serif for headlines and headline figures, condensed tabular figures in the tables, one ink blue for links and the portfolio line, the paper's green and red for gains and losses; a Command Center cockpit; a tab bar on phones. A dark "night edition" stays one click away. *Decided (October 12); redesigned in the same style on October 16, after the owner rejected a dark neon terminal look.* | What you asked for. It also suits a finance tool: dense, calm, readable. |
+| Look | **DV02, Journal theme by default**: a WSJ-style financial page. Warm-white newsprint, black ink, black rules instead of boxed cards, condensed capitals for section heads, a news serif for the nameplate (with the day's dateline) and headline figures, mono for numbers, one ink blue for links and the portfolio line, the paper's green and red for gains and losses; a Command Center cockpit. A dark "night edition" stays one click away. *Decided (October 12).* | What you asked for. It also suits a finance tool: dense, calm, readable. |
 | Middle layer | **FastAPI service with a versioned contract** (OpenAPI + WebSocket schemas); TypeScript types generated from it | The frontend can ship now on the existing Python system. Later the C++ engine is swapped in underneath without touching the UI. |
 | Engine | **C++20 daemon (`tradeitd`)** for broker connections, order management, the central risk book, hedging and intraday strategies | This is where C++ pays off: one long-lived broker connection, deterministic event loop, replayable state, low latency later. |
 | Research | **Stays in Python** (pandas + DuckDB). C++ risk and simulation code is exposed to Python via bindings. Polars is built in Rust, so whether third-party Rust-built tools (Polars, the ruff linter) may stay is an open decision (Section 15). | Sharpe comes from data and signals, not language. WRDS tooling is Python/SQL. Shared bindings keep research and production math identical. |
@@ -60,7 +60,6 @@ a fixed API contract. That way nothing built early gets thrown away.
   growth of $100.
 - **The dashboard looks like a financial page:** the Journal (WSJ-style)
   theme is the default, with the dark theme one click away (Section 4).
-  (Redesigned in the same style on October 16; Section 4.)
 - **The C++ engine has started** (`engine/`): CMake, C++20, nanobind bindings
   built by scikit-build-core, an in-repo test harness, and CI with sanitizers.
   It has the no-leverage check and the backtester port (Section 6).
@@ -257,52 +256,51 @@ Alternatives considered:
 ### Design system
 
 Built in `apps/web/src/design/`. Every colour, font and size is a token in
-`tokens.css`, for both themes, and components use only those. Redesigned on
-October 16 in the same broadsheet style; a dark neon "terminal" look was tried
-first and the owner rejected it.
+`tokens.css`, and components use only those.
 
 - **Type**
-  - *Newsreader* (a news serif, variable, with optical sizes) for the
-    nameplate, page headlines, decks and headline figures (NAV, the data cells).
-  - *IBM Plex Sans Condensed* for section heads, labels, table heads and every
-    figure in a table: its digits are all one width, so columns line up and a
-    ticking number never shifts, the way a paper sets market data.
-  - *Public Sans* for running text.
+  - *Newsreader* (a news serif) for the nameplate, page titles and headline
+    figures (NAV, the KPI tiles).
+  - *IBM Plex Sans Condensed* for section heads, labels and table heads in
+    the Journal theme, the way a financial page sets them.
+  - *IBM Plex Mono* for numbers in tables, the status strip, the ticker and
+    timestamps: digits line up and never shift as they tick.
+  - *Public Sans* for text, and for the small uppercase letterspaced labels
+    and panel titles.
+  - Libre Franklin was measured and rejected: it has no tabular figures.
 - **Colour (Journal, the default)**
-  - Warm-white newsprint (`#faf9f5`), black ink (`#111`), grey hairlines,
-    black rules over every section instead of boxed cards, zebra rows in the
-    market tables.
+  - Warm-white newsprint (`#faf9f5`), black ink (`#111`), grey hairlines, and
+    black rules over every section instead of boxed cards
+    (`src/design/journal.css`). The nameplate sits over a thick-and-thin rule
+    with the day's dateline.
   - Black for the active section, selected options and primary buttons.
   - Ink blue (`#0f6aa8`) for the portfolio line and links, orange (`#c4621a`)
-    as the second series, warm grey for benchmarks; asset classes take the
-    dataviz reference palette's slots in a fixed order.
+    as the second series, warm grey for benchmarks.
   - Green (`#0a7b34`) and red (`#c4161c`) for gains and losses, always with a sign.
   - Status text (good / warn / bad) has its own tokens, separate from P&L colours.
-- **Colour (the night edition, one click away)**
-  - Near-black page (`#0e0d0c`), cream ink (`#ece4d6`), sand accent
-    (`#d6b07a`), ochre and blue series, sage and coral for gains and losses.
-    Same layout, other tokens; the toggle remembers the choice.
+- **Colour (dark, one click away)**
+  - Near-black page (`#0e0d0c`), panels `#161513`, beige-white ink (`#ece4d6`),
+    sand/tan accent (`#d6b07a`), ochre and blue series, sage and coral for
+    gains and losses. Same layout, other tokens; the toggle remembers the choice.
   - All chart colours were run through the dataviz palette validator
-    (lightness band, chroma, colour-blind and normal-vision separation,
-    contrast) in both themes. All text clears WCAG 4.5:1.
+    (lightness band, chroma, colour-blind separation, contrast) in both
+    themes. All text clears WCAG 4.5:1.
 - **Structure**
-  - Masthead: a status line (mode, market session with a countdown and a bar
-    for how far through the session it is, the pre-trade gate, the stream,
-    system lights, exchange clock, Halt trading, theme); the DV02 nameplate
-    between two ears (the edition and account; the gateway, today's orders and
-    the next job); the dateline under a thick-and-thin rule.
-  - Section bar under the masthead, in capitals, kept in view as the page
-    scrolls; a markets strip under it (headline markets, the book's biggest
-    gainers and losers, other markets). No animation.
-  - Pages open with a section label, a serif headline and a one-line deck.
-    Panels have condensed-capital heads under a black rule; columns are
-    divided by hairline column rules; no glow, gradients or rounded cards.
-  - Phones: the nameplate on top, the status line under it, the sections as a
-    tab bar at the bottom; wide tables keep the symbol column in place.
+  - Sidebar: wordmark, mode badge and account, sections, then read-only facts
+    (latest close, quote feed, gateway, today's orders, next job).
+  - Status strip along the top, in mono: mode, market session with countdown,
+    the pre-trade gate (Ready / Blocked / Submitted / Halted), system health
+    (links to Operations), exchange clock, Halt trading, theme.
+  - Ticker along the bottom: headline markets, the book's biggest gainers and
+    losers today, then other markets. No animation.
+  - Pages open with a serif title and a one-line purpose. Panels have
+    uppercase letterspaced titles and thin rules; no glow, gradients or
+    rounded cards.
+  - Dense tables; source and as-of lines on every panel.
 - **Charts (WSJ graphics conventions)**
-  - y labels in their own gutter, clear of the lines.
+  - y labels sit on the gridlines.
   - Lines are labelled directly at their ends.
-  - Horizontal hairlines only; flat washes.
+  - Horizontal hairlines only.
   - A crosshair tooltip lists every series and works from the keyboard
     (arrows, Home, End).
   - Every chart has a Table view.
@@ -1068,8 +1066,7 @@ CI, by phase:
 - **Look and name:** the fund is "DV02 Fund"; the nameplate reads "DV02".
   The Journal (WSJ-style newspaper) theme is the default, with a dark theme
   one click away; Command Center layout. (Dark was the default until
-  October 12. On October 16 the owner rejected a dark neon terminal look and
-  had the Journal redesigned in the same style.)
+  October 12.)
 - **Holdings outside the model (October 12):** sold at the next rebalance.
   The book becomes the model alone, under 100% gross with no margin loan.
 - **TQQQ (October 12):** out of the model. QQQ was already in the

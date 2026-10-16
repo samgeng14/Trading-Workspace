@@ -73,8 +73,8 @@ rules; this file has the state. Keep both current as you work.
 - **One schedule.** The old `src/production/scheduler.py` (16:32, RunAtLoad)
   and `src/runtime/schedule.py` are deleted; every doc says 15:35 ET and
   `bin/tradeit schedule`.
-- **Dashboard** (`apps/web`): six pages, the Journal (WSJ) theme (redesigned
-  2026-10-16, below), live stream, the IBKR-style return chart, a demo mode (MSW) and a staging mode (`bin/tradeit
+- **Dashboard** (`apps/web`): six pages, Journal (WSJ) theme, live stream, the
+  IBKR-style return chart, a demo mode (MSW) and a staging mode (`bin/tradeit
   staging`, `npm run e2e:staging`). **API** (`services/api`): contract
   `schemas/api/v1.yaml`, Host/Origin lockdown, Flex NAV history, PortfolioAnalyst
   import; the Runs view labels the new Reconcile step and skipped runs.
@@ -242,39 +242,15 @@ background the runbook follows:
 - **Secrets** live only on the VM (`ibgw/.env`, `.env`), entered by the owner
   over SSH, never in git or chat.
 
-### 3. Design: the WSJ redesign (2026-10-16, on its own PR)
-
-The owner asked for a bold redesign read mostly from a phone over Tailscale.
-A dark neon "trading terminal" look was tried and rejected outright; the owner
-wants the WSJ style, redesigned. Branch `claude/dashboard-terminal-redesign`
-(PR #13 into `claude/serene-babbage-0204ht`; don't merge without the owner's
-OK, the VM deploys from that branch):
-- a newspaper masthead: status line, the DV02 nameplate between two ears
-  (edition and account; gateway and today's orders), the dateline under a
-  thick-and-thin rule, a section bar that stays in view, a markets strip
-- Newsreader (optical sizes) for headlines and figures, IBM Plex Sans
-  Condensed for heads and table figures, Public Sans for text; zebra market
-  tables, column rules, flat charts
-- the Command Center opens on a verdict box and a NAV lead with a data table;
-  Positions gains an allocation bar; the schedule is a timeline
-- phones: the nameplate on top, the sections as a tab bar at the bottom,
-  sticky symbol columns in wide tables
-- tests: `e2e/phone.spec.ts`, the masthead, the status line's widths, the
-  session bar, the markets strip; `src/lib/session.ts` has its unit test
-
-Earlier pass (2026-10-13): every page was captured at 1440 and 390 px in both
-themes on the staging harness. Fixed: the Risk page's Sleeves table ran past
-its panel (the mandate wraps now, with a staging test); the stale-prices block
-was a wall of text (one line now); Operations said "0 passed · ran …" for a
-doctor that never ran.
+### 3. Design pass on every page (done 2026-10-13)
 
 Every page was captured at 1440 and 390 px in both themes on the staging
 harness. Fixed: the Risk page's Sleeves table ran past its panel (the mandate
 wraps now, with a staging test); the stale-prices block was a wall of text
 (one line now); Operations said "0 passed · ran …" for a doctor that never ran.
 Phone-width tables scroll sideways inside their panels, which is by design.
-For another pass, `e2e/staging/layout.spec.ts` has the page list, the theme
-switch and the overflow check.
+If the owner wants more, do another pass the same way (`e2e/staging/layout.spec.ts`
+has the page list, the theme switch and the overflow check).
 
 ### 4. Smaller items
 
