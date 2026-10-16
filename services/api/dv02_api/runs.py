@@ -15,6 +15,7 @@ import logging
 import os
 import platform
 import plistlib
+import shutil
 import subprocess
 import sys
 import threading
@@ -241,8 +242,50 @@ def schedule(now: datetime) -> list[dict[str, Any]]:
     elif local_now < fire:
         job.update(status="scheduled", detail=f"{fire.astimezone(nyse.ET):%H:%M} ET; {orders.summary()}")
     else:
-        job.update(status="failed", detail="no run recorded yet today; is the Mac awake and the LaunchAgent installed?")
+        job.update(status="failed", detail=f"no run recorded yet today; {MISSED_HINT[scheduler()]}")
     return [job]
+
+
+# The VM's timer (deploy/systemd/dv02-runner.timer), installed by deploy/bin/install
+RUNNER_TIMER = "dv02-runner.timer"
+SYSTEMD_UNITS = Path("/etc/systemd/system")
+
+# What to check when a scheduled run is missing, and how to set one up, by scheduler
+MISSED_HINT = {
+    "launchd": "is the Mac awake and the LaunchAgent installed?",
+    "systemd": f"is {RUNNER_TIMER} enabled? (systemctl list-timers {RUNNER_TIMER})",
+    None: "is the daily run scheduled on this machine?",
+}
+SET_UP_HINT = {
+    "launchd": "bin/tradeit schedule install sets up the 15:35 ET run for this folder",
+    "systemd": f"sudo systemctl enable --now {RUNNER_TIMER} (deploy/README.md)",
+    None: "nothing schedules the daily run on this machine (see deploy/README.md)",
+}
+
+
+def scheduler() -> str | None:
+    """What schedules the daily run here: launchd on the Mac, systemd on the VM
+    once deploy/bin/install has put the timer in place, else None."""
+    if platform.system() == "Darwin":
+        return "launchd"
+    if shutil.which("systemctl") and (SYSTEMD_UNITS / RUNNER_TIMER).exists():
+        return "systemd"
+    return None
+
+
+def schedule_installed() -> bool | None:
+    """Whether the daily run is scheduled: the LaunchAgent loaded, or the VM's
+    timer enabled. None where neither can be asked."""
+    kind = scheduler()
+    if kind == "launchd":
+        return launch_agent_installed()
+    if kind == "systemd":
+        try:
+            res = subprocess.run(["systemctl", "is-enabled", "--quiet", RUNNER_TIMER], capture_output=True, timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return res.returncode == 0
+    return None
 
 
 def launch_agent_installed() -> bool | None:

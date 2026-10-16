@@ -788,18 +788,19 @@ def components(ctx: Ctx, offline: AccountSnap | None) -> list[dict[str, str]]:
     else:
         market = {"status": "unknown", "detail": "no quotes yet" if b.connected else "IBKR not connected"}
 
-    installed = runs.launch_agent_installed()
+    installed = runs.schedule_installed()
     last = next((r for r in runs.load_runs(5) if not r["dry_run"]), None)
     last_text = f"last run {last['started_at'][:16].replace('T', ' ')}: {last['summary']}" if last else "no runs yet"
     if installed is False:
         sched = {
             "status": "warning",
-            "detail": "Not scheduled: bin/tradeit schedule install sets up the 15:35 ET run for this folder",
+            "detail": f"Not scheduled: {runs.SET_UP_HINT[runs.scheduler()]}",
         }
     elif last is not None and not last["ok"]:
         sched = {"status": "warning", "detail": last_text}
     elif installed is None:
-        sched = {"status": "unknown", "detail": f"launchd not available on this OS; {last_text}"}
+        where = "the Mac's LaunchAgent or the VM's dv02-runner.timer"
+        sched = {"status": "unknown", "detail": f"can't tell if the daily run is scheduled here ({where}); {last_text}"}
     else:
         sched = {"status": "ok", "detail": f"Daily run {runs.runner_time():%H:%M} local; {last_text}"}
 

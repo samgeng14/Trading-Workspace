@@ -719,7 +719,8 @@ def stub_side_effects(scenario: str, broker: StagingBroker, clock: Callable[[], 
     not_run = ops.not_run_report
 
     patch.setattr(runs, "launch_agent", lambda: None)
-    patch.setattr(runs, "launch_agent_installed", lambda: scenario == "history")
+    patch.setattr(runs, "scheduler", lambda: "launchd")  # the paper account's Mac
+    patch.setattr(runs, "schedule_installed", lambda: scenario == "history")
     patch.setattr(runs, "start_daily_run", refuse)
     patch.setattr(ops, "run_doctor", run_doctor)
     patch.setattr(ops, "not_run_report", lambda profile: {**not_run(profile), "ran_at": app_mod._iso(clock())})

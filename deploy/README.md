@@ -138,9 +138,8 @@ Mac's from the same day. They should match.
 
 ## Known gaps
 
-- The dashboard's schedule panel reads the Mac's LaunchAgent
-  (`services/api/dv02_api/runs.py`). On the VM it shows the 15:35 ET time,
-  but its "is the Mac awake" wording is the Mac's. It should read
-  `systemctl list-timers` instead.
+- The dashboard's schedule panel shows the 15:35 ET time and checks the timer
+  (`systemctl is-enabled dv02-runner.timer`). It doesn't read the timer's own
+  next run, so a timer edited by hand to another time would show wrong.
 - Nothing writes to Postgres yet. The run logs, NAV cache and expected book
   are still files, which the backup covers.
