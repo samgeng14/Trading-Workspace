@@ -106,11 +106,11 @@ The architecture decides the first check below.
    and the equity curve loses its history before Flex. With the Mac's run
    finished for the day:
    ```bash
-   # on the Mac, from ~/Code/deskd-live
-   rsync -av trading-engine/artifacts trading-engine/data/broker trading-engine/data/market/cleaned \
+   # on the Mac, from ~/Code/deskd-live (-R keeps the paths, so data/broker lands in data/)
+   rsync -avR trading-engine/artifacts trading-engine/data/broker trading-engine/data/market/cleaned \
      <vm>:/tmp/dv02-state/
    # on the VM
-   sudo rsync -a /tmp/dv02-state/ /opt/dv02/trading-engine/ && sudo chown -R dv02:dv02 /opt/dv02/trading-engine
+   sudo rsync -a /tmp/dv02-state/trading-engine/ /opt/dv02/trading-engine/ && sudo chown -R dv02:dv02 /opt/dv02/trading-engine
    ```
 7. **Install:** `sudo deploy/bin/install`. Then
    `curl -fsS 127.0.0.1:8000/api/v1/status` answers, and

@@ -139,8 +139,8 @@ It shows the engine's files; there is no IBKR connection yet. Next, in order
      and, for the NAV history, the Flex query and token:
        sudo -u dv02 -H bash -c 'cd $ROOT && bin/tradeit flex'
   2. Copy the Mac's state (NAV history, run logs, the expected book) here. From the Mac:
-       rsync -av trading-engine/artifacts trading-engine/data/broker trading-engine/data/market/cleaned $LOGIN_USER@$ts_short:/tmp/dv02-state/
-     then here: sudo rsync -a /tmp/dv02-state/ $ROOT/trading-engine/ && sudo chown -R dv02:dv02 $ROOT/trading-engine
+       rsync -avR trading-engine/artifacts trading-engine/data/broker trading-engine/data/market/cleaned $LOGIN_USER@$ts_short:/tmp/dv02-state/
+     then here: sudo rsync -a /tmp/dv02-state/trading-engine/ $ROOT/trading-engine/ && sudo chown -R dv02:dv02 $ROOT/trading-engine
   3. One IB Gateway per login: on the Mac, bin/tradeit gateway stop. Then here:
        sudo -u dv02 -H bash -c 'cd $ROOT && bin/tradeit gateway start && bin/tradeit doctor && bin/tradeit refresh'
   4. Cut over, before 15:35 ET on a trading day: on the Mac, bin/tradeit schedule remove; here:
