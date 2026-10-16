@@ -5,9 +5,12 @@ execution:
   # dry run (targets, basket and every pre-trade check, nothing sent), and the
   # run log says which setting stopped it. A missing or unreadable file sends
   # nothing.
+  # The owner's call (2026-10-16): the scheduled run sends paper orders by itself.
+  # To stop the fund, `bin/tradeit kill "why"`; to stop sending without a halt,
+  # set allow_submit: false.
   mode: paper          # the only profile the runner sends orders for
-  allow_submit: false  # the owner decides: true lets the scheduled run send orders
-  dry_run: true        # the owner decides: false lets the scheduled run send orders
+  allow_submit: true   # false: never send orders
+  dry_run: false       # true: every run is a dry run
 
   # Set elsewhere, so not here: the order type and time in force
   # (src/broker/ibkr/auction.py picks market-on-close before the closing

@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any
 
-from . import mandate, nyse, runs
+from . import engine, mandate, nyse, runs
 from .broker import AccountSnap
 
 log = logging.getLogger(__name__)
@@ -88,6 +88,7 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
     """``snap`` may be the engine's saved snapshot when IBKR is down (``live`` False): the
     preview still shows, but nothing can be submitted."""
     import pandas as pd
+    from src.production import execution_config
     from src.production.generate_targets import model_universe
     from src.production.runtime.build_paper_basket import (
         build_reconciliation,
@@ -240,6 +241,17 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
             f"{n_orders} orders, turnover {turnover:.1%} of NAV"
             if n_orders
             else f"nothing to trade: every difference is under ${cfg.min_trade_dollars:,.0f}",
+        )
+    )
+
+    # the Submit button starts a daily run, which sends nothing unless config/execution.yaml allows it
+    off = execution_config.submit_disabled(execution_config.load(engine.config_dir() / "execution.yaml"), "paper")
+    checks.append(
+        _check(
+            "execution",
+            "Orders switched on",
+            "fail" if off else "pass",
+            f"{off}: a run would be a dry run" if off else "config/execution.yaml lets a daily run send paper orders",
         )
     )
 

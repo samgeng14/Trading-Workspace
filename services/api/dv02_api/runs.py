@@ -96,6 +96,12 @@ def _step_detail(name: str, step: dict[str, Any]) -> tuple[bool, str]:
 
 
 def _summary(doc: dict[str, Any]) -> str:
+    text = _outcome(doc)
+    off = doc.get("submit_disabled")  # config/execution.yaml made the run a dry run
+    return f"{text}; orders are switched off ({off})" if off else text
+
+
+def _outcome(doc: dict[str, Any]) -> str:
     if doc.get("error"):
         return f"Stopped: {doc['error']}"
     if doc.get("skipped"):
@@ -146,6 +152,7 @@ def load_runs(limit: int = 30) -> list[dict[str, Any]]:
                 "steps": steps,
                 "_date": doc.get("date"),
                 "_submitted": bool(((doc.get("steps") or {}).get("submit_orders") or {}).get("submitted")),
+                "_orders_off": bool(doc.get("submit_disabled")),
             }
         )
     return out
@@ -204,7 +211,12 @@ def schedule(now: datetime) -> list[dict[str, Any]]:
     at = installed_time(local_now.weekday()) or runner_time(nyse.et_date(now))
     fire = datetime.combine(local_now.date(), at, tzinfo=local_now.tzinfo)
     orders = orders_at(fire)
-    today_runs = [r for r in load_runs(10) if r["_date"] == local_now.date().isoformat() and not r["dry_run"]]
+    # a run execution.yaml turned into a dry run is still the day's scheduled run
+    today_runs = [
+        r
+        for r in load_runs(10)
+        if r["_date"] == local_now.date().isoformat() and (not r["dry_run"] or r["_orders_off"])
+    ]
     job: dict[str, Any] = {
         "id": "daily_run",
         "label": f"Daily run: data, targets, rebalance if drift > 5%; orders go {orders.name}",

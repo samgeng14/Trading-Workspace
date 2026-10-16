@@ -8,12 +8,12 @@ from __future__ import annotations
 import math
 import re
 import sys
-from datetime import datetime, time, timezone
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
-from dv02_api import mandate, runs
+from dv02_api import mandate
 from dv02_api.app import create_app
 from dv02_api.broker import AccountSnap, PositionSnap
 
@@ -83,26 +83,6 @@ def levered() -> FakeBroker:
 
 def unlevered() -> FakeBroker:
     return broker_with(model_book(0.90, 0.0))
-
-
-@pytest.fixture()
-def targets_day(monkeypatch: pytest.MonkeyPatch) -> datetime:
-    """The evening of the targets' own close, so the data check passes and only the mandate decides."""
-    from src.production.runtime.build_paper_basket import default_config, load_latest_targets
-
-    from dv02_api import app as app_mod
-
-    day = load_latest_targets(default_config().targets_path)["date"].max().date()
-    now = datetime.combine(day, time(22, 30), tzinfo=timezone.utc)
-    monkeypatch.setattr(app_mod, "_now", lambda: now)
-    return now
-
-
-@pytest.fixture()
-def started(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    calls: list[str] = []
-    monkeypatch.setattr(runs, "start_daily_run", lambda profile: calls.append(profile) or True)
-    return calls
 
 
 def client_for(broker: FakeBroker) -> TestClient:

@@ -94,13 +94,17 @@ rules; this file has the state. Keep both current as you work.
   moves. On the owner's Mac, `cmake` and `ninja` under /usr/local/bin are
   x86_64 binaries: a build whose Python module won't load needs
   `-DCMAKE_OSX_ARCHITECTURES=arm64` (CI is unaffected).
-- **`config/execution.yaml` is still not read.** `allow_submit` and `dry_run`
-  are documented there and the runner has `_load_execution_config` and
-  `_submit_disabled`, not yet called. The committed values are `false`/`true`,
-  which would turn every scheduled run into a dry run once wired in. The owner
-  has not said yet whether the scheduled run should send paper orders by
-  itself; ask, set the values in the same commit as the wiring, and add a test
-  that a run with that config submits (and one that a run without it doesn't).
+- **`config/execution.yaml` is read on every run** (2026-10-16). The owner
+  decided the scheduled run sends paper orders by itself: `mode: paper`,
+  `allow_submit: true`, `dry_run: false`, tested as the committed values
+  (`trading-engine/tests/unit/test_execution_config.py`).
+  - Any other value, or a file that can't be read, makes a run a dry run that
+    says why (`submit_disabled` in the run log).
+  - The dashboard shows it: the rebalance preview has an "Orders switched on"
+    check that blocks Submit when off, and the Runs view and schedule show an
+    orders-off run as the day's run, not a missed one.
+  - The logic lives in `src/production/execution_config.py`, shared by the
+    runner and the API.
 
 ## Next, in this order
 
@@ -278,11 +282,8 @@ Docs: https://code.claude.com/docs/en/chrome
 - Delete any `DV02_INCEPTION_*` lines from `.env` (the import replaces them).
 - `bin/tradeit schedule install`, for the 15:35 ET time, until the VM takes
   over. Nothing is scheduled on the Mac today.
-- Decide `config/execution.yaml` (Unfinished work): should the scheduled run send
-  paper orders automatically (`allow_submit: true`, `dry_run: false`)?
-- Confirm the limits `config/risk_limits.yaml` now enforces: one name at most
-  20%, net between 50% and 100%, at least 5 holdings, cash buffer 0 (the basket
-  keeps its own 0.5%). Loosen or tighten there; nothing may exceed the mandate.
+- The limits in `config/risk_limits.yaml` were confirmed on 2026-10-16: one name
+  at most 20%, net between 50% and 100%, at least 5 holdings.
 - Market data and permissions (`docs/PLAN.md` §7, §15):
   - subscribe the live login to the US Securities Snapshot and Futures Value
     Bundle, and share market data with the paper user

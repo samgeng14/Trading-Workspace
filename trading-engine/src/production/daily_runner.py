@@ -146,32 +146,17 @@ def _load_rebalance_config() -> dict[str, Any]:
 
 
 def _load_execution_config() -> dict[str, Any]:
-    """The submit switches in config/execution.yaml: ``mode``, ``allow_submit``
-    and ``dry_run``, or ``error`` when the file can't be read."""
-    path = PROJECT_ROOT / "config" / "execution.yaml"
-    try:
-        import yaml  # type: ignore[import-not-found]
-        with open(path) as f:
-            doc = yaml.safe_load(f) or {}
-        ex = doc.get("execution") or {}
-        return {key: ex.get(key) for key in ("mode", "allow_submit", "dry_run")}
-    except Exception as exc:
-        return {"error": f"{type(exc).__name__}: {exc}"}
+    """The submit switches in config/execution.yaml (src/production/execution_config.py)."""
+    from src.production import execution_config
+
+    return execution_config.load(PROJECT_ROOT / "config" / "execution.yaml")
 
 
 def _submit_disabled(exec_cfg: dict[str, Any], profile: str) -> str | None:
-    """Why config/execution.yaml stops this run sending orders, or None when it
-    allows them: ``allow_submit: true``, ``dry_run: false`` and ``mode`` this
-    run's profile, all three set. Anything else sends nothing."""
-    if exec_cfg.get("error"):
-        return f"config/execution.yaml could not be read ({exec_cfg['error']})"
-    if exec_cfg.get("allow_submit") is not True:
-        return f"config/execution.yaml has allow_submit: {json.dumps(exec_cfg.get('allow_submit'))}"
-    if exec_cfg.get("dry_run") is not False:
-        return f"config/execution.yaml has dry_run: {json.dumps(exec_cfg.get('dry_run'))}"
-    if exec_cfg.get("mode") != profile:
-        return f"config/execution.yaml has mode: {exec_cfg.get('mode')}, and this run's profile is {profile}"
-    return None
+    """Why config/execution.yaml stops this run sending orders, or None when it allows them."""
+    from src.production import execution_config
+
+    return execution_config.submit_disabled(exec_cfg, profile)
 
 
 def _load_latest_targets() -> "pd.DataFrame | None":
@@ -1018,6 +1003,16 @@ def run(
             "Early close today (13:00 ET). A run after it sends its orders market-on-open "
             "for the next session; that is by design, not a fault."
         )
+
+    # ── May this run send orders? config/execution.yaml decides ──────────────
+    # A run it doesn't allow is a dry run: every step and every check, nothing
+    # sent, and the run log says which setting stopped it.
+    if not dry_run:
+        off = _submit_disabled(_load_execution_config(), profile)
+        if off:
+            log.warning("Orders are switched off: %s. This run is a dry run.", off)
+            dry_run = True
+            run_result.update(dry_run=True, submit_disabled=off)
 
     # ── Step 0: Reconcile the orders earlier runs sent ────────────────────────
     reconcile_result = step_reconcile(host=host, port=port, profile=profile)

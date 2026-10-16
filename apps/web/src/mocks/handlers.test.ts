@@ -144,7 +144,15 @@ describe.each(MOMENTS)("demo API at %s", (_label, at, session) => {
     const leverage = preview.checks.find((c) => c.id === "leverage")!;
     expect(leverage.status).toBe("pass");
     expect(leverage.detail).toMatch(/^gross \d+\.\d% → \d+\.\d% of NAV, cash \$[\d,]+ after; every holding counted$/);
-    expect(preview.checks.map((c) => c.id)).toEqual(["kill_switch", "data", "gate", "leverage", "orders", "duplicate"]);
+    expect(preview.checks.map((c) => c.id)).toEqual([
+      "kill_switch",
+      "data",
+      "gate",
+      "leverage",
+      "orders",
+      "execution",
+      "duplicate",
+    ]);
     await get<S["DoctorReport"]>("/ops/doctor");
     const runs = await get<S["RunsResponse"]>("/ops/runs");
     expect(runs.runs.length).toBeGreaterThan(5);

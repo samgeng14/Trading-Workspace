@@ -934,6 +934,12 @@ export function previewOf(at: Date, snap: Snapshot): S["RebalancePreview"] {
           status: "warn",
           detail: "nothing to trade: every difference is under $1,000",
         },
+    {
+      id: "execution",
+      label: "Orders switched on",
+      status: "pass",
+      detail: "config/execution.yaml lets a daily run send paper orders",
+    },
     dup
       ? {
           id: "duplicate",

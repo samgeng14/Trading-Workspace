@@ -6,9 +6,10 @@ from __future__ import annotations
 import csv
 import json
 import math
+import shutil
 import sys
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -17,7 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dv02_api import engine, nyse  # noqa: E402
+from dv02_api import engine, nyse, runs  # noqa: E402
 from dv02_api.broker import AccountSnap, BrokerStatus, PositionSnap  # noqa: E402
 
 TODAY = date(2026, 10, 9)  # a Friday session
@@ -42,6 +43,9 @@ def _write_bars(folder: Path, symbol: str, start: float, drift: float, wobble: f
 def engine_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the API's data paths (and the engine's kill switch) at a temp tree."""
     root = tmp_path / "engine"
+    # the committed submit switches (config/execution.yaml), as the API reads them on the Mac
+    (root / "config").mkdir(parents=True)
+    shutil.copy2(engine.config_dir() / "execution.yaml", root / "config" / "execution.yaml")
     monkeypatch.setattr(engine, "ENGINE_ROOT", root)
     from src.execution import kill_switch
 
@@ -199,6 +203,26 @@ class FakeBroker:
     def intraday(self, d: date) -> list[tuple[datetime, float]]:
         t = datetime(2026, 10, 9, 13, 31, tzinfo=timezone.utc)
         return [(t + timedelta(minutes=i), 100.0 * i) for i in range(5)]
+
+
+@pytest.fixture()
+def targets_day(monkeypatch: pytest.MonkeyPatch) -> datetime:
+    """The evening of the targets' own close, so the data check passes and only the mandate decides."""
+    from src.production.runtime.build_paper_basket import default_config, load_latest_targets
+
+    from dv02_api import app as app_mod
+
+    day = load_latest_targets(default_config().targets_path)["date"].max().date()
+    now = datetime.combine(day, time(22, 30), tzinfo=timezone.utc)
+    monkeypatch.setattr(app_mod, "_now", lambda: now)
+    return now
+
+
+@pytest.fixture()
+def started(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    calls: list[str] = []
+    monkeypatch.setattr(runs, "start_daily_run", lambda profile: calls.append(profile) or True)
+    return calls
 
 
 @pytest.fixture()
