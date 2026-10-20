@@ -303,7 +303,14 @@ def launch_agent_installed() -> bool | None:
 
 # ── starting a run from the dashboard ──────────────────────────────────
 
-RUN_STATE: dict[str, Any] = {"running": False, "started_at": None, "result": None, "log": None}
+RUN_STATE: dict[str, Any] = {
+    "running": False,
+    "started_at": None,  # "HH:MM", local, for the schedule's wording
+    "started_iso": None,
+    "result": None,
+    "log": None,
+    "progress": None,  # the runner's --progress-file: the run so far, rewritten at each step
+}
 _run_lock = threading.Lock()
 
 
@@ -316,7 +323,7 @@ def launch_agent() -> dict[str, Any] | None:
         return None
 
 
-def runner_command(profile: str) -> tuple[list[str], dict[str, str]]:
+def runner_command(profile: str, progress: Path | None = None) -> tuple[list[str], dict[str, str]]:
     """The command and environment for a dashboard-started daily run.
 
     Uses the LaunchAgent's Python and environment (so CAPITALFUND_OPTIMIZER and
@@ -338,6 +345,8 @@ def runner_command(profile: str) -> tuple[list[str], dict[str, str]]:
         "--client-id", str(endpoint.client_id("backfill")),
         "--force-rebalance",
     ]  # fmt: skip
+    if progress is not None:
+        cmd += ["--progress-file", str(progress)]
     return cmd, env
 
 
@@ -352,16 +361,24 @@ def start_daily_run(profile: str) -> bool:
     """
     if not _run_lock.acquire(blocking=False):
         return False
-    cmd, env = runner_command(profile)
-    log_path = engine.api_state_dir() / f"dashboard_run_{datetime.now():%Y%m%d_%H%M%S}.log"
+    stamp = f"{datetime.now():%Y%m%d_%H%M%S}"
+    log_path = engine.api_state_dir() / f"dashboard_run_{stamp}.log"
+    progress = engine.api_state_dir() / f"dashboard_run_{stamp}.progress.json"
+    cmd, env = runner_command(profile, progress)
     try:
         out = log_path.open("w")
         proc = subprocess.Popen(cmd, cwd=engine.ENGINE_ROOT, env=env, stdout=out, stderr=subprocess.STDOUT)
     except OSError as exc:
         _run_lock.release()
         raise RuntimeError(f"could not start the daily runner ({cmd[0]}): {exc}") from exc
+    started = datetime.now().astimezone()
     RUN_STATE.update(
-        running=True, started_at=datetime.now().astimezone().strftime("%H:%M"), result=None, log=str(log_path)
+        running=True,
+        started_at=started.strftime("%H:%M"),
+        started_iso=started.isoformat(timespec="seconds"),
+        result=None,
+        log=str(log_path),
+        progress=str(progress),
     )
 
     def wait() -> None:
@@ -377,3 +394,14 @@ def start_daily_run(profile: str) -> bool:
 
     threading.Thread(target=wait, name="daily-run", daemon=True).start()
     return True
+
+
+def dashboard_progress() -> dict[str, Any] | None:
+    """The dashboard-started run's progress file as the runner last wrote it, if there is one."""
+    path = RUN_STATE.get("progress")
+    if not path:
+        return None
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None  # not written yet, or mid-replace on a filesystem without atomic rename

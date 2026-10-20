@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -34,9 +35,22 @@ def _iso(dt: Any) -> str | None:
     return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat(timespec="seconds")
 
 
+# IBKR's "no value" for a double field (ib_async's UNSET_DOUBLE)
+UNSET = 1e300
+
+
+def _qty(v: Any) -> float:
+    try:
+        f = float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if abs(f) >= UNSET else f
+
+
 def from_trade(trade: Any, sleeve: str) -> dict[str, Any]:
     o, s, c = trade.order, trade.orderStatus, trade.contract
-    filled = float(s.filled or 0)
+    # a completed order (reqCompletedOrders) carries its fill on the order, not in a status message
+    filled = _qty(s.filled) or _qty(getattr(o, "filledQuantity", 0))
     status = STATUS.get(s.status, "submitted")
     if status == "submitted" and filled > 0:
         status = "partial"
@@ -72,8 +86,38 @@ def _latest(folder: Path, pattern: str) -> Path | None:
     return files[-1] if files else None
 
 
+def reconcile_fills(profile: str, day: str | None = None) -> dict[str, dict[str, Any]]:
+    """The fills IBKR reported, by perm ID, from the end-of-day reconcile's report
+    (data/broker/reconciliations/{profile}_eod_{day}.json, the latest when ``day`` is None).
+    The reconcile counts every order at the fills IBKR reports, so a machine without an IBKR
+    connection can still say what filled."""
+    folder = engine.data_dir() / "broker" / "reconciliations"
+    path = folder / f"{profile}_eod_{day}.json" if day else _latest(folder, f"{profile}_eod_*.json")
+    if path is None or not path.exists():
+        return {}
+    try:
+        doc = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for o in doc.get("orders") or []:
+        key = str(o.get("perm_id") or o.get("order_id") or "")
+        if not key or "at the fills IBKR reports" not in str(o.get("counted", "")):
+            continue  # an order counted in full only because IBKR reported nothing is not a known fill
+        out[key] = {
+            "filled": abs(_qty(o.get("filled"))),
+            "quantity": abs(_qty(o.get("quantity"))),
+            "price": o.get("price"),
+            "fills_at": o.get("fills_at"),
+            "run_id": o.get("run_id"),
+        }
+    return out
+
+
 def from_files(profile: str, sleeve: str) -> tuple[str | None, list[dict[str, Any]]]:
-    """The engine's last real submission and its fill snapshot (trading date, orders)."""
+    """The engine's last real submission and its fill snapshot (trading date, orders). The
+    snapshot is taken when the orders are sent; the end-of-day reconcile's fills, when there
+    are some, say what filled later."""
     folder = engine.data_dir() / "broker" / "orders"
     sub = _latest(folder, f"{profile}_orders_submitted_*.csv")
     if sub is None:
@@ -83,6 +127,7 @@ def from_files(profile: str, sleeve: str) -> tuple[str | None, list[dict[str, An
     if fills_path.exists():
         with fills_path.open() as f:
             fills = {r.get("perm_id") or r.get("order_id", ""): r for r in csv.DictReader(f)}
+    reconciled = reconcile_fills(profile)
     orders, day = [], None
     with sub.open() as f:
         for i, r in enumerate(csv.DictReader(f)):
@@ -98,6 +143,12 @@ def from_files(profile: str, sleeve: str) -> tuple[str | None, list[dict[str, An
             fill = fills.get(key, {})
             raw = (fill.get("status") or r.get("status") or "").strip()
             filled = float(fill.get("filled_qty") or 0)
+            later = reconciled.get(str(key))
+            if later and later["filled"] > filled:
+                filled = later["filled"]
+                raw = "Filled" if filled >= float(r.get("quantity") or 0) else raw
+                if later.get("price"):
+                    fill = {**fill, "avg_fill_price": str(later["price"])}
             order: dict[str, Any] = {
                 "id": str(key),
                 "symbol": r.get("symbol", "?"),
@@ -108,7 +159,7 @@ def from_files(profile: str, sleeve: str) -> tuple[str | None, list[dict[str, An
                 "status": "rejected" if raw == "ERROR" else STATUS.get(raw, "submitted"),
                 "submitted_at": when.isoformat(timespec="seconds"),
                 "sleeve": sleeve,
-                "reason": "from the engine's submission log (IBKR not connected)",
+                "reason": "from the engine's submission log and reconcile (IBKR not connected)",
             }
             if fill.get("avg_fill_price"):
                 try:

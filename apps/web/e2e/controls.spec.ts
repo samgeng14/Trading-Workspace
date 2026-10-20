@@ -21,7 +21,7 @@ test("every rendered control is in the registry", async ({ page }) => {
   }
   // dialogs and armed state
   await open(page, "/trading");
-  await ctl(page, "trading.preview.submit").click();
+  await ctl(page, "trading.today.rebalance").click();
   await collect();
   await ctl(page, "rebalance.submit.cancel").click();
   await ctl(page, "topbar.kill-switch").click();

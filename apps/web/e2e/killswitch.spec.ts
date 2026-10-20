@@ -17,7 +17,8 @@ test("arming from the top bar needs a reason, halts trading, and disarming needs
   await expect(banner).toContainText("reconcile mismatch on TLT");
   await expect(ctl(page, "topbar.kill-switch")).toHaveCount(0);
   await expect(page.locator(".checks")).toContainText("Armed: reconcile mismatch on TLT");
-  await expect(ctl(page, "trading.preview.submit")).toBeDisabled();
+  await expect(ctl(page, "trading.today.rebalance")).toBeDisabled();
+  await expect(page.locator(".today-why")).toHaveText("The kill switch is armed: resume trading first.");
 
   await ctl(page, "banner.resume").click();
   await expect(ctl(page, "killswitch.disarm.confirm")).toBeDisabled();
@@ -30,7 +31,7 @@ test("arming from the top bar needs a reason, halts trading, and disarming needs
   await ctl(page, "killswitch.disarm.text").fill("RESUME");
   await ctl(page, "killswitch.disarm.confirm").click();
   await expect(banner).toHaveCount(0);
-  await expect(ctl(page, "trading.preview.submit")).toBeEnabled();
+  await expect(ctl(page, "trading.today.rebalance")).toBeEnabled();
 });
 
 test("Operations arms and disarms the kill switch", async ({ page }) => {

@@ -535,3 +535,101 @@
   font-size: var(--fs-md);
   color: var(--ink-1);
 }
+
+/* ── trading today: one plain answer, the steps of a rebalance, the one button ── */
+
+.today {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3) var(--space-5);
+  align-items: start;
+}
+
+.today-headline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--font-serif);
+  font-size: var(--fs-xl);
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--ink-1);
+}
+
+.today-headline .badge-icon {
+  align-self: center;
+}
+
+.today-detail {
+  margin-top: 4px;
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+}
+
+.today-note {
+  margin-top: 6px;
+  font-size: var(--fs-sm);
+  color: var(--tone-warn);
+}
+
+.today-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 320px;
+}
+
+.today-why {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  text-align: right;
+}
+
+.today-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--rule);
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+
+.today-steps li {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: var(--space-2);
+}
+
+.today-steps .badge {
+  font-size: var(--fs-sm);
+  color: var(--ink-1);
+}
+
+.today-steps li[data-state="pending"] .badge,
+.today-steps li[data-state="skipped"] .badge {
+  color: var(--ink-3);
+}
+
+.today-steps li[data-state="running"] .badge {
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .today {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .today-action {
+    align-items: flex-start;
+    max-width: none;
+  }
+  .today-why {
+    text-align: left;
+  }
+  .today-steps li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1px;
+  }
+}

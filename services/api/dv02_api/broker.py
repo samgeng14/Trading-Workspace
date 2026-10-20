@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from . import engine, nyse
@@ -103,6 +104,18 @@ class _Line:
     kind: str = ""
 
 
+def completed_view(seen: Any, done: Any) -> Any:
+    """An order as IBKR completed it: the completed order's status and fill, with the
+    contract and the log (the submit time) of the trade seen while it was open."""
+    return SimpleNamespace(
+        order=done.order,
+        orderStatus=done.orderStatus,
+        contract=seen.contract,
+        log=seen.log,
+        fills=seen.fills or done.fills,
+    )
+
+
 @dataclass
 class Broker:
     profile: str = "paper"
@@ -119,6 +132,8 @@ class Broker:
     _strip_lines: list[_Line] = field(init=False, default_factory=list)
     _intraday: list[tuple[datetime, float]] = field(init=False, default_factory=list)
     _intraday_date: date | None = field(init=False, default=None)
+    # orders IBKR reports as completed (filled or cancelled), by perm ID, from the last refresh
+    _completed: dict[int, Any] = field(init=False, default_factory=dict)
 
     def __post_init__(self) -> None:
         from src.broker.ibkr import settings  # trading-engine
@@ -395,7 +410,13 @@ class Broker:
         return out
 
     def trades(self) -> list[Any]:
-        """Every order IBKR knows about this session, from any client."""
+        """Every order IBKR knows about this session, from any client.
+
+        IBKR sends an order's status changes only to the client that placed it, so an order
+        the daily runner sent stays "Submitted" here after it fills; ib_async also ignores a
+        completed order whose perm ID it has already seen. Where IBKR reports an order as
+        completed, its final status and fill replace the stale ones.
+        """
         if not self.connected:
             return []
         seen, out = set(), []
@@ -404,15 +425,22 @@ class Broker:
             if key in seen:
                 continue
             seen.add(key)
-            out.append(t)
+            done = self._completed.get(t.order.permId) if t.order.permId else None
+            out.append(completed_view(t, done) if done is not None else t)
+        for perm, done in self._completed.items():
+            if perm not in seen:
+                seen.add(perm)
+                out.append(done)
         return out
 
     async def refresh_orders(self) -> None:
-        """Pick up orders placed by other clients (the daily runner) since we connected."""
+        """Pick up orders placed by other clients (the daily runner) since we connected,
+        and the final state of the ones IBKR has completed."""
         if self.connected:
             try:
                 await asyncio.wait_for(self._ib.reqAllOpenOrdersAsync(), 10)
-                await asyncio.wait_for(self._ib.reqCompletedOrdersAsync(False), 10)
+                done = await asyncio.wait_for(self._ib.reqCompletedOrdersAsync(False), 10)
+                self._completed = {t.order.permId: t for t in done or [] if t.order.permId}
             except Exception as exc:  # noqa: BLE001
                 log.warning("order refresh failed: %s", exc)
 

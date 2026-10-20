@@ -19,6 +19,7 @@ export const keys = {
   risk: ["risk"] as const,
   orders: ["trading", "orders"] as const,
   preview: ["trading", "preview"] as const,
+  today: ["trading", "today"] as const,
   doctor: ["ops", "doctor"] as const,
   runs: ["ops", "runs"] as const,
 };
@@ -102,6 +103,14 @@ export const useRebalancePreview = () =>
     refetchInterval: LIVE_MS * 2,
   });
 
+/** Did the fund trade today; while a rebalance runs, its steps every second. */
+export const useTradingDay = () =>
+  useQuery({
+    queryKey: keys.today,
+    queryFn: () => unwrap(api.GET("/trading/today")),
+    refetchInterval: (q) => (q.state.data?.state === "running" ? 1_000 : LIVE_MS * 2),
+  });
+
 export const useDoctor = () => useQuery({ queryKey: keys.doctor, queryFn: () => unwrap(api.GET("/ops/doctor")) });
 
 export const useRuns = () =>
@@ -116,6 +125,7 @@ export function useSetKillSwitch() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.status });
       void qc.invalidateQueries({ queryKey: keys.preview });
+      void qc.invalidateQueries({ queryKey: keys.today });
     },
   });
 }
@@ -127,6 +137,7 @@ export function useSubmitRebalance() {
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: keys.orders });
       void qc.invalidateQueries({ queryKey: keys.preview });
+      void qc.invalidateQueries({ queryKey: keys.today });
     },
   });
 }
@@ -136,7 +147,10 @@ export function useCancelOrder() {
   return useMutation({
     mutationFn: (orderId: string) =>
       unwrap(api.POST("/trading/orders/{orderId}/cancel", { params: { path: { orderId } } })),
-    onSettled: () => void qc.invalidateQueries({ queryKey: keys.orders }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.orders });
+      void qc.invalidateQueries({ queryKey: keys.today });
+    },
   });
 }
 

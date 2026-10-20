@@ -22,7 +22,7 @@ Every page shows a **Demo data** badge while it runs on simulated data.
 | Positions | `g p` | The whole book: filters, sortable columns, drift vs target, totals |
 | Performance | `g f` | Growth vs any benchmark, drawdown, Sharpe with its confidence interval, monthly grid |
 | Risk | `g r` | Central risk book: beta, vol, VaR/ES, exposure, limits, sleeve mandates, stress scenarios |
-| Trading | `g t` | Rebalance preview with pre-trade checks, typed-confirmation submit, blotter with cancel and slippage |
+| Trading | `g t` | Did we trade today, in one sentence; "Rebalance now" (typed confirmation) with the run's steps live; the rebalance preview with pre-trade checks while one may still start; blotter with cancel and slippage |
 | Operations | `g s` | System health, kill switch, IBKR doctor, schedule, run history |
 
 ## How it fits together

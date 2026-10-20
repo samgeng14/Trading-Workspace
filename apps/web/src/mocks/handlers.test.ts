@@ -239,3 +239,57 @@ describe("the preview's dollar amounts", () => {
     expect(apiMoney(-0.3)).toBe("-$0");
   });
 });
+
+describe("trading today", () => {
+  const at = async (when: string) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(when));
+    return get<S["TradingDay"]>("/trading/today");
+  };
+
+  it("answers for each moment of the day", async () => {
+    const saturday = await at("2026-10-10T16:00:00Z");
+    expect(saturday).toMatchObject({ state: "closed", trading_date: "2026-10-12", can_rebalance: false });
+    expect(saturday.detail).toBe("The next automatic run is Mon 15:40 ET.");
+
+    // a session no other test trades in (the demo's state lasts the whole file)
+    const morning = await at("2026-10-14T14:05:00Z");
+    expect(morning).toMatchObject({ state: "not_yet", headline: "Not traded yet today", can_rebalance: true });
+    expect(morning.detail).toBe("The automatic run is at 15:40 ET: market-on-close, filled at the Wed Oct 14 close.");
+    expect(morning.next_run_at).toBe("2026-10-14T19:40:00.000Z");
+
+    // the month-start rebalance, after the close: every order filled at it
+    const after = await at("2026-10-01T21:00:00Z");
+    expect(after.state).toBe("done");
+    expect(after.headline).toBe("Traded at today's close (orders sent 15:40 ET)");
+    expect(after.orders!.sent).toBeGreaterThan(5);
+    expect(after.orders!.filled).toBe(after.orders!.sent);
+    expect(after.detail).toBe(`Filled ${after.orders!.sent}/${after.orders!.sent} at the 16:00 ET close.`);
+    expect(after.blocked_reason).toBe("This session's orders are already in.");
+  });
+
+  it("walks a dashboard rebalance through its steps, then waits for the close", async () => {
+    const start = new Date("2026-10-08T14:05:00Z"); // Thursday 10:05 ET
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(start);
+    expect((await post("/trading/rebalance", { confirm: "SUBMIT" })).status).toBe(200);
+
+    const first = await get<S["TradingDay"]>("/trading/today");
+    expect(first.state).toBe("running");
+    expect(first.headline).toBe("Rebalancing now: reconciling with IBKR");
+    expect(first.steps.map((s) => s.state)).toEqual(["running", "pending", "pending", "pending", "pending", "pending"]);
+
+    vi.setSystemTime(new Date(start.getTime() + 3 * 600 + 10));
+    const mid = await get<S["TradingDay"]>("/trading/today");
+    expect(mid.headline).toBe("Rebalancing now: deciding what to trade");
+    expect(mid.steps.filter((s) => s.state === "done")).toHaveLength(3);
+
+    vi.setSystemTime(new Date(start.getTime() + 6 * 600 + 10));
+    const done = await get<S["TradingDay"]>("/trading/today");
+    expect(done.state).toBe("done");
+    expect(done.headline).toBe("Orders in for today's close (sent 10:05 ET)");
+    expect(done.steps.at(-1)).toMatchObject({ id: "fills", state: "running" });
+    expect(done.orders).toMatchObject({ filled: 0, auction: "close", source: "ibkr" });
+    expect(done.can_rebalance).toBe(false);
+  });
+});

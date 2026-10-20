@@ -252,6 +252,24 @@ Phone-width tables scroll sideways inside their panels, which is by design.
 If the owner wants more, do another pass the same way (`e2e/staging/layout.spec.ts`
 has the page list, the theme switch and the overflow check).
 
+### 3b. "Did we trade today?" and Rebalance now (2026-10-16, PR #13)
+
+The owner asked for one plain answer and a one-button rebalance with progress.
+On branch `claude/dashboard-terminal-redesign` (the look is the original one:
+the owner rejected two redesigns; see CLAUDE.md):
+- `GET /api/v1/trading/today` (`services/api/dv02_api/today.py`): done, held,
+  not yet, running, failed or closed, with one headline, one detail line, the
+  orders' fills (IBKR live, else the end-of-day reconcile, else the
+  submission file) and, with no IBKR here, where trading runs
+  (`DV02_TRADING_HOST`, worth setting in each machine's `.env`)
+- the Trading page leads with it; "Rebalance now" is the existing submit
+  (typed SUBMIT, the same preview gate, then the daily runner itself); the
+  basket preview shows only while a rebalance may still start
+- the runner's `--progress-file` gives the dashboard its steps live
+- fixed: the runner's orders showed "submitted, filled 0" after they filled;
+  the API now reads IBKR's completed orders back (ib_async drops them when it
+  has seen the order open)
+
 ### 4. Smaller items
 
 - **Adjusted prices: done in code (2026-10-16), not yet run on IBKR.**

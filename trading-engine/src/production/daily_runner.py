@@ -578,7 +578,36 @@ def _write_run_log(run_id: str, result: dict[str, Any]) -> Path:
     with open(out, "w") as f:
         json.dump(result, f, indent=2, default=str)
     log.info("Run log saved: %s", out)
+    _progress(result, None)
     return out
+
+
+# Where a run started from the dashboard reports its steps as they happen (--progress-file).
+PROGRESS_FILE: Optional[Path] = None
+
+
+def _progress(result: dict[str, Any], current: Optional[str]) -> None:
+    """Write the run so far, and the step now starting, to PROGRESS_FILE if one was given.
+
+    The dashboard reads it to show a run's steps live. It is a copy of the run log in the
+    making: nothing reads it to decide anything, and a failed write is only logged.
+    ``current`` None means the run has finished.
+    """
+    if PROGRESS_FILE is None:
+        return
+    doc = {
+        **result,
+        "current": current,
+        "finished": current is None,
+        "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    }
+    try:
+        PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = PROGRESS_FILE.with_name(PROGRESS_FILE.name + ".tmp")
+        tmp.write_text(json.dumps(doc, default=str))
+        os.replace(tmp, PROGRESS_FILE)  # a reader never sees half a file
+    except OSError as exc:
+        log.warning("Could not write the progress file %s: %s", PROGRESS_FILE, exc)
 
 
 def _already_ran_today_successfully() -> Optional[Path]:
@@ -1038,8 +1067,10 @@ def run(
             run_result.update(dry_run=True, submit_disabled=off)
 
     # ── Step 0: Reconcile the orders earlier runs sent ────────────────────────
+    _progress(run_result, "reconcile")
     reconcile_result = step_reconcile(host=host, port=port, profile=profile)
     run_result["steps"]["reconcile"] = reconcile_result
+    _progress(run_result, "generate_targets" if skip_append else "append_daily")
 
     # ── Step 1: Append daily bars ─────────────────────────────────────────────
     if not skip_append:
@@ -1073,6 +1104,7 @@ def run(
         run_result["steps"]["append_futures_daily"] = {"skipped": True}
 
     # ── Step 2: Generate targets ──────────────────────────────────────────────
+    _progress(run_result, "generate_targets")
     targets_result = step_generate_targets(profile=profile)
     run_result["steps"]["generate_targets"] = targets_result
 
@@ -1084,6 +1116,7 @@ def run(
         return run_result
 
     # ── Rebalance decision ────────────────────────────────────────────────────
+    _progress(run_result, "rebalance_decision")
     rb_cfg = _load_rebalance_config()
     log.info(
         "Rebalance cadence: %s (drift_threshold=%.3f · composition_threshold=%.3f · cooldown=%sd)",
@@ -1109,6 +1142,7 @@ def run(
         return run_result
 
     # ── Step 3: Build basket ──────────────────────────────────────────────────
+    _progress(run_result, "build_basket")
     basket_result = step_build_basket(
         host=host, port=port, client_id=client_id + 10,
         profile=profile, dry_run=dry_run,
@@ -1125,6 +1159,7 @@ def run(
     # ── Step 4: Submit orders ─────────────────────────────────────────────────
     # Orders always go out on the fixed "orders" clientId so they can be
     # cancelled / modified later from any tool that uses that role.
+    _progress(run_result, "submit_orders")
     submit_result = step_submit_orders(
         host=host, port=port, client_id=client_id_for("orders", profile),
         profile=profile, dry_run=dry_run,
@@ -1202,7 +1237,13 @@ def main() -> None:
         ),
     )
     parser.add_argument("--json-out", action="store_true", help="Print result JSON to stdout")
+    parser.add_argument(
+        "--progress-file", default=None, dest="progress_file",
+        help="Write the run so far to this JSON file at each step, for the dashboard to show",
+    )
     args = parser.parse_args()
+    global PROGRESS_FILE
+    PROGRESS_FILE = Path(args.progress_file) if args.progress_file else None
 
     # ── Catch-up guard ─────────────────────────────────────────────────
     # Run when EITHER:
