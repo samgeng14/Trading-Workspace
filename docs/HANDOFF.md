@@ -33,7 +33,7 @@ What happened:
 - **Nobody was told.** Both failures fired the alert unit, which pings
   healthchecks.io, but `DV02_HEARTBEAT_*` isn't set on the VM.
 
-Fixed and deployed to the VM (15e711ae, 2026-10-20):
+Fixed and deployed to the VM (930e6bb1, 2026-10-20):
 - aef80b97: every IBKR connection (the engine's client, the bar appends, the
   doctor, the API's dashboard link) fails with `IBKRSyncError` when the startup
   sync times out, instead of acting on an empty read. Requests time out (60 s,
@@ -49,6 +49,11 @@ Fixed and deployed to the VM (15e711ae, 2026-10-20):
 - 15e711ae: a real run reports an armed kill switch as a failure ("halted" in
   the run log, "Halted: ..." on the dashboard), so the alert fires daily until
   someone resumes.
+- 930e6bb1: `submit_paper_orders()` sends nothing while IBKR has a working order
+  (from any client) on a symbol in the batch, or when it can't check. A second
+  batch the same day (a forced re-run, a run after one crashed mid-send) would
+  otherwise trade the same differences again, since positions don't show an
+  order until it fills.
 
 On the VM after the fixes: the doctor passes (quotes delayed, as before), IBKR
 holds no working orders, and the expected book holds the true 21 positions, so
