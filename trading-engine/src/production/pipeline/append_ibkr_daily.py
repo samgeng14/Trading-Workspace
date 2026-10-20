@@ -16,6 +16,7 @@ try:
 except ImportError:
     from ib_insync import IB, Stock  # type: ignore
 
+from src.broker.ibkr.client import connect_ib, fail_fast
 from src.common.clock import last_completed_session
 from src.data.cleaning.price_basis import (
     COLUMNS,
@@ -384,10 +385,19 @@ def repair_bars(
     }
 
 
+# One bars request: a whole-history refetch takes seconds, so this only ends a hang.
+HISTORY_TIMEOUT_S = 120.0
+
+
 def _connect(host: str, port: int, client_id: int) -> IB:
-    ib = IB()
-    ib.connect(host, port, clientId=client_id, timeout=5)
-    return ib
+    """Connected, or IBKRSyncError when the gateway is cut off from IBKR (see
+    src/broker/ibkr/client.py), with every bars request capped at HISTORY_TIMEOUT_S."""
+    return connect_ib(host, port, client_id, request_timeout=HISTORY_TIMEOUT_S, ib=IB())
+
+
+def _fetcher(ib: IB):
+    """The bars fetch for one connection; after a request times out, the rest fail at once."""
+    return fail_fast(lambda sym, dur: _fetch_symbol_bars(ib, sym, dur), HISTORY_TIMEOUT_S)
 
 
 def _connection_error(profile: str, action: str, host: str, port: int, client_id: int, exc: Exception) -> dict[str, Any]:
@@ -416,7 +426,7 @@ def append_ibkr_daily(
     try:
         # The connection stays open through the merge: a basis mismatch refetches.
         return append_bars(
-            lambda sym, dur: _fetch_symbol_bars(ib, sym, dur),
+            _fetcher(ib),
             profile=profile,
             lookback=lookback,
             master=master,
@@ -440,7 +450,7 @@ def repair_ibkr_basis(
         return _connection_error(profile, "repair_basis", host, port, client_id, exc)
     try:
         result = repair_bars(
-            lambda sym, dur: _fetch_symbol_bars(ib, sym, dur),
+            _fetcher(ib),
             symbols=symbols,
             window=window,
             master=master,

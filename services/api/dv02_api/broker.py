@@ -181,6 +181,9 @@ class Broker:
             clientId=self.client_id,
             timeout=10,
             account=self.endpoint.account or "",
+            # a gateway cut off from IBKR answers the socket but not these requests;
+            # without this the dashboard showed an empty book as live (_describe says why)
+            raiseSyncErrors=True,
         )
         try:
             await self._set_up(ib)
@@ -525,8 +528,13 @@ def _etf_symbols() -> set[str]:
 
 def _describe(exc: BaseException, endpoint: Any) -> str:
     """Turn a connection failure into something a person can act on."""
+    from src.broker.ibkr.client import sync_failure, sync_failure_message  # trading-engine
+
     text = str(exc) or type(exc).__name__
     where = f"{endpoint.host}:{endpoint.port}"
+    failed = sync_failure(exc)
+    if failed is not None:
+        return sync_failure_message(where, failed)
     if isinstance(exc, ConnectionRefusedError) or "refused" in text.lower():
         return (
             f"nothing is listening on {where}. Start IB Gateway or TWS ({endpoint.profile}) and enable the API "

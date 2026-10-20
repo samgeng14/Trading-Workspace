@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import settings
-from .client import is_paper_account
+from .client import is_paper_account, sync_failure
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
 
@@ -168,9 +168,23 @@ def check_socket(endpoint: settings.IBKREndpoint) -> CheckResult:
 def check_handshake(ctx: _Ctx) -> CheckResult:
     ep = ctx.endpoint
     try:
-        ctx.ib.connect(ep.host, ep.port, clientId=ctx.client_id, timeout=ctx.timeout)
+        # raiseSyncErrors: a gateway cut off from IBKR answers the socket but not
+        # the startup requests; without it the checks below would read "no
+        # positions" and pass (src/broker/ibkr/client.py, IBKRSyncError)
+        ctx.ib.connect(ep.host, ep.port, clientId=ctx.client_id, timeout=ctx.timeout, raiseSyncErrors=True)
     except Exception as exc:  # noqa: BLE001
         codes = {code for _, code, _ in ctx.errors}
+        failed = sync_failure(exc)
+        if failed is not None:
+            raise _Stop(CheckResult(
+                "handshake",
+                FAIL,
+                "IB Gateway answered, but IBKR's servers didn't: " + "; ".join(failed)
+                + (" (warning 2110: the gateway lost its connection to IBKR)" if 2110 in codes else ""),
+                "The gateway is cut off from IBKR; nothing it reports can be trusted until it "
+                "reconnects, which it usually does by itself within minutes. Run the doctor again; "
+                "if it still fails, restart the gateway (bin/tradeit gateway stop, then start).",
+            )) from None
         if 326 in codes:
             fix = (
                 f"clientId {ctx.client_id} is already connected. Close the other session "

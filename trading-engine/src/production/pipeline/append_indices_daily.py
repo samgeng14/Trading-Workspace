@@ -110,9 +110,12 @@ def append_indices_daily(
     # Always try every symbol we have a contract mapping for, even on a cold-start.
     symbols = sorted(set(INDEX_CONTRACTS.keys()) | set(master["symbol"].unique().tolist()))
 
-    ib = IB()
+    from src.broker.ibkr.client import connect_ib, fail_fast
+    from src.production.pipeline.append_ibkr_daily import HISTORY_TIMEOUT_S
+
     try:
-        ib.connect(host, port, clientId=client_id, timeout=5)
+        # fails on a gateway cut off from IBKR; caps each bars request (src/broker/ibkr/client.py)
+        ib = connect_ib(host, port, client_id, request_timeout=HISTORY_TIMEOUT_S, ib=IB())
     except Exception as exc:
         return {
             "ok": False,
@@ -125,11 +128,12 @@ def append_indices_daily(
 
     fetched_frames: list[pd.DataFrame] = []
     errors: list[str] = []
+    fetch = fail_fast(lambda sym: _fetch_symbol_bars(ib, sym, lookback), HISTORY_TIMEOUT_S)
 
     try:
         for symbol in symbols:
             try:
-                df_symbol = _fetch_symbol_bars(ib, symbol, lookback)
+                df_symbol = fetch(symbol)
                 if not df_symbol.empty:
                     fetched_frames.append(df_symbol)
                 else:

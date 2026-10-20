@@ -231,6 +231,34 @@ def test_broker_refuses_a_live_account_under_paper() -> None:
         asyncio.run(b._connect())
 
 
+def test_a_gateway_cut_off_from_ibkr_is_not_shown_as_connected() -> None:
+    # 2026-10-19 on the VM: the socket answered, the startup requests timed out
+    import asyncio
+    import dataclasses
+
+    from dv02_api.broker import _describe
+
+    seen = {}
+
+    class CutOffIB:
+        RequestTimeout = 0
+
+        async def connectAsync(self, *a, **k):  # noqa: N802
+            seen.update(k)
+            if k.get("raiseSyncErrors"):
+                raise ConnectionError(["positions request timed out", "account updates for DU1 request timed out"])
+            return self
+
+    b = Broker("paper", ib_factory=CutOffIB)
+    b.endpoint = dataclasses.replace(b.endpoint, account=None)
+    with pytest.raises(ConnectionError) as err:
+        asyncio.run(b._connect())
+    assert seen.get("raiseSyncErrors") is True and not b.connected
+    text = _describe(err.value, b.endpoint)
+    assert text.startswith(f"IB Gateway answered at {b.endpoint.host}:{b.endpoint.port}, but IBKR's servers didn't")
+    assert "positions request timed out" in text and "warning 2110" in text
+
+
 def test_bars_staleness(engine_tree) -> None:
     history.write_bars("XYZ", [(date(2026, 10, 8), 10.0)])
     friday_evening = datetime(2026, 10, 9, 22, 0, tzinfo=timezone.utc)

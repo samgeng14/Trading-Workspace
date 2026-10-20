@@ -49,17 +49,24 @@ class FakeIB:
         self.previewed = []  # the orders whatIfOrder was asked about
         self.clock_skew = kw.get("clock_skew", 0)
         self.connect_error = kw.get("connect_error")
+        self.sync_timeouts = kw.get("sync_timeouts", [])  # startup requests that time out
+        self.connect_kwargs = {}
         self.errorEvent = _Event()
         self.client = SimpleNamespace(serverVersion=lambda: 178)
         self.RequestTimeout = 0
         self._connected = False
 
-    def connect(self, host, port, clientId, timeout):
+    def connect(self, host, port, clientId, timeout, **kwargs):
+        self.connect_kwargs = kwargs
         if self.connect_error:
             code, exc = self.connect_error
             if code:
                 self.errorEvent.emit(-1, code, "client id is already in use", None)
             raise exc
+        if self.sync_timeouts:
+            # what ib_async does with raiseSyncErrors=True on a gateway cut off from IBKR
+            self.errorEvent.emit(-1, 2110, "Connectivity between Trader Workstation and server is broken.", None)
+            raise ConnectionError(list(self.sync_timeouts))
         self._connected = True
 
     def isConnected(self):
@@ -172,6 +179,19 @@ def test_live_port_open_is_not_suggested_for_paper(monkeypatch):
     results, _ = _run()
     assert results["socket"].status == doctor.FAIL
     assert "4001" not in results["socket"].fix
+
+
+def test_a_gateway_cut_off_from_ibkr_fails_instead_of_reading_no_positions():
+    # 2026-10-19 on the VM: the socket answered, every startup request timed out
+    fake = FakeIB(sync_timeouts=["positions request timed out", "account updates for DU1234567 request timed out"])
+    results, _ = _run(fake)
+    assert fake.connect_kwargs.get("raiseSyncErrors") is True
+    hs = results["handshake"]
+    assert hs.status == doctor.FAIL
+    assert "positions request timed out" in hs.detail and "warning 2110" in hs.detail
+    assert "restart the gateway" in hs.fix
+    # nothing after the handshake runs, so "no open positions" can't pass
+    assert results["positions"].status == doctor.SKIP and results["balances"].status == doctor.SKIP
 
 
 def test_client_id_in_use_is_explained():

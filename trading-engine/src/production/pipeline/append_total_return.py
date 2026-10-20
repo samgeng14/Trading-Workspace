@@ -153,9 +153,10 @@ def append_total_return(
     symbols: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Refresh the model universe's adjusted closes from IBKR."""
+    from src.broker.ibkr.client import fail_fast
     from src.common.clock import last_completed_session
     from src.production.generate_targets import model_universe
-    from src.production.pipeline.append_ibkr_daily import _connect
+    from src.production.pipeline.append_ibkr_daily import HISTORY_TIMEOUT_S, _connect
 
     symbols = tuple(symbols or model_universe())
     try:
@@ -167,7 +168,9 @@ def append_total_return(
             "error": f"IBKR connection failed at {host}:{port} client_id={client_id}: {exc}",
         }
     try:
-        return refresh_adjusted(_ibkr_fetch(ib), symbols, through=last_completed_session())
+        return refresh_adjusted(
+            fail_fast(_ibkr_fetch(ib), HISTORY_TIMEOUT_S), symbols, through=last_completed_session()
+        )
     finally:
         ib.disconnect()
 
