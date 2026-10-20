@@ -1,11 +1,64 @@
 # Handoff: where DV02 stands and what to do next
 
-Last updated 2026-10-16 by the session that wired `execution.yaml` (the owner
-said the scheduled run sends paper orders) and put the signals on total-return
-prices. It also moved the Flex walk off the API's upkeep loop and wrote
-`deploy/` for the VM. All of it is on PR [samgeng14/Trading-Workspace#12](https://github.com/samgeng14/Trading-Workspace/pull/12)
-(branch `claude/serene-babbage-0204ht`, draft). `CLAUDE.md` has the owner's
-rules; this file has the state. Keep both current as you work.
+Last updated 2026-10-20 by the session that found the fund halted since
+Monday and fixed why (below). The 2026-10-16 session before it wired
+`execution.yaml` (the owner said the scheduled run sends paper orders), put the
+signals on total-return prices, moved the Flex walk off the API's upkeep loop
+and wrote `deploy/` for the VM. All of it is on PR [samgeng14/Trading-Workspace#12](https://github.com/samgeng14/Trading-Workspace/pull/12)
+(branch `claude/serene-babbage-0204ht`, draft; PR #13, a dashboard redesign
+from another session, is stacked on it). `CLAUDE.md` has the owner's rules;
+this file has the state. Keep both current as you work.
+
+## Read first: the fund is halted (since 2026-10-19)
+
+**The VM's kill switch is armed, and stays armed until the owner resumes.**
+Nothing has traded since the first basket filled at the open on Friday
+2026-10-16 (37 orders, forced from the Mac at 00:35; its reconcile that evening
+matched IBKR to the share: 21 positions).
+
+What happened:
+- **Mon 2026-10-19, 15:35 ET.** The VM's IB Gateway had lost its own link to
+  IBKR's servers (warning 2110, market data farms down) while its API socket
+  still answered. Every startup request timed out; ib_async logged it and
+  carried on with no positions. The run's reconcile read that as "the account
+  holds nothing": 21 breaks, kill switch armed, and the expected book reset to
+  empty. The run's bars request then hung until systemd stopped it at 45 min.
+- **Tue 2026-10-20, 15:35 ET.** The gateway was fine. The reconcile compared
+  IBKR's 21 positions with Monday's empty book: 21 breaks again (the switch was
+  already armed), and the book reset to the true 21 positions. The basket was
+  also blocked by the no-leverage check, for a second, independent reason: it
+  sized trades at the targets' close while the account is valued at IBKR's
+  marks, so on an up day it planned a net buy of $10,100 with $7,429 in cash
+  (gross 100.3%, cash -$2,682).
+- **Nobody was told.** Both failures fired the alert unit, which pings
+  healthchecks.io, but `DV02_HEARTBEAT_*` isn't set on the VM.
+
+Fixed and deployed to the VM (15e711ae, 2026-10-20):
+- aef80b97: every IBKR connection (the engine's client, the bar appends, the
+  doctor, the API's dashboard link) fails with `IBKRSyncError` when the startup
+  sync times out, instead of acting on an empty read. Requests time out (60 s,
+  120 s for bars), and after one does, the rest of that loop fails at once.
+  Monday's run would now stop at step 1 within seconds, without arming the
+  switch or touching the book.
+- ca86415b: the basket sizes held names at IBKR's mark (new `price` column;
+  `close` stays the targets' close) and, given the account's cash, cuts the
+  buys in proportion so the orders leave the 0.5% buffer (`trimmed_shares`,
+  reported in the run log and the preview). Replayed on 2026-10-20's real
+  inputs: 14 orders, net buy $546, gross 99.35%, cash $6,865 after; the check
+  passes where the old basket was blocked.
+- 15e711ae: a real run reports an armed kill switch as a failure ("halted" in
+  the run log, "Halted: ..." on the dashboard), so the alert fires daily until
+  someone resumes.
+
+On the VM after the fixes: the doctor passes (quotes delayed, as before), IBKR
+holds no working orders, and the expected book holds the true 21 positions, so
+`resume` would pass. To resume (the owner's call, per `CLAUDE.md`):
+```bash
+ssh ubuntu@64.181.195.172          # or ubuntu@dv02 with Tailscale on
+sudo -u dv02 /opt/dv02/bin/tradeit resume
+```
+The next run is 15:35 ET on the next trading day. Its basket then holds the
+composition change the targets have wanted since 2026-10-16.
 
 ## Start here
 
@@ -19,7 +72,9 @@ rules; this file has the state. Keep both current as you work.
    .venv/bin/pip install pytest jsonschema httpx ruff==0.8.6   # what the checks need beyond `tradeit setup`
    ```
 2. Look at PR #12's checks on GitHub (`gh pr checks 12 --repo samgeng14/Trading-Workspace`).
-   Every job was green on 3cc7966c. If anything is red on the latest commit, fix that first.
+   If anything is red on the latest commit, fix that first. Then read the VM's
+   last run: `ssh ubuntu@64.181.195.172`, `systemctl status dv02-runner`, and
+   `/opt/dv02/trading-engine/artifacts/runs/` (newest `daily_run_*.json`).
 3. Compare `git log --oneline -15` with "Done" and "Unfinished work" below.
 4. Run the checks in `CLAUDE.md` once, so you start from green. Two things to
    know on the owner's Mac:
@@ -330,6 +385,15 @@ CLI, the desktop app or the VS Code extension), not from a cloud session.
 Docs: https://code.claude.com/docs/en/chrome
 
 ## Owner's to-do list (only the owner can do these)
+
+- **Resume the fund** once you've read "Read first" above:
+  `sudo -u dv02 /opt/dv02/bin/tradeit resume` on the VM (or tell Claude to).
+- **Turn the alerts on.** Make three checks on healthchecks.io (free): the
+  daily run (period 1 day, grace about 1 hour), the API (period 5 minutes) and
+  the backup (1 day). Put their ping URLs in `/etc/dv02/dv02.env` on the VM as
+  `DV02_HEARTBEAT_RUNNER`, `DV02_HEARTBEAT_API` and `DV02_HEARTBEAT_BACKUP`
+  (uncomment the lines), then `sudo systemctl restart dv02-api`. Until then a
+  failed or halted run tells nobody.
 
 - Pull and rebuild (Start here), then import the daily NAV history once:
   ```bash
