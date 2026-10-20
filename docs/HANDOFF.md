@@ -309,7 +309,12 @@ has the page list, the theme switch and the overflow check).
 
 ### 4. Smaller items
 
-- **Adjusted prices: done in code (2026-10-16), not yet run on IBKR.**
+- **Adjusted prices: done (2026-10-16), first run on IBKR 2026-10-20.** The
+  VM's run refreshed the total-return closes for all 21 ETFs, none fell back to
+  price, and `--compare` on the 2026-10-19 close shows the income each signal
+  now counts over the 126-day lookback: BIL +1.79%, SHY +1.77%, IEI +1.84%,
+  TLT +2.14%, VNQ +1.64%, VPU +1.25%, SPY +0.55%, QQQ +0.24%, and 0 for the
+  funds without distributions (GLD, SLV, USO, UNG, VIXY, IBIT, ETHA, INDA).
   - Momentum and volatility run on total-return closes:
     - IBKR's ADJUSTED_LAST bars (split- and dividend-adjusted), kept in
       `data/market/cleaned/prices/etf_total_return_closes.parquet` (git-ignored)
