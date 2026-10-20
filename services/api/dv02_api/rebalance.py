@@ -96,6 +96,7 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
         holdings_outside_model,
         load_last_closes,
         load_latest_targets,
+        trimmed_buys,
     )
     from src.runtime.risk_checks import run_pre_trade_risk_checks
 
@@ -154,7 +155,10 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
         min_trade_dollars=cfg.min_trade_dollars,
         model=model,
         last_closes=load_last_closes(cfg.prices_path),
+        # the runner trims its buys to the account's cash; the preview shows the same orders
+        cash=snap.cash if snap is not None else None,
     )
+    trimmed = trimmed_buys(recon)
     order_syms = set(orders["symbol"]) if len(orders) else set()
 
     price_now = {p.symbol: (p.last or 0.0) for p in snap.positions} if snap else {}
@@ -163,13 +167,15 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
     basket = []  # what the leverage check sees: the orders at the prices est_notional uses
     for r in recon.itertuples(index=False):
         close = float(r.close)  # NaN for a holding outside the model with no price anywhere
+        # what the basket sized the order at: IBKR's mark when held, else the targets' close
+        order_px = float(getattr(r, "price", close))
         px = price_now.get(r.symbol) or close
         value = int(r.current_shares) * px if math.isfinite(px) else value_now.get(r.symbol, 0.0)
         trade = int(r.delta_shares) if r.symbol in order_syms else 0
         cost = float(r.estimated_commission) if trade else 0.0
         if trade:
             # an unpriced order goes in as it is: the engine blocks it rather than guess a price
-            basket.append({"symbol": r.symbol, "quantity": trade, "price": close, "commission": cost})
+            basket.append({"symbol": r.symbol, "quantity": trade, "price": order_px, "commission": cost})
         rows.append(
             {
                 "symbol": r.symbol,
@@ -178,7 +184,7 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
                 "current_qty": int(r.current_shares),
                 "target_qty": int(r.target_shares),
                 "trade_qty": trade,
-                "est_notional": trade * close if math.isfinite(close) else 0.0,
+                "est_notional": trade * order_px if math.isfinite(order_px) else 0.0,
                 "est_cost": cost,
             }
         )
@@ -238,7 +244,7 @@ def preview(snap: AccountSnap | None, live: bool, broker_error: str | None, now:
             "orders",
             "Orders to send",
             "pass" if n_orders else "warn",
-            f"{n_orders} orders, turnover {turnover:.1%} of NAV"
+            f"{n_orders} orders, turnover {turnover:.1%} of NAV" + (f"; {trimmed['note']}" if trimmed else "")
             if n_orders
             else f"nothing to trade: every difference is under ${cfg.min_trade_dollars:,.0f}",
         )

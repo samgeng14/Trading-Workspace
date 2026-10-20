@@ -212,7 +212,8 @@ def check_leverage(
             risk.Order(
                 symbol,
                 float(qty if row["side"] == "BUY" else -qty),
-                _positive(row.get("close")) or price(symbol),
+                # the price the basket sized the order at (IBKR's mark when held), else the targets' close
+                _positive(row.get("price")) or _positive(row.get("close")) or price(symbol),
                 1.0,
                 risk.AssetClass.ETF,
                 float(row.get("estimated_commission", 0.0)),

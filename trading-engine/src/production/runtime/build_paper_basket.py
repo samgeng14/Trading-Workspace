@@ -10,6 +10,7 @@ alone and reported (``holdings_outside_model``).
 from __future__ import annotations
 
 import argparse
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,6 +22,8 @@ import pandas as pd
 
 from src.broker.ibkr.settings import resolve_endpoint
 from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -211,6 +214,33 @@ def fetch_account_snapshot_df(client: IBKRClient) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("tag").reset_index(drop=True)
 
 
+def account_cash(account_snapshot_df: pd.DataFrame) -> float | None:
+    """TotalCashValue from an account summary (``tag``/``value`` rows), or None."""
+    if account_snapshot_df is None or len(account_snapshot_df) == 0:
+        return None
+    hit = account_snapshot_df.loc[account_snapshot_df["tag"].astype(str) == "TotalCashValue", "value"]
+    try:
+        value = float(str(hit.iloc[0]).replace(",", ""))
+    except (IndexError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def trimmed_buys(recon: pd.DataFrame) -> dict[str, Any] | None:
+    """What :func:`build_reconciliation` cut from the buys to stay inside the cash, or None."""
+    if "trimmed_shares" not in recon.columns or not (recon["trimmed_shares"] > 0).any():
+        return None
+    cut = recon.loc[recon["trimmed_shares"] > 0]
+    dollars = float((cut["trimmed_shares"] * cut["price"].astype(float)).sum())
+    return {
+        "symbols": sorted(cut["symbol"].astype(str)),
+        "shares": {str(s): int(q) for s, q in zip(cut["symbol"], cut["trimmed_shares"])},
+        "dollars": dollars,
+        "note": f"buys cut by ${dollars:,.0f} across {len(cut)} names so the orders spend only the cash "
+        "above the buffer",
+    }
+
+
 def load_last_closes(prices_path: Path | None) -> dict[str, float]:
     """The master price file's last close per symbol (finite and > 0 only)."""
     if prices_path is None:
@@ -287,8 +317,24 @@ def build_reconciliation(
     symbol_whitelist: Iterable[str] = (),
     model: Iterable[str] = (),
     last_closes: Mapping[str, float] | None = None,
+    cash: float | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """The reconciliation (one row per symbol) and the orders to send.
+
+    Each row is sized at ``price``: IBKR's mark for a symbol the account holds
+    (``market_price`` in ``positions_df``), else the targets' ``close``. The
+    targets are built from the last completed close, but NAV and the holdings
+    are worth today's prices, and the orders fill at today's close: sizing a
+    held name at yesterday's close made the basket buy more than the cash on
+    any day the market rose, and the no-leverage check then refused it
+    (2026-10-20). ``close`` stays the targets' close.
+
+    ``cash``, the account's cash now, keeps the basket inside it: when the
+    orders would leave less than ``cash_buffer`` of NAV in cash, the buys are
+    cut in proportion (``trimmed_shares``), and one cut under
+    ``min_trade_dollars`` is dropped. Sells are never cut. Without ``cash``
+    nothing is trimmed, and the no-leverage check still blocks a basket that
+    would borrow.
 
     A share holding the targets don't include gets a row with target 0
     (``in_model`` False) and an order for the whole position, under
@@ -352,25 +398,29 @@ def build_reconciliation(
     recon["in_model"] = recon["in_model"].astype(bool)
 
     recon["current_shares"] = recon["current_shares"].fillna(0).astype(int)
+    recon["price"] = recon["close"].astype(float)
+    marks = _marks(positions_df)
+    held_mark = recon["symbol"].map(marks)
+    recon.loc[held_mark.notna(), "price"] = held_mark[held_mark.notna()]
     recon["target_dollars"] = investable_value * recon["target_weight"].astype(float)
     # outside the model the target is 0 shares, priced or not
     recon["target_shares"] = (
-        np.floor(recon["target_dollars"] / recon["close"].astype(float)).where(recon["in_model"], 0).astype(int)
+        np.floor(recon["target_dollars"] / recon["price"]).where(recon["in_model"], 0).astype(int)
     )
     recon["delta_shares"] = recon["target_shares"] - recon["current_shares"]
-    recon["side"] = np.where(
-        recon["delta_shares"] > 0,
-        "BUY",
-        np.where(recon["delta_shares"] < 0, "SELL", "HOLD"),
-    )
-    recon["abs_delta_shares"] = recon["delta_shares"].abs().astype(int)
-    recon["estimated_trade_dollars"] = (
-        recon["abs_delta_shares"] * recon["close"].astype(float)
-    )
-    recon["estimated_commission"] = recon["abs_delta_shares"].apply(
-        lambda qty: max(1.0, 0.01 * float(qty)) if qty > 0 else 0.0
-    )
-    recon["trade_date"] = pd.Timestamp.utcnow().tz_localize(None)
+    recon["trimmed_shares"] = 0
+    _size_trades(recon)
+    recon["trade_date"] = pd.Timestamp.now("UTC").tz_localize(None)
+
+    def tradable(df: pd.DataFrame) -> pd.Series:
+        return (
+            (df["side"] != "HOLD")
+            & (df["abs_delta_shares"] > 0)
+            & ((df["estimated_trade_dollars"] >= float(min_trade_dollars)) | ~df["in_model"])
+        )
+
+    if cash is not None and math.isfinite(float(cash)):
+        _fit_buys_to_cash(recon, tradable, float(cash), float(cash_buffer) * float(portfolio_value))
 
     columns = [
         col
@@ -380,6 +430,7 @@ def build_reconciliation(
             "symbol",
             "bucket",
             "close",
+            "price",
             "target_weight",
             "target_dollars",
             "target_shares",
@@ -389,6 +440,7 @@ def build_reconciliation(
             "estimated_trade_dollars",
             "estimated_commission",
             "abs_delta_shares",
+            "trimmed_shares",
             "in_model",
         ]
         if col in recon.columns
@@ -397,13 +449,63 @@ def build_reconciliation(
         ["side", "estimated_trade_dollars"], ascending=[True, False]
     ).reset_index(drop=True)
 
-    orders_only = recon.loc[
-        (recon["side"] != "HOLD")
-        & (recon["abs_delta_shares"] > 0)
-        & ((recon["estimated_trade_dollars"] >= float(min_trade_dollars)) | ~recon["in_model"])
-    ].copy().reset_index(drop=True)
+    orders_only = recon.loc[tradable(recon)].copy().reset_index(drop=True)
 
     return recon, orders_only
+
+
+def _marks(positions_df: pd.DataFrame) -> dict[str, float]:
+    """IBKR's mark per symbol held: the price the account is valued at now."""
+    if positions_df is None or len(positions_df) == 0 or "market_price" not in positions_df.columns:
+        return {}
+    out: dict[str, float] = {}
+    for row in positions_df.to_dict("records"):
+        mark = _positive(row.get("market_price"))
+        if np.isfinite(mark) and _quantity(row.get("current_shares")):
+            out[str(row["symbol"]).upper().strip()] = float(mark)
+    return out
+
+
+def _size_trades(recon: pd.DataFrame) -> None:
+    """side, abs_delta_shares, estimated_trade_dollars and estimated_commission from delta_shares and price."""
+    recon["side"] = np.where(
+        recon["delta_shares"] > 0,
+        "BUY",
+        np.where(recon["delta_shares"] < 0, "SELL", "HOLD"),
+    )
+    recon["abs_delta_shares"] = recon["delta_shares"].abs().astype(int)
+    recon["estimated_trade_dollars"] = recon["abs_delta_shares"] * recon["price"].astype(float)
+    recon["estimated_commission"] = recon["abs_delta_shares"].apply(
+        lambda qty: max(1.0, 0.01 * float(qty)) if qty > 0 else 0.0
+    )
+
+
+def _fit_buys_to_cash(recon: pd.DataFrame, tradable: Any, cash: float, floor: float) -> None:
+    """Cut the buys, in proportion, so the orders leave at least ``floor`` in cash.
+
+    Spending is the orders' net dollars plus their commissions. Each buy keeps
+    floor(shares x f) with f = (buys - shortfall) / buys, so the cut covers the
+    shortfall however the shares round; commissions can only fall with it.
+    """
+    orders = tradable(recon)
+    signed = recon["delta_shares"] * recon["price"].astype(float)
+    spend = float(signed[orders].sum() + recon.loc[orders, "estimated_commission"].sum())
+    shortfall = spend - (cash - floor)
+    buys = orders & (recon["side"] == "BUY") & recon["in_model"]
+    bought = float(recon.loc[buys, "estimated_trade_dollars"].sum())
+    if shortfall <= 0 or bought <= 0:
+        return
+    keep = max(0.0, (bought - shortfall) / bought)
+    new_qty = np.floor(recon.loc[buys, "abs_delta_shares"] * keep).astype(int)
+    recon.loc[buys, "trimmed_shares"] = recon.loc[buys, "abs_delta_shares"] - new_qty
+    recon.loc[buys, "delta_shares"] = new_qty
+    recon.loc[buys, "target_shares"] = recon.loc[buys, "current_shares"] + new_qty
+    _size_trades(recon)
+    log.info(
+        "Buys cut to %.1f%% of their size: the orders would have spent $%s of $%s cash, "
+        "leaving less than the $%s buffer.",
+        100 * keep, f"{spend:,.0f}", f"{cash:,.0f}", f"{floor:,.0f}",
+    )
 
 
 def save_outputs(
@@ -489,7 +591,9 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
         symbol_whitelist=config.symbol_whitelist,
         model=model,
         last_closes=load_last_closes(config.prices_path),
+        cash=account_cash(account_snapshot_df),
     )
+    trimmed = trimmed_buys(recon)
     saved_paths = save_outputs(
         recon=recon,
         orders_only=orders_only,
@@ -517,7 +621,8 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
         # sold whole at this rebalance / left alone (futures, options): see holdings_outside_model
         "outside_model_sold": outside.sell,
         "outside_model_kept": outside.kept,
-        "warnings": outside.warnings(),
+        "buys_trimmed": trimmed,
+        "warnings": outside.warnings() + ([trimmed["note"]] if trimmed else []),
     }
 
 
