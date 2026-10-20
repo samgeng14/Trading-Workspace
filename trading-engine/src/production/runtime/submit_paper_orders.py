@@ -143,6 +143,30 @@ def _plan_rows(orders_df: pd.DataFrame, execution: Execution, dry_run: bool) -> 
 
 PROFILE = "paper"  # the only profile this path sends; the client refuses a live account
 
+# IBKR order states in which an order can still fill (PendingCancel too: a cancel
+# can lose the race with a fill).
+WORKING = {"PendingSubmit", "ApiPending", "PreSubmitted", "Submitted", "ApiUpdate", "PendingCancel"}
+
+
+def working_orders(client: Any, symbols: Any) -> list[str]:
+    """IBKR's working orders, from every client, on any of ``symbols``, as
+    "SELL 100 SPY (Submitted, client 300)".
+
+    A batch is built from positions, and positions don't show an order until it
+    fills: a market-on-close basket sent at 15:35 is still working until 16:00.
+    A second batch for the same day (a re-run, a forced rebalance, a run after
+    one crashed mid-send) would trade the same differences again.
+    """
+    wanted = {str(s).upper().strip() for s in symbols}
+    out = []
+    for trade in client.ib.reqAllOpenOrders():
+        symbol = str(getattr(trade.contract, "symbol", "") or "").upper()
+        status = str(getattr(trade.orderStatus, "status", "") or "")
+        if symbol in wanted and status in WORKING:
+            o = trade.order
+            out.append(f"{o.action} {float(o.totalQuantity):g} {symbol} ({status}, client {o.clientId})")
+    return out
+
 
 def pre_trade_blocks(orders_df: pd.DataFrame, orders_path: Path, *, profile: str = PROFILE) -> list[str]:
     """Why ``orders_df`` must not go out, or [] when it may.
@@ -208,6 +232,30 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
         )
     )
     client.connect()
+    try:
+        working = working_orders(client, orders_df["symbol"])
+        working_error = None
+    except Exception as exc:  # noqa: BLE001 — unverified is not clear: send nothing
+        working, working_error = [], f"{type(exc).__name__}: {exc}"
+    if working or working_error:
+        client.disconnect()
+        reason = (
+            f"IBKR already has working orders on this batch's symbols: {', '.join(working)}. "
+            "A second batch would trade the same differences again (positions don't show an order "
+            "until it fills). Let them fill (a market-on-close order fills at the close) or cancel "
+            "them (bin/tradeit kill), then run again."
+            if working
+            else f"could not check IBKR for working orders ({working_error}), so nothing was sent"
+        )
+        return {
+            "submitted": False,
+            "blocked": True,
+            "reasons": [reason],
+            "submission_path": None,
+            "fills_path": None,
+            "rows": 0,
+            "execution": execution.as_dict(),
+        }
     manager = IBKROrderManager(client)
 
     submission_rows: list[dict[str, Any]] = []

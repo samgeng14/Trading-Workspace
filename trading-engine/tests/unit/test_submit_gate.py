@@ -53,12 +53,22 @@ def write_run(root: Path, positions, orders, *, cash: float) -> Path:
 
 
 class FakeClient:
-    """Records every connection; a blocked batch must stop before one is made."""
+    """Records every connection; a blocked batch must stop before one is made.
+    ``open_orders`` is what IBKR reports as open, from every client."""
 
     connected: list[object] = []
+    open_orders: list[object] = []
+    open_orders_error: Exception | None = None
 
     def __init__(self, config) -> None:
         self.config = config
+
+        def all_open():
+            if FakeClient.open_orders_error is not None:
+                raise FakeClient.open_orders_error
+            return list(FakeClient.open_orders)
+
+        self.ib = SimpleNamespace(reqAllOpenOrders=all_open)
 
     def connect(self) -> None:
         FakeClient.connected.append(self.config)
@@ -95,6 +105,8 @@ def run_root(tmp_path, monkeypatch):
     monkeypatch.setattr(spo, "IBKROrderManager", FakeManager)
     monkeypatch.setattr(kill_switch, "KILL_SWITCH_PATH", tmp_path / "artifacts" / "runs" / "kill_switch.json")
     FakeClient.connected.clear()
+    FakeClient.open_orders = []
+    FakeClient.open_orders_error = None
     FakeManager.placed.clear()
     return tmp_path
 
@@ -185,3 +197,43 @@ def test_the_order_service_reports_a_block_and_locks_only_what_was_sent(run_root
     assert out["ok"] is True and out["submitted"] is True
     assert order_service.read_submit_lock("paper") is not None
     assert order_service.submit_paper_orders(profile="paper")["ok"] is False
+
+
+# ── a second batch never goes out on top of the first ────────────────────
+
+
+def open_order(symbol: str, action: str, qty: float, status: str, client_id: int = 300) -> SimpleNamespace:
+    return SimpleNamespace(
+        contract=SimpleNamespace(symbol=symbol),
+        order=SimpleNamespace(action=action, totalQuantity=qty, clientId=client_id),
+        orderStatus=SimpleNamespace(status=status),
+    )
+
+
+def test_a_second_batch_waits_while_the_first_is_working(run_root):
+    # 15:35's market-on-close sell is still working; a forced re-run builds the same trade again
+    FakeClient.open_orders = [open_order("SPY", "SELL", 100, "PreSubmitted")]
+    orders = write_run(run_root, MODEL, [("TLT", 400, 100.0), ("SPY", -100, 100.0)], cash=100_000)
+    out = spo.submit_paper_orders(config_for(run_root, orders))
+    assert out["submitted"] is False and out["blocked"] is True
+    assert "working orders on this batch's symbols: SELL 100 SPY (PreSubmitted, client 300)" in out["reasons"][0]
+    assert FakeManager.placed == [] and submissions(run_root) == []
+
+
+def test_working_orders_elsewhere_or_done_ones_dont_block(run_root):
+    FakeClient.open_orders = [
+        open_order("GLD", "BUY", 5, "Submitted", client_id=0),  # another symbol, placed in TWS
+        open_order("SPY", "SELL", 100, "Filled"),
+        open_order("TLT", "BUY", 400, "Cancelled"),
+    ]
+    orders = write_run(run_root, MODEL, [("TLT", 400, 100.0), ("SPY", -100, 100.0)], cash=100_000)
+    out = spo.submit_paper_orders(config_for(run_root, orders))
+    assert out["submitted"] is True and len(FakeManager.placed) == 2
+
+
+def test_an_unchecked_book_sends_nothing(run_root):
+    FakeClient.open_orders_error = TimeoutError()
+    orders = write_run(run_root, MODEL, [("TLT", 400, 100.0)], cash=100_000)
+    out = spo.submit_paper_orders(config_for(run_root, orders))
+    assert out["blocked"] is True and out["reasons"][0].startswith("could not check IBKR for working orders")
+    assert FakeManager.placed == []

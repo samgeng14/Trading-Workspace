@@ -243,7 +243,8 @@ def test_orders_are_sent_sells_first(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(spo, "IBKRClient", FakeClient)
     monkeypatch.setattr(spo, "IBKROrderManager", FakeManager)
-    monkeypatch.setattr(spo, "pre_trade_blocks", lambda *_a, **_k: [])  # the gate has its own tests
+    monkeypatch.setattr(spo, "pre_trade_blocks", lambda *_a, **_k: [])
+    monkeypatch.setattr(spo, "working_orders", lambda *_a, **_k: [])  # the gate has its own tests
     cfg = spo.SubmitPaperOrdersConfig(
         orders_path=path, submissions_dir=tmp_path / "orders", fills_dir=tmp_path / "fills", dry_run=False
     )
