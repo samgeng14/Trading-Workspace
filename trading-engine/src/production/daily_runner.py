@@ -571,7 +571,28 @@ def _needs_rebalance(
     return decided, {**diag, "outside_model": outside}
 
 
+def _halted_reason() -> str | None:
+    """Why the kill switch stops trading, or None while it is clear."""
+    from src.execution.kill_switch import KillSwitchCorrupted, read_kill_switch_state
+
+    try:
+        state = read_kill_switch_state()
+    except KillSwitchCorrupted as exc:
+        return f"kill switch state unreadable ({exc})"
+    return (state.reason or "no reason given") if state.armed else None
+
+
 def _write_run_log(run_id: str, result: dict[str, Any]) -> Path:
+    # A halted fund needs a person, so a real run reports an armed kill switch as
+    # a failure whatever else it did: systemd's OnFailure alert then fires every
+    # day until someone resumes. On 2026-10-19 the switch armed itself and the
+    # fund sat halted for two days with nobody told; a day with nothing to
+    # rebalance would have looked like a good run.
+    if not result.get("dry_run") and not result.get("skipped"):
+        halted = _halted_reason()
+        if halted:
+            result.update(ok=False, halted=halted)
+            log.error("The kill switch is armed (%s): nothing trades until bin/tradeit resume.", halted)
     run_dir = PROJECT_ROOT / "artifacts" / "runs"
     run_dir.mkdir(parents=True, exist_ok=True)
     out = run_dir / f"daily_run_{run_id}.json"

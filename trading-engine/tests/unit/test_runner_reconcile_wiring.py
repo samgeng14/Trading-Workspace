@@ -115,3 +115,29 @@ def test_a_submission_that_cannot_be_recorded_says_so(clean_run: Path, monkeypat
     out = daily_runner.step_submit_orders("127.0.0.1", 4002, 300, "paper", dry_run=False, run_id="r", reconciled=True)
     assert out["ok"] is True and out["recorded"]["ok"] is False and "missing.csv" in out["recorded"]["error"]
     assert eod.load_expected_book("paper", clean_run) is None
+
+
+# ── a halted fund is a failed run, every day until someone resumes ─────────
+
+
+def test_a_real_run_with_the_switch_armed_is_reported_as_a_failure(tmp_path, monkeypatch) -> None:
+    import json
+
+    monkeypatch.setattr(daily_runner, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(kill_switch, "KILL_SWITCH_PATH", tmp_path / "artifacts" / "runs" / "kill_switch.json")
+
+    # clear: a quiet day stays a good run
+    quiet = {"run_id": "a", "dry_run": False, "ok": True, "should_rebalance": False}
+    daily_runner._write_run_log("a", quiet)
+    assert quiet["ok"] is True and "halted" not in quiet
+
+    kill_switch.arm_kill_switch("EOD reconciliation mismatch on 2026-10-19", by="end_of_day_reconcile")
+    quiet = {"run_id": "b", "dry_run": False, "ok": True, "should_rebalance": False}
+    path = daily_runner._write_run_log("b", quiet)
+    assert quiet["ok"] is False and quiet["halted"] == "EOD reconciliation mismatch on 2026-10-19"
+    assert json.loads(path.read_text())["halted"] == quiet["halted"]
+
+    # a dry run (bin/tradeit refresh) and a closed-market skip don't trade, so they don't report it
+    for doc in ({"dry_run": True, "ok": True}, {"dry_run": False, "ok": True, "skipped": True}):
+        daily_runner._write_run_log("c", doc)
+        assert doc["ok"] is True and "halted" not in doc

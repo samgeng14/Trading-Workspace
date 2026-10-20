@@ -358,6 +358,13 @@ def test_leverage_agrees_with_the_no_leverage_checks_exposure_table() -> None:
     assert universe.lookup("TQQQ").leverage == 3.0
 
 
+def test_a_halted_run_says_so_first() -> None:
+    from dv02_api import runs
+
+    doc = {"ok": False, "halted": "EOD reconciliation mismatch on 2026-10-19", "should_rebalance": False}
+    assert runs._summary(doc) == "Halted: EOD reconciliation mismatch on 2026-10-19"
+
+
 def test_a_skipped_run_says_why() -> None:
     from dv02_api import runs
 

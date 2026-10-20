@@ -110,6 +110,8 @@ def _summary(doc: dict[str, Any]) -> str:
 
 
 def _outcome(doc: dict[str, Any]) -> str:
+    if doc.get("halted"):
+        return f"Halted: {doc['halted']}"
     if doc.get("error"):
         return f"Stopped: {doc['error']}"
     if doc.get("skipped"):
