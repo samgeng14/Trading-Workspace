@@ -156,6 +156,17 @@ describe.each(MOMENTS)("demo API at %s", (_label, at, session) => {
     await get<S["DoctorReport"]>("/ops/doctor");
     const runs = await get<S["RunsResponse"]>("/ops/runs");
     expect(runs.runs.length).toBeGreaterThan(5);
+
+    // the exit test agrees with the run history: a failed run fails its session
+    const exit = await get<S["ExitTest"]>("/ops/exit-test");
+    expect(exit.sessions).toHaveLength(15);
+    for (const r of runs.runs) {
+      const s = exit.sessions.find((x) => x.day === r.started_at.slice(0, 10));
+      if (s) expect(s.checks.run.status).toBe(r.ok ? "PASS" : "FAIL");
+    }
+    const decided = exit.sessions.filter((s) => s.status !== "PENDING");
+    expect(exit.streak).toBeLessThanOrEqual(decided.length);
+    expect(exit.sessions.slice(-1)[0]!.checks.nav.status).toBe("PENDING"); // its statement comes tomorrow
   });
 });
 

@@ -195,6 +195,21 @@ def streak(results: list[Session]) -> int:
     return n
 
 
+def report(results: list[Session], profile: str, tolerance: float) -> dict[str, Any]:
+    """The results as JSON: ``--json``, and the dashboard's GET /ops/exit-test."""
+    return {
+        "profile": profile,
+        "needed": SESSIONS_NEEDED,
+        "streak": streak(results),
+        "nav_tolerance": tolerance,
+        "sessions": [
+            {"day": s.day.isoformat(), "status": s.status,
+             "checks": {k: {"status": c.status, "note": c.note} for k, c in s.checks.items()}}
+            for s in results
+        ],
+    }  # fmt: skip
+
+
 def render(results: list[Session], profile: str, tolerance: float) -> str:
     n = streak(results)
     lines = [
@@ -226,18 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     tolerance = args.nav_tolerance_pct / 100
     results = evaluate(args.profile, since=args.since, tolerance=tolerance)
     if args.json:
-        doc = {
-            "profile": args.profile,
-            "needed": SESSIONS_NEEDED,
-            "streak": streak(results),
-            "nav_tolerance": tolerance,
-            "sessions": [
-                {"day": s.day.isoformat(), "status": s.status,
-                 "checks": {k: {"status": c.status, "note": c.note} for k, c in s.checks.items()}}
-                for s in results
-            ],
-        }  # fmt: skip
-        print(json.dumps(doc, indent=2))
+        print(json.dumps(report(results, args.profile, tolerance), indent=2))
     else:
         print(render(results, args.profile, tolerance))
     return 0

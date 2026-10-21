@@ -474,6 +474,17 @@
   font-size: var(--fs-xs);
 }
 
+/* Phase 0 exit test: why a session failed, under its row */
+.exit-why td {
+  height: auto;
+  padding-top: 0;
+  padding-bottom: 6px;
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  white-space: normal;
+}
+
 /* Narrow screens: let long stat labels wrap rather than push the page sideways. */
 .summary-strip .stat-label,
 .kpi-grid .stat-label,

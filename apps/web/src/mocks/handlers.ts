@@ -1047,6 +1047,55 @@ function doctor(): S["DoctorReport"] {
   };
 }
 
+/**
+ * Phase 0's exit test over the simulated history, scored as the engine scores it
+ * (trading-engine/src/runtime/exit_test.py): runs() fails a session's run and its
+ * reconcile, the doctor is green from its 09:00 check, the close is recorded 15
+ * minutes after the close, and a session's statement is in from 06:00 ET the next
+ * session.
+ */
+function exitTest(): S["ExitTest"] {
+  const { at, snap } = current();
+  const today = etDate(at);
+  const days = snap.hist.book.slice(-15).map((d) => d.date);
+  // before the open the book ends at the previous session; the engine lists today already
+  if (isTradingDay(today) && today > days[days.length - 1]!) days.push(today);
+  const navOf = new Map(snap.hist.book.map((d) => [d.date, d.nav]));
+  const c = (status: S["ExitCheck"]["status"], note = ""): S["ExitCheck"] => ({ status, note });
+  const money = (v: number) => v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sessions = days.slice(-15).map((date): S["ExitSession"] => {
+    const failed = Number(date.slice(8)) % 7 === 1; // as runs(): an occasional gateway outage
+    const ran = at >= etTime(date, "15:36");
+    const refused = "IBKR connection refused at 127.0.0.1:4002";
+    const closedAt = new Date(etTime(date, closeTime(date)).getTime() + 15 * 60_000);
+    const close = navOf.get(date) ?? START_NAV;
+    const gap = ((Number(date.slice(8)) % 5) - 2) / 10_000; // a few basis points of after-hours marks
+    const statement = close / (1 + gap);
+    const checks = {
+      doctor: at >= etTime(date, "09:00") ? c("PASS") : c("PENDING", "the doctor hasn't run yet"),
+      run: !ran ? c("PENDING", "the run hasn't run yet") : failed ? c("FAIL", `the run failed: ${refused}`) : c("PASS"),
+      reconcile: !ran ? c("PENDING") : failed ? c("FAIL", `the reconcile failed: ${refused}`) : c("PASS"),
+      nav:
+        at < closedAt
+          ? c("PENDING", "the close isn't recorded yet")
+          : at < etTime(nextTradingDay(date), "06:00")
+            ? c("PENDING", "IBKR's statement isn't in yet")
+            : c(
+                "PASS",
+                `close $${money(close)}, statement $${money(statement)} (${gap >= 0 ? "+" : ""}${(gap * 100).toFixed(3)}%)`,
+              ),
+    };
+    const states = Object.values(checks).map((x) => x.status);
+    const status = states.includes("FAIL") ? "FAIL" : states.includes("PENDING") ? "PENDING" : "PASS";
+    return { day: date, status, checks };
+  });
+  let end = sessions.length;
+  while (end > 0 && sessions[end - 1]!.status === "PENDING") end--;
+  let streak = 0;
+  while (streak < end && sessions[end - 1 - streak]!.status === "PASS") streak++;
+  return { profile: "paper", needed: 10, streak, nav_tolerance: 0.001, sessions };
+}
+
 function runs(): S["RunsResponse"] {
   const { snap } = current();
   const dates = snap.hist.book.slice(snap.live ? -11 : -10).map((d) => d.date);
@@ -1140,4 +1189,5 @@ export const handlers = [
     return HttpResponse.json({ ...state.killSwitch });
   }),
   http.get(`${API}/ops/runs`, () => HttpResponse.json(runs())),
+  http.get(`${API}/ops/exit-test`, () => HttpResponse.json(exitTest())),
 ];

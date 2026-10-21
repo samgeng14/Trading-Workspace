@@ -191,6 +191,24 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/DoctorReport" }
 
+  /ops/exit-test:
+    get:
+      operationId: getExitTest
+      summary: Phase 0's exit test, session by session (trading-engine/src/runtime/exit_test.py).
+      description: |
+        Ten sessions in a row with the doctor green, the run ending ok, the
+        reconcile matching IBKR to the share, and the close within
+        nav_tolerance of IBKR's statement (the Flex NAV). A check whose
+        evidence isn't in yet is PENDING: today's, and a statement Flex
+        publishes the next morning. Pending sessions at the end neither count
+        nor break the streak. The last 15 sessions, oldest first.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExitTest" }
+
   /ops/kill-switch:
     post:
       operationId: setKillSwitch
@@ -878,6 +896,40 @@ components:
         results:
           type: array
           items: { $ref: "#/components/schemas/DoctorResult" }
+
+    ExitCheck:
+      type: object
+      required: [status, note]
+      properties:
+        status: { type: string, enum: [PASS, FAIL, PENDING] }
+        note: { type: string, description: "why it failed or waits; for nav, the close against the statement" }
+
+    ExitSession:
+      type: object
+      required: [day, status, checks]
+      properties:
+        day: { type: string, format: date }
+        status: { type: string, enum: [PASS, FAIL, PENDING] }
+        checks:
+          type: object
+          required: [doctor, run, reconcile, nav]
+          properties:
+            doctor: { $ref: "#/components/schemas/ExitCheck" }
+            run: { $ref: "#/components/schemas/ExitCheck" }
+            reconcile: { $ref: "#/components/schemas/ExitCheck" }
+            nav: { $ref: "#/components/schemas/ExitCheck" }
+
+    ExitTest:
+      type: object
+      required: [profile, needed, streak, nav_tolerance, sessions]
+      properties:
+        profile: { type: string }
+        needed: { type: integer, description: "sessions in a row that pass it (10)" }
+        streak: { type: integer }
+        nav_tolerance: { type: number, description: "how far the close may be from the statement, a fraction of NAV (0.001 = 0.10%)" }
+        sessions:
+          type: array
+          items: { $ref: "#/components/schemas/ExitSession" }
 
     Run:
       type: object

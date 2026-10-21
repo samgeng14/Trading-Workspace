@@ -233,6 +233,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ops/exit-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Phase 0's exit test, session by session (trading-engine/src/runtime/exit_test.py).
+         * @description Ten sessions in a row with the doctor green, the run ending ok, the
+         *     reconcile matching IBKR to the share, and the close within
+         *     nav_tolerance of IBKR's statement (the Flex NAV). A check whose
+         *     evidence isn't in yet is PENDING: today's, and a statement Flex
+         *     publishes the next morning. Pending sessions at the end neither count
+         *     nor break the streak. The last 15 sessions, oldest first.
+         */
+        get: operations["getExitTest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ops/kill-switch": {
         parameters: {
             query?: never;
@@ -718,6 +743,33 @@ export interface components {
             endpoint: string;
             results: components["schemas"]["DoctorResult"][];
         };
+        ExitCheck: {
+            /** @enum {string} */
+            status: "PASS" | "FAIL" | "PENDING";
+            /** @description why it failed or waits; for nav, the close against the statement */
+            note: string;
+        };
+        ExitSession: {
+            /** Format: date */
+            day: string;
+            /** @enum {string} */
+            status: "PASS" | "FAIL" | "PENDING";
+            checks: {
+                doctor: components["schemas"]["ExitCheck"];
+                run: components["schemas"]["ExitCheck"];
+                reconcile: components["schemas"]["ExitCheck"];
+                nav: components["schemas"]["ExitCheck"];
+            };
+        };
+        ExitTest: {
+            profile: string;
+            /** @description sessions in a row that pass it (10) */
+            needed: number;
+            streak: number;
+            /** @description how far the close may be from the statement, a fraction of NAV (0.001 = 0.10%) */
+            nav_tolerance: number;
+            sessions: components["schemas"]["ExitSession"][];
+        };
         Run: {
             id: string;
             /** @enum {string} */
@@ -1050,6 +1102,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DoctorReport"];
+                };
+            };
+        };
+    };
+    getExitTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExitTest"];
                 };
             };
         };

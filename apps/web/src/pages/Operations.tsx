@@ -1,13 +1,21 @@
 import { Fragment, useState } from "react";
-import { useDoctor, useRunDoctor, useRuns, useStatus } from "../api/hooks";
+import { useDoctor, useExitTest, useRunDoctor, useRuns, useStatus } from "../api/hooks";
 import { LoadError, PageHead, Panel, StatusBadge } from "../components/bits";
 import { useKillSwitchDialogs } from "../components/KillSwitch";
 import { NextJob, ScheduleList } from "../components/Schedule";
 import { useToast } from "../components/Toasts";
-import { dateShort, shortTimeET, weekdayTimeET } from "../lib/format";
+import { dateShort, pct, shortTimeET, weekdayTimeET } from "../lib/format";
 import { useServerNow } from "../lib/serverClock";
 
 const DOCTOR_STATUS = { PASS: "pass", WARN: "warn", FAIL: "fail", SKIP: "skip" } as const;
+const EXIT_STATUS = { PASS: "pass", FAIL: "fail", PENDING: "skip" } as const;
+const EXIT_LABEL = { PASS: "Pass", FAIL: "Fail", PENDING: "Open" } as const;
+const EXIT_CHECKS = [
+  ["doctor", "Doctor"],
+  ["run", "Run"],
+  ["reconcile", "Reconcile"],
+  ["nav", "NAV"],
+] as const;
 
 export function Operations() {
   return (
@@ -18,6 +26,7 @@ export function Operations() {
         <KillSwitchPanel />
       </div>
       <DoctorPanel />
+      <ExitTestPanel />
       <div className="grid">
         <SchedulePanel />
         <RunsPanel />
@@ -186,6 +195,71 @@ function DoctorPanel() {
                   </td>
                 </tr>
               ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function ExitTestPanel() {
+  const { data, error } = useExitTest();
+  const sessions = [...(data?.sessions ?? [])].reverse(); // newest first, as the runs
+  return (
+    <Panel
+      title="Phase 0 exit test"
+      meta={data ? `${data.streak} of ${data.needed} sessions in a row` : undefined}
+      flush
+      foot={
+        <>
+          Ten sessions in a row with the doctor green, the run ending ok, the reconcile matching IBKR to the share, and
+          the close within {data ? pct(data.nav_tolerance) : "0.10%"} of IBKR&rsquo;s statement. Open: the evidence
+          isn&rsquo;t in yet (today&rsquo;s, or a statement Flex publishes the next morning). Same as{" "}
+          <code>bin/tradeit exit-test</code>.
+        </>
+      }
+    >
+      {error ? (
+        <LoadError error={error} />
+      ) : (
+        <div className="table-wrap">
+          <table className="table exit-test">
+            <thead>
+              <tr>
+                <th>Session</th>
+                {EXIT_CHECKS.map(([key, label]) => (
+                  <th key={key}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((s) => {
+                const why = EXIT_CHECKS.map(([key]) => s.checks[key])
+                  .filter((c) => c.status === "FAIL" && c.note)
+                  .map((c) => c.note);
+                return (
+                  <Fragment key={s.day}>
+                    <tr data-status={s.status}>
+                      <td className="num">{dateShort(s.day)}</td>
+                      {EXIT_CHECKS.map(([key]) => (
+                        <td key={key} title={s.checks[key].note || undefined}>
+                          <StatusBadge
+                            status={EXIT_STATUS[s.checks[key].status]}
+                            label={EXIT_LABEL[s.checks[key].status]}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                    {why.length > 0 && (
+                      <tr className="exit-why" data-status={s.status}>
+                        <td />
+                        <td colSpan={EXIT_CHECKS.length}>{why.join(" · ")}</td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

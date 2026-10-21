@@ -20,6 +20,7 @@ export const keys = {
   orders: ["trading", "orders"] as const,
   preview: ["trading", "preview"] as const,
   doctor: ["ops", "doctor"] as const,
+  exitTest: ["ops", "exit-test"] as const,
   runs: ["ops", "runs"] as const,
 };
 
@@ -107,6 +108,9 @@ export const useDoctor = () => useQuery({ queryKey: keys.doctor, queryFn: () => 
 export const useRuns = () =>
   useQuery({ queryKey: keys.runs, queryFn: () => unwrap(api.GET("/ops/runs")), refetchInterval: SLOW_MS });
 
+export const useExitTest = () =>
+  useQuery({ queryKey: keys.exitTest, queryFn: () => unwrap(api.GET("/ops/exit-test")), refetchInterval: SLOW_MS });
+
 // ── mutations ────────────────────────────────────────────────────────────
 
 export function useSetKillSwitch() {
@@ -144,6 +148,9 @@ export function useRunDoctor() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => unwrap(api.POST("/ops/doctor/run")),
-    onSuccess: (report) => qc.setQueryData(keys.doctor, report),
+    onSuccess: (report) => {
+      qc.setQueryData(keys.doctor, report);
+      void qc.invalidateQueries({ queryKey: keys.exitTest }); // today's doctor check
+    },
   });
 }

@@ -703,6 +703,13 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
                     log.warning("kill switch armed, but cancelling %s failed: %s", orders.order_id(trade), exc)
         return state
 
+    @app.get(f"{v1}/ops/exit-test")
+    async def get_exit_test() -> dict[str, Any]:
+        from src.runtime import exit_test  # trading-engine
+
+        results = exit_test.evaluate(ctx.profile, today=nyse.et_date(_now()), root=engine.ENGINE_ROOT)
+        return exit_test.report(results, ctx.profile, exit_test.NAV_TOLERANCE)
+
     @app.get(f"{v1}/ops/runs")
     async def get_runs() -> dict[str, Any]:
         out = [{k: v for k, v in r.items() if not k.startswith("_")} for r in runs.load_runs(30)]

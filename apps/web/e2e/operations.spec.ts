@@ -23,3 +23,12 @@ test("run history expands to its steps", async ({ page }) => {
   await first.click();
   await expect(runs.locator(".run-step")).toHaveCount(0);
 });
+
+test("the exit test scores each session and says why one failed", async ({ page }) => {
+  await open(page, "/ops");
+  const exit = page.locator("section[aria-label='Phase 0 exit test']");
+  await expect(exit.locator(".panel-meta")).toContainText(/\d+ of 10 sessions in a row/);
+  await expect(exit.locator("tbody tr[data-status]:not(.exit-why)")).toHaveCount(15);
+  await expect(exit.locator(".exit-why").first()).toContainText("IBKR connection refused");
+  await expect(exit).toContainText("bin/tradeit exit-test");
+});
