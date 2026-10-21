@@ -211,7 +211,17 @@ with one command. **REPORT.md** has the numbers. In short:
 
 Next, by the report:
 1. Pre-register "S0 with a trend overlay" as its own hypothesis, counting the
-   8 trials already spent.
+   8 trials already spent. **Done the same day, `research/s3a_vol_overlay/`:**
+   - **H1**, S0 scaled down when its volatility is high (the plan's S3a),
+     fails: its drawdown was 64% of S0's against a 60% limit, and the holdout
+     would have killed it.
+   - **H2**, half S0 and half S1 long/flat, passes all seven criteria. Its
+     worst drawdown was −22% instead of −38% (shallower in 100% of bootstrap
+     resamples), its Sharpe within noise of S0's, and the holdout didn't kill
+     it.
+   - By the rule fixed beforehand, H2 goes to **shadow mode** for at least
+     three months: targets and would-be orders logged daily beside S0, nothing
+     sent. That is the next piece to build.
 2. The futures version of S1, once the curve archive has history.
 3. IBKR's adjusted closes back past 2016.
 
