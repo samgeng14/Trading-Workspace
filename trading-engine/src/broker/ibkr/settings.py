@@ -70,6 +70,7 @@ ROLE_OFFSETS: dict[str, int] = {
     "backfill": 10,
     "research": 11,
     "kill": 12,  # bin/tradeit status: read-only, beside a run in progress
+    "gateway_check": 13,  # deploy/bin/gateway-ready, just before the daily run
 }
 
 

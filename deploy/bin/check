@@ -14,7 +14,8 @@ if command -v systemd-analyze >/dev/null 2>&1; then
   # verify against a scratch root that has the paths the units name
   scratch="$(mktemp -d)"; trap 'rm -rf "$scratch"' EXIT
   mkdir -p "$scratch/etc/systemd/system" "$scratch/opt/dv02/.venv/bin" "$scratch/opt/dv02/deploy/bin" "$scratch/usr/bin"
-  for exe in opt/dv02/.venv/bin/python opt/dv02/deploy/bin/heartbeat opt/dv02/deploy/bin/backup usr/bin/curl; do
+  for exe in opt/dv02/.venv/bin/python opt/dv02/deploy/bin/heartbeat opt/dv02/deploy/bin/backup \
+    opt/dv02/deploy/bin/gateway-ready usr/bin/curl; do
     printf '#!/bin/sh\n' > "$scratch/$exe"; chmod +x "$scratch/$exe"
   done
   cp "$here"/systemd/* "$scratch/etc/systemd/system/"

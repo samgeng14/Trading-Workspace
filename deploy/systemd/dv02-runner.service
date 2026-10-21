@@ -17,6 +17,9 @@ WorkingDirectory=/opt/dv02/trading-engine
 EnvironmentFile=/etc/dv02/dv02.env
 Environment=CAPITALFUND_OPTIMIZER=momentum_tilted
 Environment=APP_ENV=vm
+# a gateway cut off from IBKR gets one restart first (deploy/bin/gateway-ready);
+# the leading "-" means it never stops the run, which reports anything still wrong
+ExecStartPre=-/opt/dv02/deploy/bin/gateway-ready
 ExecStart=/opt/dv02/.venv/bin/python -m src.production.daily_runner --profile paper --skip-if-ran-today
 # only after a run that exited 0: a missing ping is the alert
 ExecStartPost=/opt/dv02/deploy/bin/heartbeat runner

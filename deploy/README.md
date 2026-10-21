@@ -43,6 +43,7 @@ Cloudflare Access in front (the manual setup below).
 | `systemd/dv02-backup.service`, `.timer` | Daily 18:30 ET: the engine's state (and Postgres) to R2 |
 | `systemd/dv02-alert@.service` | Any DV02 unit that fails pings its heartbeat's `/fail` |
 | `bin/heartbeat`, `bin/backup`, `bin/migrate` | What those units run |
+| `bin/gateway-ready` | Before each daily run: if IB Gateway isn't logged in to IBKR, restart its container once and wait for the login |
 | `bin/bootstrap` | A fresh Ubuntu 24.04 / Oracle Linux 9 VM to a running dashboard on Tailscale, in one command |
 | `bin/setup-app` | The `dv02` user, the checkout, its Python env, C++ engine and dashboard build (run again to update) |
 | `bin/install` | Installs the units; starts the API and its check (and the backup once it has a remote), **not** the daily run |
