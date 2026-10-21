@@ -52,7 +52,7 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
 | Path | What |
 |---|---|
 | `engine/` | C++20 library `dv02` (risk check, backtester, cost model; walk-forward in `dv02_engine.walkforward`) and its Python module `dv02_engine` (nanobind) |
-| `trading-engine/` | Python: the daily runner (`src/production/daily_runner.py`: reconcile, bars, targets, drift gate, basket, orders), IBKR plumbing (`src/broker/ibkr/`), the expected-book reconcile (`src/runtime/end_of_day_reconcile.py`), the kill (`src/execution/kill.py`), data, research |
+| `trading-engine/` | Python: the daily runner (`src/production/daily_runner.py`: reconcile, bars, targets, drift gate, basket, orders), IBKR plumbing (`src/broker/ibkr/`), the expected-book reconcile (`src/runtime/end_of_day_reconcile.py`), the kill (`src/execution/kill.py`), Phase 0's exit test (`src/runtime/exit_test.py`), the Postgres store for the trading record (`src/storage/`, best effort: the files stay the record), data, research |
 | `services/api/` | FastAPI app `dv02_api`: the dashboard's API over IBKR and the engine's files |
 | `apps/web/` | React + TypeScript + Vite dashboard |
 | `schemas/api/v1.yaml` | The API contract. Edit it first, then `npm run gen:api` in `apps/web` |
@@ -69,7 +69,10 @@ cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Debug -DDV02_WERROR=ON -DDV02
 cmake --build engine/build --parallel && ctest --test-dir engine/build --output-on-failure
 .venv/bin/pip install ./engine && .venv/bin/python -m pytest engine/tests/python -q
 
-# trading-engine (CI also runs ruff on the list in .github/workflows/trading-engine.yml)
+# trading-engine (CI also runs ruff on the list in .github/workflows/trading-engine.yml).
+# The store's tests need a throwaway Postgres (CI starts one); without the URL they skip:
+#   docker run -d --name dv02-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=trading_test -p 127.0.0.1:55432:5432 postgres:16
+#   export DV02_TEST_DATABASE_URL=postgresql://postgres:test@127.0.0.1:55432/trading_test
 (cd trading-engine && ../.venv/bin/python -m pytest -q)
 
 # API
