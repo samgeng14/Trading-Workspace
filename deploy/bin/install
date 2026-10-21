@@ -26,4 +26,8 @@ else
   echo "The store is off: the capture timer waits for DV02_DB_ENABLED=1 in /etc/dv02/dv02.env (after deploy/bin/postgres-up)."
 fi
 echo "Installed. The API is on 127.0.0.1:8000; check it: systemctl status dv02-api"
-echo "The daily run is NOT scheduled yet. At cutover: sudo systemctl enable --now dv02-runner.timer"
+if systemctl is-enabled -q dv02-runner.timer 2>/dev/null; then
+  echo "The daily run's timer is on: systemctl list-timers 'dv02*'"
+else
+  echo "The daily run is NOT scheduled yet. At cutover: sudo systemctl enable --now dv02-runner.timer"
+fi

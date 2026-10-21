@@ -1,10 +1,11 @@
 # Handoff: where DV02 stands and what to do next
 
-Last updated 2026-10-20 by the session that found the fund halted since
-Monday and fixed why (below). The 2026-10-16 session before it wired
-`execution.yaml` (the owner said the scheduled run sends paper orders), put the
-signals on total-return prices, moved the Flex walk off the API's upkeep loop
-and wrote `deploy/` for the VM. All of it is on PR [samgeng14/Trading-Workspace#12](https://github.com/samgeng14/Trading-Workspace/pull/12)
+Last updated 2026-10-21 by the session that resumed the fund (below) and put
+the trading record in Postgres ("The store", below). The 2026-10-20 session
+before it found the fund halted since Monday and fixed why; the 2026-10-16
+session wired `execution.yaml` (the owner said the scheduled run sends paper
+orders), put the signals on total-return prices, moved the Flex walk off the
+API's upkeep loop and wrote `deploy/` for the VM. All of it is on PR [samgeng14/Trading-Workspace#12](https://github.com/samgeng14/Trading-Workspace/pull/12)
 (branch `claude/serene-babbage-0204ht`, draft; PR #13, a dashboard redesign
 from another session, is stacked on it). `CLAUDE.md` has the owner's rules;
 this file has the state. Keep both current as you work.
@@ -81,6 +82,45 @@ sudo -u dv02 /opt/dv02/bin/tradeit resume
 ```
 The next run is 15:35 ET on the next trading day. Its basket then holds the
 composition change the targets have wanted since 2026-10-16.
+
+## The store (Postgres), since 2026-10-21
+
+The trading record now also goes to Postgres on the VM
+(`trading-engine/src/storage`; `deploy/postgres`, 127.0.0.1:5432, database
+`trading`). Writing it is best effort: a store that is off or down is logged
+and never stops a run, and the engine's files stay the record. Nothing reads
+the store yet.
+- **What writes it.**
+  - The daily run: its log (`run_logs`, one row per run_id) and the orders
+    it sent (`orders`, keyed by IBKR's permId).
+  - `dv02-capture.timer`, 16:30 ET on weekdays (`src.storage.capture`,
+    read-only, client ID 314): the day's executions into `fills` (each finds
+    its order by permId and marks it filled or partial), every position, and
+    the NAV once the session has closed (`nav`, source `ibkr_close`). IBKR's
+    API shows only the current day's executions, so this evening read is the
+    one that sees the market-on-close fills.
+- **Loaded from the files** on 2026-10-21 by `sudo deploy/bin/postgres-up`
+  (safe to run again; it loads anything new): 6 run logs; the 37 orders of
+  2026-10-16, filled as that evening's reconcile saw them (no `fills` rows:
+  its report has no execution IDs); 3 position snapshots; NAV for 163 days
+  from Flex and 4 closes the API recorded.
+- **On/off:** `DV02_DB_ENABLED=1` in `/etc/dv02/dv02.env`; `0` stops the
+  writes. `postgres-up` made the database password on the VM (in that file
+  and `/etc/dv02/pg_password`, root only). Nobody needs to know it.
+- **Look inside:** `cd /opt/dv02 && sudo docker compose -f deploy/postgres/docker-compose.yml exec postgres psql -U dv02 trading`.
+- **Check after 16:30 ET on 2026-10-21** (the first capture after a rebalance):
+  `journalctl -u dv02-capture` gives the day's executions, and
+  `SELECT symbol, side, qty, status FROM orders WHERE run_id > 20261021000000`
+  shows the day's orders filled. A run started by hand with `bin/tradeit`
+  doesn't load `/etc/dv02/dv02.env`, so it isn't written; `postgres-up` loads
+  its files later.
+- **Not yet:**
+  - the dashboard and the reconcile reading the store
+  - Flex trades into `fills`: needs the Trades section in the Flex query
+    (owner)
+  - backups of the store: `deploy/bin/backup` dumps it inside its container,
+    once there is an R2 remote
+  - a heartbeat for the capture (`DV02_HEARTBEAT_CAPTURE`)
 
 ## Start here
 
@@ -247,7 +287,9 @@ https://dv02.tail30c53b.ts.net.
 - running: `dv02-api` (127.0.0.1:8000, foreign Hosts get 400),
   `dv02-api-check.timer`, IB Gateway (paper DUP317554; the doctor passes)
   and `dv02-runner.timer`
-- not running yet: backups (no `DV02_BACKUP_REMOTE`), heartbeats, Postgres
+- the store: Postgres in Docker (`postgres-postgres-1`) and `dv02-capture.timer`
+  (since 2026-10-21, "The store" above)
+- not running yet: backups (no `DV02_BACKUP_REMOTE`), heartbeats
 - the Mac's state (artifacts, data/broker, data/market/cleaned) was copied
   on 2026-10-16 after the close
 
@@ -300,14 +342,11 @@ background the runbook follows:
   drift gate cold-starts and rebalances at once, and the equity curve loses
   its pre-Flex history. Do one dry run on the VM and compare its targets with
   the Mac's before enabling the timer.
-- **Postgres** for orders, fills, positions and NAV.
-  - `trading-engine/config/db.yaml` now lists the tables `db/migrations`
-    creates (a test keeps them in step), `006_nav.sql` adds daily NAV, and the
-    credentials come from `DV02_DB_USER` and `DV02_DB_PASSWORD` in the VM's
-    `.env`. Nothing reads the config yet: wire it (a small `src/storage`
-    module; the old one was never committed) and load the engine's files into it.
+- **Postgres** for orders, fills, positions and NAV. Done 2026-10-21: "The
+  store" above. Left:
   - Add the Trades section to the Flex query and load Flex trades into
     `fills`, so the blotter and the reconcile have history beyond today.
+  - Have the dashboard (the blotter, the equity curve) read the store.
 - **Phone access.** Cloudflare Tunnel + Cloudflare Access in front of the
   dashboard and API, never an open port. The API refuses unknown Hosts:
   - add the tunnel's hostname (e.g. `dv02.example.com`) to `DV02_ALLOWED_HOSTS`
@@ -415,12 +454,13 @@ Docs: https://code.claude.com/docs/en/chrome
 
 - Don't start the Mac's gateway (`bin/tradeit up` in `~/TradingWorkstation`)
   while the VM trades; move trading with `bin/tradeit switch mac` instead.
-- **Turn the alerts on.** Make three checks on healthchecks.io (free): the
-  daily run (period 1 day, grace about 1 hour), the API (period 5 minutes) and
-  the backup (1 day). Put their ping URLs in `/etc/dv02/dv02.env` on the VM as
-  `DV02_HEARTBEAT_RUNNER`, `DV02_HEARTBEAT_API` and `DV02_HEARTBEAT_BACKUP`
-  (uncomment the lines), then `sudo systemctl restart dv02-api`. Until then a
-  failed or halted run tells nobody.
+- **Turn the alerts on.** Make four checks on healthchecks.io (free): the
+  daily run (period 1 day, grace about 1 hour), the API (period 5 minutes),
+  the backup (1 day) and the post-close capture (1 day, grace about 1 hour).
+  Put their ping URLs in `/etc/dv02/dv02.env` on the VM as
+  `DV02_HEARTBEAT_RUNNER`, `DV02_HEARTBEAT_API`, `DV02_HEARTBEAT_BACKUP` and
+  `DV02_HEARTBEAT_CAPTURE`, then `sudo systemctl restart dv02-api`. Until
+  then a failed or halted run tells nobody.
 
 - Pull and rebuild (Start here), then import the daily NAV history once:
   ```bash
