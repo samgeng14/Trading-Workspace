@@ -7,7 +7,8 @@ writer skips or updates what is already there, so running it again is harmless.
   * the daily runs: artifacts/runs/daily_run_*.json -> run_logs
   * the orders sent: data/broker/orders/paper_orders_submitted_*.csv -> orders
   * the positions: each end-of-day reconcile's IBKR positions
-    (data/broker/reconciliations/paper_eod_*.json, "actual") -> positions
+    (data/broker/reconciliations/paper_eod_*.json, "actual") -> positions, and
+    the fills it saw ("orders") -> those orders' status, filled or partial
   * the NAV: the Flex history (artifacts/api/flex_nav_paper.csv, source flex) and
     the API's record of each close (artifacts/api/nav_paper.csv, api_close) -> nav
 
@@ -28,6 +29,7 @@ from src.storage.db import PROJECT_ROOT, StoreConfig, connect, load_config
 from src.storage.record import (
     record_nav,
     record_positions,
+    record_reconciled_orders,
     record_run,
     record_submission,
     run_started,
@@ -50,7 +52,7 @@ def _zone(stamp: str, path: Path) -> timezone | None:
 
 
 def backfill(conn, root: Path = PROJECT_ROOT, profile: str = "paper") -> dict[str, int]:
-    counts = {"runs": 0, "orders": 0, "positions": 0, "nav": 0}
+    counts = {"runs": 0, "orders": 0, "orders_filled": 0, "positions": 0, "nav": 0}
 
     for path in sorted((root / "artifacts" / "runs").glob("daily_run_*.json")):
         try:
@@ -87,6 +89,7 @@ def backfill(conn, root: Path = PROJECT_ROOT, profile: str = "paper") -> dict[st
         actual = doc.get("actual") or {}
         rows = [{"symbol": s, "current_shares": q} for s, q in actual.items()]
         counts["positions"] += record_positions(conn, profile, at, rows)
+        counts["orders_filled"] += record_reconciled_orders(conn, profile, doc.get("orders") or [])
 
     api = root / "artifacts" / "api"
     for name, source in ((f"flex_nav_{profile}.csv", "flex"), (f"nav_{profile}.csv", "api_close")):

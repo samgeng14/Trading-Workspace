@@ -237,16 +237,19 @@ def test_the_backfill_loads_the_files_once(store, tmp_path) -> None:
     recon = tmp_path / "data" / "broker" / "reconciliations"
     recon.mkdir(parents=True)
     (recon / "paper_eod_2026-10-16.json").write_text(json.dumps(
-        {"generated_at": "2026-10-16T22:42:03+00:00", "actual": {"SPY": 85, "ETHA": 986.3333}}))  # fmt: skip
+        {"generated_at": "2026-10-16T22:42:03+00:00", "actual": {"SPY": 85, "ETHA": 986.3333},
+         "orders": [{"perm_id": "912", "quantity": -100.0, "filled": -100.0, "price": 745.1},
+                    {"perm_id": "913", "quantity": 400.0, "filled": 250.0, "price": 82.4},
+                    {"perm_id": "", "quantity": 675.0, "filled": 0.0}]}))  # fmt: skip
     api = tmp_path / "artifacts" / "api"
     api.mkdir(parents=True)
     (api / "flex_nav_paper.csv").write_text("date,nav\n2026-10-15,1046000.00\n2026-10-16,1044717.06\n")
     (api / "nav_paper.csv").write_text("date,nav\n2026-10-16,1044717.06\n")
 
     first = backfill_mod.backfill(store.conn, root=tmp_path)
-    assert first == {"runs": 3, "orders": 2, "positions": 2, "nav": 3}
+    assert first == {"runs": 3, "orders": 2, "orders_filled": 2, "positions": 2, "nav": 3}
     again = backfill_mod.backfill(store.conn, root=tmp_path)
-    assert again["positions"] == 0  # nothing new
+    assert again["positions"] == 0 and again["orders_filled"] == 1  # nothing new; TLT is still partial
     counts = {t: rows(store.conn, f"SELECT count(*) FROM {t}")[0][0] for t in ("run_logs", "orders", "positions", "nav")}
     assert counts == {"run_logs": 3, "orders": 2, "positions": 2, "nav": 3}
     runs_ = {r[0]: r[1:] for r in rows(store.conn, "SELECT run_id, started_at, ended_at, duration_ms FROM run_logs")}
@@ -256,3 +259,7 @@ def test_the_backfill_loads_the_files_once(store, tmp_path) -> None:
     assert runs_["20261012_182314"] == (datetime(2026, 10, 12, 18, 23, 14, tzinfo=timezone.utc), None, None)
     sent_at = {r[0] for r in rows(store.conn, "SELECT submitted_at FROM orders")}
     assert sent_at == {datetime(2026, 10, 16, 5, 35, 35, tzinfo=timezone.utc)}  # the Mac's Central time
+    # the evening reconcile saw the fills IBKR's API no longer shows: filled, partial, no fills rows
+    got = rows(store.conn, "SELECT symbol, status, (payload->'reconciled'->>'price')::float FROM orders ORDER BY 1")
+    assert got == [("SPY", "filled", 745.1), ("TLT", "partial", 82.4)]
+    assert rows(store.conn, "SELECT count(*) FROM fills") == [(0,)]

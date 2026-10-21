@@ -148,8 +148,8 @@ def record_submission(
 ) -> int:
     """A submission log (submit_paper_orders' paper_orders_submitted_<batch>.csv rows)
     as orders rows; orders.run_id is the batch as a number. A status the fills already
-    set (filled, partial) is kept. The daily run and the backfill read the same file,
-    so they write the same rows."""
+    set (filled, partial) is kept, and so is what a reconcile saw. The daily run and
+    the backfill read the same file, so they write the same rows."""
     m = RUN_ID.match(str(batch or ""))
     run_number = int(m.group(1) + m.group(2)) if m else None
     n = 0
@@ -172,7 +172,10 @@ def record_submission(
                 ON CONFLICT (idempotency_key) DO UPDATE SET
                     status = CASE WHEN orders.status IN ('filled', 'partial') THEN orders.status ELSE EXCLUDED.status END,
                     broker_order_id = EXCLUDED.broker_order_id, broker_perm_id = EXCLUDED.broker_perm_id,
-                    price = EXCLUDED.price, payload = EXCLUDED.payload, error = EXCLUDED.error, updated_at = now()
+                    price = EXCLUDED.price, error = EXCLUDED.error, updated_at = now(),
+                    payload = CASE WHEN orders.payload ? 'reconciled'
+                                   THEN EXCLUDED.payload || jsonb_build_object('reconciled', orders.payload->'reconciled')
+                                   ELSE EXCLUDED.payload END
                 """,
                 (order_key(profile, batch, symbol, side, perm), run_number, profile, symbol, side, int(qty),
                  dollars / qty if dollars else None, str(row.get("order_type") or "MKT"),
@@ -228,6 +231,31 @@ def record_fills(conn, profile: str, fills: Iterable[Mapping[str, Any]]) -> int:
                 (sorted(perms), profile),
             )
     return added
+
+
+def record_reconciled_orders(conn, profile: str, orders: Iterable[Mapping[str, Any]]) -> int:
+    """Orders' fills as an end-of-day reconcile saw them (its report's "orders":
+    perm_id, quantity, filled, price), for orders whose executions the store never
+    saw: IBKR's API shows only the current day's. Sets filled or partial and keeps
+    what the reconcile saw in the payload; adds no fills rows (it had no exec IDs)."""
+    n = 0
+    with conn.transaction():
+        for o in orders:
+            perm = _int(o.get("perm_id"))
+            qty, filled = abs(_num(o.get("quantity")) or 0.0), abs(_num(o.get("filled")) or 0.0)
+            if not perm or not filled:
+                continue
+            seen = {"filled": filled, "price": _num(o.get("price")), "fills_at": o.get("fills_at")}
+            cur = conn.execute(
+                """
+                UPDATE orders SET status = %s, updated_at = now(),
+                                  payload = COALESCE(payload, '{}'::jsonb) || jsonb_build_object('reconciled', %s::jsonb)
+                WHERE profile = %s AND broker_perm_id = %s AND status NOT IN ('filled', 'cancelled', 'error')
+                """,
+                ("filled" if filled >= qty else "partial", _jsonb(seen), profile, perm),
+            )  # fmt: skip
+            n += cur.rowcount
+    return n
 
 
 # ── positions and NAV ─────────────────────────────────────────────────────
