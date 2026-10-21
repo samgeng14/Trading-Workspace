@@ -237,3 +237,87 @@ def test_an_unchecked_book_sends_nothing(run_root):
     out = spo.submit_paper_orders(config_for(run_root, orders))
     assert out["blocked"] is True and out["reasons"][0].startswith("could not check IBKR for working orders")
     assert FakeManager.placed == []
+
+
+# ── a slow acknowledgment is not an error ─────────────────────────────────
+
+
+class SlowAckManager(FakeManager):
+    """The VM's gateway on 2026-10-21: every order sent, none acknowledged while the
+    batch went out (all 9 filled at the close). IBKR gives a permId on acknowledging."""
+
+    calls: list[str] = []
+
+    def place_order(self, request, *, wait_for_status=True, timeout=30.0):
+        SlowAckManager.calls.append(f"place {request.symbol}")
+        trade = super().place_order(request, wait_for_status=wait_for_status, timeout=timeout)
+        trade.orderStatus.status, trade.order.permId = "PendingSubmit", 0
+        return trade
+
+    def wait_for_acknowledgments(self, trades, *, timeout=30.0, poll_interval=0.5):  # noqa: ARG002
+        SlowAckManager.calls.append(f"wait {len(trades)}")
+        return [t.orderStatus.status for t in trades]
+
+
+def test_the_batch_goes_out_before_one_wait_and_an_unacknowledged_order_counts_as_sent(run_root, monkeypatch):
+    from src.runtime.end_of_day_reconcile import expected_positions
+
+    monkeypatch.setattr(spo, "IBKROrderManager", SlowAckManager)
+    SlowAckManager.calls = []
+    orders = write_run(run_root, MODEL, [("TLT", 400, 100.0), ("SPY", -100, 100.0)], cash=100_000)
+    cfg = config_for(run_root, orders)
+    cfg.wait_for_status = True
+    out = spo.submit_paper_orders(cfg)
+    assert out["submitted"] is True
+    assert SlowAckManager.calls == ["place SPY", "place TLT", "wait 2"]  # not a wait after each order
+    log = pd.read_csv(submissions(run_root)[0])
+    assert list(log["status"]) == ["PendingSubmit", "PendingSubmit"] and list(log["order_id"]) == [1, 1]
+    assert log["error"].str.startswith("sent, but IBKR hadn't acknowledged it 30s later").all()
+    # the reconcile counts a sent order: it skipped them as "never reached IBKR" before
+    book = {"positions": {"SPY": 1_800, "TLT": 1_800}, "orders": [
+        {"symbol": r.symbol, "quantity": r.delta_shares, "status": r.status, "order_id": "1", "perm_id": None}
+        for r in log.itertuples()]}  # fmt: skip
+    expected, counted = expected_positions(book, fills=[])
+    assert expected == {"SPY": 1_700, "TLT": 2_200}
+    assert all(c["counted"].startswith("in full") for c in counted)
+
+
+def test_an_order_that_never_went_out_is_an_error_and_the_rest_go(run_root, monkeypatch):
+    class Refused(FakeManager):
+        def place_order(self, request, **kw):
+            if request.symbol == "TLT":
+                raise ValueError("No security definition has been found for the request")
+            return super().place_order(request, **kw)
+
+    monkeypatch.setattr(spo, "IBKROrderManager", Refused)
+    orders = write_run(run_root, MODEL, [("TLT", 400, 100.0), ("SPY", -100, 100.0)], cash=100_000)
+    spo.submit_paper_orders(config_for(run_root, orders))
+    log = pd.read_csv(submissions(run_root)[0]).set_index("symbol")
+    assert log.loc["SPY", "status"] == "Submitted" and log.loc["TLT", "status"] == "ERROR"
+    assert log.loc["TLT", "error"] == "No security definition has been found for the request"
+
+
+def test_the_wait_is_one_wait_for_the_whole_batch():
+    from datetime import datetime, timedelta, timezone
+
+    from src.broker.ibkr.orders import acknowledged_after
+
+    trades = [SimpleNamespace(orderStatus=SimpleNamespace(status="PendingSubmit")) for _ in range(9)]
+    sleeps: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        if len(sleeps) == 3:
+            trades[0].orderStatus.status = "PreSubmitted"
+
+    statuses = IBKROrderManager(SimpleNamespace(sleep=sleep)).wait_for_acknowledgments(
+        trades, timeout=2.0, poll_interval=0.5
+    )
+    assert sleeps == [0.5] * 4  # 2 s for all nine, where it was 30 s for each
+    assert statuses == ["PreSubmitted"] + ["PendingSubmit"] * 8
+
+    sent = datetime(2026, 10, 21, 19, 35, 13, tzinfo=timezone.utc)
+    log = [SimpleNamespace(time=sent, status="PendingSubmit"),
+           SimpleNamespace(time=sent + timedelta(seconds=0.4), status="PreSubmitted")]  # fmt: skip
+    assert acknowledged_after(SimpleNamespace(log=log)) == 0.4
+    assert acknowledged_after(SimpleNamespace(log=log[:1])) is None

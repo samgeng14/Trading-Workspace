@@ -238,6 +238,9 @@ def test_orders_are_sent_sells_first(tmp_path: Path, monkeypatch: pytest.MonkeyP
             placed.append((request.action, request.symbol))
             return SimpleNamespace(orderStatus=SimpleNamespace(status="Submitted"))
 
+        def wait_for_acknowledgments(self, trades, **_kw) -> list[str]:
+            return [t.orderStatus.status for t in trades]
+
         def summarize_trade(self, _trade) -> dict:
             return {"order_id": len(placed), "perm_id": None}
 

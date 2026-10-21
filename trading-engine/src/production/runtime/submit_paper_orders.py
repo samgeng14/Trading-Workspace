@@ -21,7 +21,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from src.broker.ibkr.auction import Execution, execution_for  # noqa: E402
 from src.broker.ibkr.client import IBKRClient, IBKRConnectionConfig  # noqa: E402
-from src.broker.ibkr.orders import IBKROrderManager, OrderRequest  # noqa: E402
+from src.broker.ibkr.orders import (  # noqa: E402
+    UNACKNOWLEDGED,
+    IBKROrderManager,
+    OrderRequest,
+    acknowledged_after,
+    trade_status,
+)
 from src.broker.ibkr.settings import resolve_endpoint  # noqa: E402
 from src.execution.kill_switch import KillSwitchTripped, require_kill_switch_clear  # noqa: E402
 from src.runtime.leverage import check_leverage  # noqa: E402
@@ -263,51 +269,48 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
     try:
         requests = build_trade_plan(orders_df, account=config.account, execution=execution)
 
+        # Send the whole batch, then wait once for IBKR's acknowledgments. Waiting
+        # after each order cost 30 s apiece on 2026-10-21, when the gateway was slow
+        # to acknowledge: 9 orders took 4.5 minutes, and a full basket sent that way
+        # would run past the 15:50 auction cutoff.
+        sent: list[tuple[dict[str, Any], Any]] = []
         for request, (_, order_row) in zip(requests, orders_df.iterrows()):
+            row: dict[str, Any] = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "symbol": request.symbol,
+                "action": request.action,
+                "order_type": request.order_type,
+                "tif": request.tif,
+                "quantity": int(request.quantity),
+                "delta_shares": int(order_row["delta_shares"]),
+                "estimated_trade_dollars": float(order_row.get("estimated_trade_dollars", 0.0)),
+            }
+            submission_rows.append(row)
             try:
-                trade = manager.place_order(
-                    request,
-                    wait_for_status=config.wait_for_status,
-                    timeout=config.timeout,
+                trade = manager.place_order(request, wait_for_status=False)
+            except Exception as exc:  # never sent: building or qualifying it failed
+                row.update(status="ERROR", error=str(exc))
+                continue
+            sent.append((row, trade))
+
+        if config.wait_for_status and sent:
+            manager.wait_for_acknowledgments([trade for _, trade in sent], timeout=config.timeout)
+        for row, trade in sent:
+            summary = manager.summarize_trade(trade)
+            status = trade_status(trade)
+            row.update(
+                status=status,
+                order_id=summary.get("order_id"),
+                perm_id=summary.get("perm_id"),
+                acknowledged_s=acknowledged_after(trade),
+            )
+            # sent, so not an error the reconcile skips: IBKR has it unless it says otherwise
+            if config.wait_for_status and status in UNACKNOWLEDGED:
+                row["error"] = (
+                    f"sent, but IBKR hadn't acknowledged it {config.timeout:.0f}s later "
+                    f"(status {status or 'none'}); the reconcile counts it as placed"
                 )
-                status = getattr(trade.orderStatus, "status", None)
-                summary = manager.summarize_trade(trade)
-                submission_rows.append(
-                    {
-                        "timestamp": datetime.now().isoformat(timespec="seconds"),
-                        "symbol": request.symbol,
-                        "action": request.action,
-                        "order_type": request.order_type,
-                        "tif": request.tif,
-                        "quantity": int(request.quantity),
-                        "delta_shares": int(order_row["delta_shares"]),
-                        "estimated_trade_dollars": float(order_row.get("estimated_trade_dollars", 0.0)),
-                        "status": status,
-                        "order_id": summary.get("order_id"),
-                        "perm_id": summary.get("perm_id"),
-                    }
-                )
-                fill_rows.append(
-                    {
-                        "timestamp": datetime.now().isoformat(timespec="seconds"),
-                        **summary,
-                    }
-                )
-            except Exception as exc:
-                submission_rows.append(
-                    {
-                        "timestamp": datetime.now().isoformat(timespec="seconds"),
-                        "symbol": request.symbol,
-                        "action": request.action,
-                        "order_type": request.order_type,
-                        "tif": request.tif,
-                        "quantity": int(request.quantity),
-                        "delta_shares": int(order_row["delta_shares"]),
-                        "estimated_trade_dollars": float(order_row.get("estimated_trade_dollars", 0.0)),
-                        "status": "ERROR",
-                        "error": str(exc),
-                    }
-                )
+            fill_rows.append({"timestamp": datetime.now().isoformat(timespec="seconds"), **summary})
 
         pd.DataFrame(submission_rows).to_csv(submission_path, index=False)
         pd.DataFrame(fill_rows).to_csv(fills_path, index=False)

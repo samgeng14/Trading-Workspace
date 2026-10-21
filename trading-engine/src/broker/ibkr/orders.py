@@ -13,6 +13,27 @@ logger = logging.getLogger(__name__)
 OrderAction = Literal["BUY", "SELL"]
 OrderType = Literal["MKT", "LMT", "STP", "MOC"]
 
+# An order's status from placeOrder until IBKR says anything about it: sent, not
+# yet acknowledged. Not an error: on 2026-10-21 the VM's gateway acknowledged none
+# of 9 market-on-close orders within 30 s of sending them, and all 9 filled.
+UNACKNOWLEDGED = frozenset({"", "PendingSubmit", "ApiPending"})
+
+
+def trade_status(trade: Any) -> str:
+    return str(getattr(getattr(trade, "orderStatus", None), "status", None) or "")
+
+
+def acknowledged_after(trade: Any) -> float | None:
+    """Seconds from sending an order to IBKR's first word on it, from ib_async's
+    trade log; None while IBKR has said nothing (or the trade keeps no log)."""
+    log = list(getattr(trade, "log", None) or [])
+    if not log:
+        return None
+    for entry in log[1:]:
+        if (entry.status or "") not in UNACKNOWLEDGED:
+            return round((entry.time - log[0].time).total_seconds(), 2)
+    return None
+
 
 class IBKROrderError(RuntimeError):
     """Base error for order construction and submission."""
@@ -221,6 +242,22 @@ class IBKROrderManager:
             f"Trade did not finish within {timeout:.1f}s; "
             f"last_status={trade.orderStatus.status}"
         )
+
+    def wait_for_acknowledgments(
+        self,
+        trades: list[Any],
+        *,
+        timeout: float = 30.0,
+        poll_interval: float = 0.5,
+    ) -> list[str]:
+        """Wait until IBKR has acknowledged every trade, or ``timeout`` seconds in all,
+        and return each one's status then. The orders are already sent: one still
+        pending is unconfirmed, not lost, and never raises."""
+        elapsed = 0.0
+        while any(trade_status(t) in UNACKNOWLEDGED for t in trades) and elapsed < timeout:
+            self.client.sleep(poll_interval)
+            elapsed += poll_interval
+        return [trade_status(t) for t in trades]
 
     def wait_for_trade_update(
         self,
