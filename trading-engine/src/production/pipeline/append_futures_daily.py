@@ -131,8 +131,10 @@ def append_futures_daily(
     through: date | None = None,
 ) -> dict[str, Any]:
     """Append the tracked futures' daily bars to the master, through ``through``
-    (default the last completed NYSE session): a session still trading has a
-    partial bar, whose close is the last trade so far."""
+    (default the last completed NYSE session). A session still trading has a
+    partial bar, whose close is the last trade so far, so its bars are left out,
+    and a master row of one (from before this rule) is dropped: the next run
+    fetches the finished bar."""
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     master = _load_master()
@@ -141,6 +143,8 @@ def append_futures_daily(
     from src.broker.ibkr.client import connect_ib, fail_fast
     from src.common.clock import last_completed_session
     from src.production.pipeline.append_ibkr_daily import HISTORY_TIMEOUT_S, completed_sessions_only
+
+    through = through or last_completed_session()
 
     try:
         # fails on a gateway cut off from IBKR; caps each bars request (src/broker/ibkr/client.py)
@@ -160,7 +164,7 @@ def append_futures_daily(
     unfinished: list[str] = []
     fetch = fail_fast(
         completed_sessions_only(
-            lambda sym, duration: _fetch_symbol_bars(ib, sym, duration), through or last_completed_session(), unfinished
+            lambda sym, duration: _fetch_symbol_bars(ib, sym, duration), through, unfinished
         ),
         HISTORY_TIMEOUT_S,
     )
@@ -180,6 +184,7 @@ def append_futures_daily(
 
     fetched = pd.concat(fetched_frames, ignore_index=True) if fetched_frames else pd.DataFrame(columns=MASTER_COLUMNS)
 
+    master = master[master["date"] <= pd.Timestamp(through)]  # a session that wasn't over yet
     before_len = len(master)
     combined = pd.concat([master, fetched], ignore_index=True)
     combined["date"] = pd.to_datetime(combined["date"]).dt.normalize()
