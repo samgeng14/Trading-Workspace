@@ -19,6 +19,21 @@ Nothing had traded since the first basket filled at the open on Friday
 2026-10-16 (37 orders, forced from the Mac at 00:35; its reconcile that evening
 matched IBKR to the share: 21 positions).
 
+**The 04:14 ET dry run on 2026-10-21** (on the VM, in the scheduled run's
+environment, nothing sent) passed every gate:
+- the reconcile matched IBKR to the share, and bars came in through 10-20
+- the drift gate said rebalance: the basket's composition changed (drift 0.75%)
+- the basket was 10 small orders, a net buy of about $2k: buy VPU 29, ETHA 65,
+  VHT 10, VEA 32, GLD 3 and IBIT 23; sell UNG 784, QQQ 4, VIS 8 and VWO 20
+- pre-trade risk and no-leverage passed: gross 99.3% → 99.5% of NAV, cash
+  $7,429 → $5,445
+
+The 15:35 run rebuilds the basket at that hour's prices, so expect about
+that. The same morning the futures bars were fixed: five of the ten had never
+qualified (a currency passed as `localSymbol`; grains on ECBOT, Brent on
+ICEEU), and the futures and index masters kept the partial bar of a session
+still trading. Neither master feeds the model.
+
 **2026-10-21, before the resume.** The first resume attempt at 03:04 ET
 refused, correctly: the gateway was cut off again. Its log showed why: at
 00:16 ET, near IBKR's nightly reset, a reconnect got "Unrecognized Username or
@@ -408,6 +423,9 @@ has the page list, the theme switch and the overflow check).
 - The tests under `trading-engine/tests` are a package now (`__init__.py` in
   `tests/` and `tests/unit/`), so a test can import another test's fakes
   (`tests.unit.test_expected_book.FakeIB`); `tests/integration` isn't yet.
+- The indices step logs error 162 for DXY every run: the paper login has no
+  market data for ICE US indices (NYBOT). Not used by the model; subscribe
+  (owner) or drop it from `append_indices_daily.INDEX_CONTRACTS`.
 - Keep PR #12 green and its description current.
 
 ### 5. Then the plan's phases
