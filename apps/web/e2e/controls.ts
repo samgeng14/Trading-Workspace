@@ -16,6 +16,7 @@ export const CONTROLS = [
   "nav.performance",
   "nav.risk",
   "nav.trading",
+  "nav.data",
   "nav.operations",
   "topbar.health",
   "topbar.kill-switch",

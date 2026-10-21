@@ -290,6 +290,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/data/datasets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every dataset's watermark against what should exist by now (trading-engine/src/data/datasets.py).
+         * @description A dataset is ok when it holds the session it should by now, on the NYSE
+         *     calendar and the schedule of the job that fills it; behind when it holds
+         *     an older one; missing when nothing is recorded on this machine; off when
+         *     it isn't kept here (the store without Postgres). `bin/tradeit catchup`
+         *     fills the ones behind that can be filled, and records what it did.
+         */
+        get: operations["getDatasets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stream": {
         parameters: {
             query?: never;
@@ -743,6 +767,50 @@ export interface components {
             endpoint: string;
             results: components["schemas"]["DoctorResult"][];
         };
+        Dataset: {
+            name: string;
+            title: string;
+            source: string;
+            /** @description when the job that fills it runs, in plain words */
+            schedule: string;
+            /**
+             * Format: date
+             * @description the latest session it holds
+             */
+            through: string | null;
+            /**
+             * Format: date
+             * @description the session it should hold by now
+             */
+            expected: string | null;
+            /** @enum {string} */
+            state: "ok" | "behind" | "missing" | "off";
+            rows: number | null;
+            /**
+             * Format: date-time
+             * @description when it was last written
+             */
+            written: string | null;
+            detail: string;
+            /** @description bin/tradeit catchup can fill it */
+            can_catch_up: boolean;
+        };
+        CatchupAction: {
+            dataset: string;
+            ok: boolean;
+            detail: string;
+        };
+        Catchup: {
+            /** Format: date-time */
+            at: string;
+            actions: components["schemas"]["CatchupAction"][];
+        };
+        DatasetsResponse: {
+            /** Format: date-time */
+            as_of: string;
+            datasets: components["schemas"]["Dataset"][];
+            last_catchup: components["schemas"]["Catchup"] | null;
+        };
         ExitCheck: {
             /** @enum {string} */
             status: "PASS" | "FAIL" | "PENDING";
@@ -1175,6 +1243,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunsResponse"];
+                };
+            };
+        };
+    };
+    getDatasets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetsResponse"];
                 };
             };
         };

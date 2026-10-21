@@ -239,6 +239,23 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/RunsResponse" }
 
+  /data/datasets:
+    get:
+      operationId: getDatasets
+      summary: Every dataset's watermark against what should exist by now (trading-engine/src/data/datasets.py).
+      description: |
+        A dataset is ok when it holds the session it should by now, on the NYSE
+        calendar and the schedule of the job that fills it; behind when it holds
+        an older one; missing when nothing is recorded on this machine; off when
+        it isn't kept here (the store without Postgres). `bin/tradeit catchup`
+        fills the ones behind that can be filled, and records what it did.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DatasetsResponse" }
+
   /stream:
     get:
       operationId: openStream
@@ -896,6 +913,52 @@ components:
         results:
           type: array
           items: { $ref: "#/components/schemas/DoctorResult" }
+
+    Dataset:
+      type: object
+      required: [name, title, source, schedule, through, expected, state, rows, written, detail, can_catch_up]
+      properties:
+        name: { type: string }
+        title: { type: string }
+        source: { type: string }
+        schedule: { type: string, description: "when the job that fills it runs, in plain words" }
+        through: { type: [string, "null"], format: date, description: "the latest session it holds" }
+        expected: { type: [string, "null"], format: date, description: "the session it should hold by now" }
+        state: { type: string, enum: ["ok", "behind", "missing", "off"] }  # quoted: YAML reads a bare off as false
+        rows: { type: [integer, "null"] }
+        written: { type: [string, "null"], format: date-time, description: "when it was last written" }
+        detail: { type: string }
+        can_catch_up: { type: boolean, description: "bin/tradeit catchup can fill it" }
+
+    CatchupAction:
+      type: object
+      required: [dataset, ok, detail]
+      properties:
+        dataset: { type: string }
+        ok: { type: boolean }
+        detail: { type: string }
+
+    Catchup:
+      type: object
+      required: [at, actions]
+      properties:
+        at: { type: string, format: date-time }
+        actions:
+          type: array
+          items: { $ref: "#/components/schemas/CatchupAction" }
+
+    DatasetsResponse:
+      type: object
+      required: [as_of, datasets, last_catchup]
+      properties:
+        as_of: { type: string, format: date-time }
+        datasets:
+          type: array
+          items: { $ref: "#/components/schemas/Dataset" }
+        last_catchup:
+          oneOf:
+            - $ref: "#/components/schemas/Catchup"
+            - type: "null"
 
     ExitCheck:
       type: object

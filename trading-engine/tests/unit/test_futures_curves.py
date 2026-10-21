@@ -119,3 +119,17 @@ def test_nothing_on_a_day_the_market_is_closed(tmp_path) -> None:
 def test_the_roots_are_the_configs_archive_list() -> None:
     roots = fc.archive_roots()
     assert {"symbol": "ES", "exchange": "CME", "currency": "USD"} in roots and len(roots) == 23
+
+
+def test_a_missed_evening_is_recorded_the_next_day(tmp_path) -> None:
+    client = SimpleNamespace(ib=FakeIB(), connect=lambda: None, disconnect=lambda: None)
+    out = fc.archive(client=client, now=EVENING, root_dir=tmp_path, roots=ROOTS[:1], pace_s=0.0,
+                     sessions=[date(2026, 10, 20), SESSION])  # fmt: skip
+    assert out["sessions"] == {"2026-10-20": 2, "2026-10-21": 2}
+    kept = lake.read(fc.DATASET, keys=["con_id"], root=tmp_path)
+    assert kept["as_of"].dt.date.tolist() == [date(2026, 10, 20)] * 2 + [SESSION] * 2
+    assert list(kept["close"]) == [5_791.0, 5_792.0, 5_801.0, 5_802.0]
+    # and a catch-up on a weekend still records the sessions it is asked for
+    saturday = datetime(2026, 10, 24, 15, 0, tzinfo=timezone.utc)
+    out = fc.archive(client=client, now=saturday, root_dir=tmp_path, roots=ROOTS[:1], pace_s=0.0, sessions=[SESSION])
+    assert out["ok"] and out["sessions"] == {"2026-10-21": 2}

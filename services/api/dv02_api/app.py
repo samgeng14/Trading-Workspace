@@ -703,6 +703,20 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
                     log.warning("kill switch armed, but cancelling %s failed: %s", orders.order_id(trade), exc)
         return state
 
+    @app.get(f"{v1}/data/datasets")
+    async def get_datasets() -> dict[str, Any]:
+        from src.data import datasets  # trading-engine
+
+        now = _now()
+        # off the event loop: the files and, when it is on, the store can be slow
+        rows = await asyncio.to_thread(datasets.status, now, engine.ENGINE_ROOT, ctx.profile)
+        last = datasets.last_catchup(engine.ENGINE_ROOT, ctx.profile)
+        return {
+            "as_of": now.isoformat(timespec="seconds"),
+            "datasets": [s.as_dict() for s in rows],
+            "last_catchup": {"at": last["at"], "actions": last["actions"]} if last else None,
+        }
+
     @app.get(f"{v1}/ops/exit-test")
     async def get_exit_test() -> dict[str, Any]:
         from src.runtime import exit_test  # trading-engine

@@ -157,6 +157,11 @@ describe.each(MOMENTS)("demo API at %s", (_label, at, session) => {
     const runs = await get<S["RunsResponse"]>("/ops/runs");
     expect(runs.runs.length).toBeGreaterThan(5);
 
+    // every dataset current but the store, which the demo doesn't keep
+    const data = await get<S["DatasetsResponse"]>("/data/datasets");
+    expect(data.datasets.map((d) => d.state)).toEqual([...Array(9).fill("ok"), "off"]);
+    for (const d of data.datasets.slice(0, 9)) expect(d.through! <= data.as_of.slice(0, 10)).toBe(true);
+
     // the exit test agrees with the run history: a failed run fails its session
     const exit = await get<S["ExitTest"]>("/ops/exit-test");
     expect(exit.sessions).toHaveLength(15);

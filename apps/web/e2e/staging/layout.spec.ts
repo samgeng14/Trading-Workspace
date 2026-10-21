@@ -12,6 +12,7 @@ const PAGES = [
   { path: "/performance", title: "Performance", ready: ".history-empty" },
   { path: "/risk", title: "Risk", ready: '[aria-label="Limits"] .meter-row' },
   { path: "/trading", title: "Trading", ready: '[aria-label="Pre-trade checks"] li' },
+  { path: "/data", title: "Data", ready: '[aria-label="Datasets"] tbody tr' },
   { path: "/ops", title: "Operations", ready: '[aria-label="Schedule"] .schedule-row' },
 ];
 const WIDTHS = [1440, 390];

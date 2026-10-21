@@ -474,6 +474,29 @@
   font-size: var(--fs-xs);
 }
 
+/* Data: a dataset's name, then where it comes from and when it is filled */
+.dataset-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 14rem;
+  white-space: normal;
+}
+
+.dataset-source,
+.dataset-detail {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+.table.datasets td {
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  vertical-align: top;
+}
+
 /* Phase 0 exit test: why a session failed, under its row */
 .exit-why td {
   height: auto;

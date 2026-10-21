@@ -67,14 +67,17 @@ def _count(value: Any) -> float | None:
     return x if x is not None and x >= 0 else None
 
 
-def record_session(ib: Any, roots: list[dict[str, str]], session: date, *, pace_s: float = PACE_S,
-                   timeout_s: float = 60.0) -> tuple[pd.DataFrame, list[str]]:  # fmt: skip
-    """Every listed contract's bar for ``session``: the rows, and what couldn't be read
-    (with IBKR's own message when it sent one)."""
+def record_sessions(ib: Any, roots: list[dict[str, str]], sessions: list[date], *, pace_s: float = PACE_S,
+                    timeout_s: float = 60.0) -> tuple[dict[date, pd.DataFrame], list[str]]:  # fmt: skip
+    """Every listed contract's bar for each of ``sessions``: the rows per session, and
+    what couldn't be read (with IBKR's own message when it sent one). One request per
+    contract covers every session, so a missed evening can be had the next day; a
+    contract that expired in between is gone for good."""
     from ib_async import Future
 
     from src.broker.ibkr.client import fail_fast
 
+    sessions = sorted(set(sessions))
     errors: dict[int, str] = {}  # conId -> IBKR's last error about it
 
     def on_error(_req_id: int, code: int, message: str, contract: Any) -> None:
@@ -84,9 +87,9 @@ def record_session(ib: Any, roots: list[dict[str, str]], session: date, *, pace_
     # after one request times out, the rest fail at once instead of 60 s apiece
     details_of = fail_fast(ib.reqContractDetails, timeout_s)
     bars_of = fail_fast(ib.reqHistoricalData, timeout_s)
-    rows: list[dict[str, Any]] = []
+    duration = f"{min((sessions[-1] - sessions[0]).days + 5, 30)} D"
+    rows: dict[date, list[dict[str, Any]]] = {s: [] for s in sessions}
     missing: list[str] = []
-    horizon = session + timedelta(days=HORIZON_DAYS)
     ib.errorEvent += on_error
     try:
         for root in roots:
@@ -97,7 +100,8 @@ def record_session(ib: Any, roots: list[dict[str, str]], session: date, *, pace_
                 missing.append(f"{name}: {type(exc).__name__}: {exc}")
                 continue
             listed = [(d.contract, d, _expiry(d.contract, d)) for d in details or []]
-            listed = sorted(((c, d, e) for c, d, e in listed if e is not None and session <= e <= horizon),
+            listed = sorted(((c, d, e) for c, d, e in listed
+                             if e is not None and sessions[0] <= e <= sessions[-1] + timedelta(days=HORIZON_DAYS)),
                             key=lambda t: t[2])  # fmt: skip
             if not listed:
                 missing.append(f"{name}: no contracts expiring within {HORIZON_DAYS} days")
@@ -105,47 +109,61 @@ def record_session(ib: Any, roots: list[dict[str, str]], session: date, *, pace_
             for contract, d, expiry in listed:
                 ib.sleep(pace_s)
                 try:
-                    bars = bars_of(contract, endDateTime="", durationStr="5 D", barSizeSetting="1 day",
+                    bars = bars_of(contract, endDateTime="", durationStr=duration, barSizeSetting="1 day",
                                    whatToShow="TRADES", useRTH=True, formatDate=1)  # fmt: skip
                 except Exception as exc:  # noqa: BLE001
                     missing.append(f"{contract.localSymbol}: {type(exc).__name__}: {exc}")
                     continue
-                bar = next((b for b in bars or [] if pd.Timestamp(b.date).date() == session), None)
-                if bar is None:
-                    why = errors.get(int(contract.conId)) or f"no bar for {session}"
+                by_day = {pd.Timestamp(b.date).date(): b for b in bars or []}
+                wanted = [s for s in sessions if s <= expiry <= s + timedelta(days=HORIZON_DAYS)]
+                absent = [s for s in wanted if s not in by_day]
+                if absent:
+                    why = errors.get(int(contract.conId)) or f"no bar for {', '.join(map(str, absent))}"
                     missing.append(f"{contract.localSymbol}: {why}")
-                    continue
-                rows.append({
-                    "root": root["symbol"],
-                    "exchange": root["exchange"],
-                    "local_symbol": contract.localSymbol,
-                    "con_id": int(contract.conId),
-                    "contract_month": str(getattr(d, "contractMonth", "") or contract.lastTradeDateOrContractMonth[:6]),
-                    "expiry": pd.Timestamp(expiry),
-                    "days_to_expiry": (expiry - session).days,
-                    "multiplier": _count(contract.multiplier),
-                    "currency": root["currency"],
-                    "open": _price(bar.open),
-                    "high": _price(bar.high),
-                    "low": _price(bar.low),
-                    "close": _price(bar.close),
-                    "volume": _count(bar.volume),
-                })  # fmt: skip
+                for session in wanted:
+                    bar = by_day.get(session)
+                    if bar is None:
+                        continue
+                    rows[session].append({
+                        "root": root["symbol"],
+                        "exchange": root["exchange"],
+                        "local_symbol": contract.localSymbol,
+                        "con_id": int(contract.conId),
+                        "contract_month": str(getattr(d, "contractMonth", "") or contract.lastTradeDateOrContractMonth[:6]),
+                        "expiry": pd.Timestamp(expiry),
+                        "days_to_expiry": (expiry - session).days,
+                        "multiplier": _count(contract.multiplier),
+                        "currency": root["currency"],
+                        "open": _price(bar.open),
+                        "high": _price(bar.high),
+                        "low": _price(bar.low),
+                        "close": _price(bar.close),
+                        "volume": _count(bar.volume),
+                    })  # fmt: skip
     finally:
         ib.errorEvent -= on_error
-    return pd.DataFrame(rows), missing
+    return {s: pd.DataFrame(r) for s, r in rows.items()}, missing
+
+
+def record_session(ib: Any, roots: list[dict[str, str]], session: date, **kwargs: Any) -> tuple[pd.DataFrame, list[str]]:
+    by_session, missing = record_sessions(ib, roots, [session], **kwargs)
+    return by_session[session], missing
 
 
 def archive(*, client: Any = None, now: datetime | None = None, root_dir: Path | None = None,
-            roots: list[dict[str, str]] | None = None, pace_s: float = PACE_S) -> dict[str, Any]:  # fmt: skip
+            roots: list[dict[str, str]] | None = None, pace_s: float = PACE_S,
+            sessions: list[date] | None = None) -> dict[str, Any]:  # fmt: skip
+    """Record ``sessions`` (default: the last completed one; on a day the NYSE is
+    closed, nothing) into the lake, one file per session."""
     from src.common import clock
     from src.data import lake
 
     now = now or datetime.now(timezone.utc)
     today = now.astimezone(clock.NYSE_TZ).date()
-    if not clock.is_us_business_day(today):
-        return {"ok": True, "skipped": f"{today} is not a session: nothing to record"}
-    session = clock.last_completed_session(now)
+    if not sessions:
+        if not clock.is_us_business_day(today):
+            return {"ok": True, "skipped": f"{today} is not a session: nothing to record"}
+        sessions = [clock.last_completed_session(now)]
     roots = roots if roots is not None else archive_roots()
     if client is None:
         from src.broker.ibkr.settings import make_client
@@ -153,17 +171,24 @@ def archive(*, client: Any = None, now: datetime | None = None, root_dir: Path |
         client = make_client("paper", "archive", readonly=True)
     client.connect()  # a gateway cut off from IBKR raises here (IBKRSyncError)
     try:
-        rows, missing = record_session(client.ib, roots, session, pace_s=pace_s)
+        by_session, missing = record_sessions(client.ib, roots, sessions, pace_s=pace_s)
     finally:
         client.disconnect()
-    path = lake.write(DATASET, rows, as_of=session, available_at=now, root=root_dir) if not rows.empty else None
+    paths, counts = [], {}
+    for session, rows in sorted(by_session.items()):
+        counts[session.isoformat()] = len(rows)
+        if not rows.empty:
+            paths.append(str(lake.write(DATASET, rows, as_of=session, available_at=now, root=root_dir)))
+    latest = by_session[max(by_session)]
     return {
-        "ok": not rows.empty,
-        "session": session.isoformat(),
-        "roots": int(rows["root"].nunique()) if not rows.empty else 0,
-        "contracts": len(rows),
+        "ok": bool(paths),
+        "session": max(by_session).isoformat(),
+        "sessions": counts,
+        "roots": int(latest["root"].nunique()) if not latest.empty else 0,
+        "contracts": len(latest),
         "missing": missing,
-        "path": str(path) if path else None,
+        "path": paths[-1] if paths else None,
+        "detail": ", ".join(f"{n} contracts for {s}" for s, n in counts.items()),
     }
 
 

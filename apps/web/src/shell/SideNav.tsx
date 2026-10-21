@@ -12,6 +12,7 @@ export const NAV = [
   { to: "/performance", label: "Performance", key: "f", control: "nav.performance" },
   { to: "/risk", label: "Risk", key: "r", control: "nav.risk" },
   { to: "/trading", label: "Trading", key: "t", control: "nav.trading" },
+  { to: "/data", label: "Data", key: "d", control: "nav.data" },
   { to: "/ops", label: "Operations", key: "s", control: "nav.operations" },
 ] as const;
 

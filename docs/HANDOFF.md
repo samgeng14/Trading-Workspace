@@ -151,6 +151,27 @@ Node; 6 more wait on Ubuntu's phased rollout) and rebooted into kernel
 7.0.0-1013-oracle. Everything came back by itself: the gateway logged in
 within 20 s, doctor 0 failed, API, Postgres, Tailscale and the timers up.
 
+## Datasets, catch-up and the Data page, since 2026-10-21
+
+`trading-engine/src/data/datasets.py` registers the fund's 10 datasets, as
+PLAN §11 asks:
+- the price, total-return, futures and index masters, and the model targets
+- the curve archive
+- the closing and Flex NAV
+- the doctor reports
+- the store
+Each has a watermark (the latest session it holds) and the session it should
+hold by now, from the NYSE calendar and the schedule of the job that fills it.
+It also has a catch-up where a missed day can be had again.
+- `bin/tradeit data` shows each one's state: ok, behind, missing, or off when
+  it isn't kept on that machine.
+- `bin/tradeit catchup` fills the ones behind, records what it did in
+  `artifacts/catchup/`, and refuses from 15:10 to 17:45 ET while the daily
+  jobs write the same files. The curve archive recovers a missed evening the
+  next day, for contracts still listed.
+- The dashboard's **Data** page (GET /data/datasets, hotkey g d) shows the
+  same, with the last catch-up. Phase 2's exit test is that page all green.
+
 ## The lake and the futures curve archive, since 2026-10-21
 
 The plan's point-in-time lake has begun (`trading-engine/src/data/lake.py`):

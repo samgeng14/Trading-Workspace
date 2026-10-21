@@ -5,6 +5,7 @@
 import { http, HttpResponse } from "msw";
 import type { components } from "../api/schema";
 import {
+  addDays,
   closeTime,
   etDate,
   etTime,
@@ -1048,6 +1049,134 @@ function doctor(): S["DoctorReport"] {
 }
 
 /**
+ * Every dataset's watermark, as the engine's registry measures it
+ * (trading-engine/src/data/datasets.py), on the demo's clock: each one holds the
+ * session its job has filled by now, and the store isn't kept (no Postgres here).
+ */
+function datasets(): S["DatasetsResponse"] {
+  const at = now();
+  const sessionAt = (hhmm: string): string => {
+    let day = etDate(at);
+    for (let i = 0; i < 15 && !(isTradingDay(day) && etTime(day, hhmm) <= at); i++) day = addDays(day, -1);
+    return day;
+  };
+  let statement = addDays(etDate(at), etTime(etDate(at), "12:00") <= at ? -1 : -2);
+  while (!isTradingDay(statement)) statement = addDays(statement, -1);
+  const afterRun = prevTradingDay(sessionAt("16:00"));
+  const row = (
+    name: string,
+    title: string,
+    source: string,
+    schedule: string,
+    through: string,
+    rows: number,
+    written: Date,
+    canCatchUp = true,
+  ): S["Dataset"] => ({
+    name,
+    title,
+    source,
+    schedule,
+    through,
+    expected: through,
+    state: "ok",
+    rows,
+    written: iso(written),
+    detail: `through ${through}`,
+    can_catch_up: canCatchUp,
+  });
+  const run = "each session at the 15:35 ET run, through the session before";
+  const ranAt = etTime(sessionAt("16:00"), "15:36");
+  return {
+    as_of: iso(at),
+    datasets: [
+      row("etf_prices", "ETF daily bars", "IBKR daily bars (trades), the model's ETFs", run, afterRun, 112_480, ranAt),
+      row(
+        "total_return",
+        "Dividend-adjusted closes",
+        "IBKR adjusted bars: the signals' total-return prices",
+        "each session after the 15:35 ET run",
+        afterRun,
+        48_610,
+        ranAt,
+      ),
+      row(
+        "targets",
+        "Model targets",
+        "built from the bars by the daily run",
+        "each session at the 15:35 ET run",
+        afterRun,
+        8_379,
+        ranAt,
+        false,
+      ),
+      row(
+        "futures_continuous",
+        "Futures, continuous",
+        "IBKR continuous futures, the tracked ten",
+        run,
+        afterRun,
+        26_015,
+        ranAt,
+      ),
+      row("indices", "Indices", "IBKR index bars (VIX)", run, afterRun, 3_110, ranAt),
+      row(
+        "futures_curves",
+        "Futures curves",
+        "IBKR: every listed contract of 23 roots, into the lake",
+        "each session at 17:20 ET",
+        sessionAt("17:45"),
+        4_060,
+        etTime(sessionAt("17:45"), "17:26"),
+      ),
+      row(
+        "close_nav",
+        "NAV at the close",
+        "the API: IBKR's net liquidation 15 minutes after the close",
+        "each session, from 16:15 ET",
+        sessionAt("16:30"),
+        382,
+        etTime(sessionAt("16:30"), "16:15"),
+        false,
+      ),
+      row(
+        "flex_nav",
+        "NAV statements",
+        "IBKR Flex: the official daily NAV",
+        "each session's by noon the next day",
+        statement,
+        361,
+        etTime(addDays(statement, 1), "06:10"),
+        false,
+      ),
+      row(
+        "doctor",
+        "Doctor reports",
+        "the IBKR doctor, one report kept per session",
+        "each session at 15:15 ET",
+        sessionAt("15:25"),
+        41,
+        etTime(sessionAt("15:25"), "15:15"),
+      ),
+      {
+        name: "store_close",
+        title: "Store: fills and closing NAV",
+        source: "src.storage.capture: the day's executions and NAV",
+        schedule: "each session at 16:30 ET",
+        through: null,
+        expected: sessionAt("16:45"),
+        state: "off",
+        rows: null,
+        written: null,
+        detail: "the store is off here: the demo has no Postgres",
+        can_catch_up: false,
+      },
+    ],
+    last_catchup: null,
+  };
+}
+
+/**
  * Phase 0's exit test over the simulated history, scored as the engine scores it
  * (trading-engine/src/runtime/exit_test.py): runs() fails a session's run and its
  * reconcile, the doctor is green from its 09:00 check, the close is recorded 15
@@ -1190,4 +1319,5 @@ export const handlers = [
   }),
   http.get(`${API}/ops/runs`, () => HttpResponse.json(runs())),
   http.get(`${API}/ops/exit-test`, () => HttpResponse.json(exitTest())),
+  http.get(`${API}/data/datasets`, () => HttpResponse.json(datasets())),
 ];
