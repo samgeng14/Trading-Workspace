@@ -6,35 +6,45 @@ authors = ["Rithwik Babu <rithwikbabu2020@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.13"
-# the backtester is dv02_engine.backtest (C++, engine/), installed from ./engine by bin/tradeit setup
+python = ">=3.11,<3.14"
+# What the daily runner, the store and the API run on. bin/tradeit setup, the VM
+# and CI install services/api/requirements.txt; tests/unit/test_dependencies.py
+# keeps that list declared here too. The backtester is dv02_engine (C++, engine/),
+# installed from ./engine by bin/tradeit setup.
+pandas = ">=2.2"
+numpy = ">=1.26"
+pyarrow = ">=16"
 polars = "1.32.0"
 pyyaml = "^6.0.2"
-pyarrow = "^21.0.0"
-gcsfs = "^2025.7.0"
-opentelemetry-api = "^1.36.0"
-opentelemetry-sdk = "^1.36.0"
-opentelemetry-exporter-otlp = "^1.36.0"
-pytest = "^8.4.1"
-pytest-cov = "^6.2.1"
-pymsteams = "^0.2.5"
-ib-async = "^2.0.1"
-scipy = "^1.11.0"
+ib-async = ">=2.0.1"
+scipy = ">=1.11"
+cvxpy = ">=1.7"
+ecos = "^2.0.14"
+scikit-learn = ">=1.3"
+psycopg = { version = ">=3.2", extras = ["binary"] }
+duckdb = ">=1.1"
+fastapi = ">=0.115"
+uvicorn = ">=0.30"
+websockets = ">=13"
+pydantic = "^2.13.3"
+# optional: MOSEK only with a licence (src/trading_engine/solvers.py); the old
+# GCS and Teams helpers in src/common, which nothing imports
+mosek = { version = "^11.0.28", optional = true }
+gcsfs = { version = "^2025.7.0", optional = true }
+pymsteams = { version = "^0.2.5", optional = true }
 jupyterlab = { version = ">=4", optional = true }
 ipywidgets = { version = ">=8", optional = true }
 matplotlib = { version = ">=3.8", optional = true }
-cvxpy = "^1.7.2"
-scikit-learn = "^1.3.0"
-ecos = "^2.0.14"
-mosek = "^11.0.28"
-uvicorn = "^0.46.0"
-fastapi = "^0.136.1"
-pydantic = "^2.13.3"
 
 [tool.poetry.extras]
 research = ["jupyterlab", "ipywidgets", "matplotlib"]
+mosek = ["mosek"]
+legacy = ["gcsfs", "pymsteams"]
 
 [tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+pytest-cov = "^6.2.1"
+ruff = "0.8.6"
 ipykernel = "^6.30.1"
 openpyxl = "^3.1.5"
 
