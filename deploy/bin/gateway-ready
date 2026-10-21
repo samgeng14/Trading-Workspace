@@ -31,7 +31,8 @@ if [ -z "$id" ]; then
   exit 0
 fi
 echo "gateway-ready: IB Gateway isn't logged in to IBKR; restarting its container" >&2
-since="$(date -u +%Y-%m-%dT%H:%M:%S)"
+# the Z matters: docker reads a timestamp without a zone in this machine's zone
+since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 docker restart "$id" >/dev/null || { echo "gateway-ready: docker restart failed" >&2; exit 0; }
 for _ in $(seq 1 45); do
   sleep "$poll"

@@ -5,6 +5,7 @@ dialog from 00:16 ET until a restart logged it straight back in."""
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -85,11 +86,13 @@ exit $code
 case "$1" in
   ps) cat {state}/container 2>/dev/null ;;
   restart) echo "$2" >> {state}/restarts ;;
-  logs) cat {state}/login 2>/dev/null ;;
+  logs) echo "$@" >> {state}/logs_args; cat {state}/login 2>/dev/null ;;
 esac
 ''')
 
-    def run(checks: list[int], *, container: str = "abc123", login: str = "IBC: Login has completed") -> subprocess.CompletedProcess:
+    def run(
+        checks: list[int], *, container: str = "abc123", login: str = "IBC: Login has completed", tz: str = "UTC"
+    ) -> subprocess.CompletedProcess:
         (state / "checks").write_text("\n".join(map(str, checks)) + "\n")
         (state / "container").write_text(container + ("\n" if container else ""))
         (state / "login").write_text(login + "\n")
@@ -100,6 +103,7 @@ esac
             "DV02_PYTHON": str(bin_dir / "python"),
             "DV02_GATEWAY_SETTLE_S": "0",
             "DV02_GATEWAY_POLL_S": "0",
+            "TZ": tz,
         }
         return subprocess.run(["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
 
@@ -107,7 +111,11 @@ esac
         f = state / "restarts"
         return f.read_text().split() if f.exists() else []
 
-    return SimpleNamespace(run=run, restarts=restarts)
+    def logs_args() -> list[list[str]]:
+        f = state / "logs_args"
+        return [line.split() for line in f.read_text().splitlines()] if f.exists() else []
+
+    return SimpleNamespace(run=run, restarts=restarts, logs_args=logs_args)
 
 
 def test_a_logged_in_gateway_is_left_alone(box) -> None:
@@ -120,6 +128,16 @@ def test_a_cut_off_gateway_is_restarted_once_and_checked_again(box) -> None:
     assert out.returncode == 0
     assert box.restarts() == ["abc123"]
     assert "restarting its container" in out.stderr and "logged in again" in out.stderr
+
+
+def test_the_restart_log_is_read_from_the_restart_whatever_the_machines_zone(box) -> None:
+    # docker reads a --since without a zone in local time: on a VM set to Chicago,
+    # a bare UTC time is five hours ahead, so the new login would never be seen
+    out = box.run([2, 0], tz="America/Chicago")
+    assert out.returncode == 0 and "logged in again" in out.stderr
+    args = box.logs_args()[0]
+    since = args[args.index("--since") + 1]
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", since), since
 
 
 def test_a_refused_login_is_said_and_not_retried(box) -> None:
