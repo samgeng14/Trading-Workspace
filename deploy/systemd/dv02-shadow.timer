@@ -1,0 +1,12 @@
+# 17:05 New York time on weekdays: after the daily run's bars and targets and the
+# API's record of the close, whatever the VM's zone.
+[Unit]
+Description=DV02 shadow mode, 17:05 America/New_York on weekdays
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 17:05:00 America/New_York
+Persistent=true
+Unit=dv02-shadow.service
+
+[Install]
+WantedBy=timers.target

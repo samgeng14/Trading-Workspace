@@ -1,0 +1,20 @@
+# Each evening: shadow mode for H2, S0 with a trend overlay
+# (trading-engine/src/production/shadow_h2.py). The trend sleeve runs forward
+# through the C++ walk-forward, mixed half and half with the live account,
+# with what H2 would hold and send, into artifacts/shadow/h2/. Nothing is sent
+# and it doesn't connect to IBKR. Started by dv02-shadow.timer.
+[Unit]
+Description=DV02 shadow mode: S0 with a trend overlay
+OnFailure=dv02-alert@%n.service
+
+[Service]
+Type=oneshot
+User=dv02
+Group=dv02
+WorkingDirectory=/opt/dv02/trading-engine
+EnvironmentFile=/etc/dv02/dv02.env
+ExecStart=/opt/dv02/.venv/bin/python -m src.production.shadow_h2
+ExecStartPost=/opt/dv02/deploy/bin/heartbeat shadow
+TimeoutStartSec=15min
+NoNewPrivileges=true
+PrivateTmp=true

@@ -221,7 +221,17 @@ Next, by the report:
      it.
    - By the rule fixed beforehand, H2 goes to **shadow mode** for at least
      three months: targets and would-be orders logged daily beside S0, nothing
-     sent. That is the next piece to build.
+     sent. **Running from 2026-10-22** (`dv02-shadow.timer`, 17:05 ET;
+     `bin/tradeit shadow`). It writes `artifacts/shadow/h2/`:
+     - `daily.csv`: the trend sleeve run forward through the C++ walk-forward
+       exactly as researched (`src/strategies/trend.py`, pinned to the research
+       code by `tests/unit/test_trend.py`), the live account's return, and H2's
+       half-and-half return
+     - one JSON per session, with the sleeve's decision, H2's targets and the
+       orders it would send to replace S0
+     Its first numbers come once prices run past its start, on 2026-10-26's
+     evening. After three months, compare the record with the backtest and
+     decide on paper (the owner).
 2. The futures version of S1, once the curve archive has history.
 3. IBKR's adjusted closes back past 2016.
 
