@@ -98,6 +98,59 @@ sudo -u dv02 /opt/dv02/bin/tradeit resume
 The next run is 15:35 ET on the next trading day. Its basket then holds the
 composition change the targets have wanted since 2026-10-16.
 
+## 2026-10-21: the first rebalance from the VM, and orders IBKR didn't acknowledge
+
+**The run.** Doctor at 15:15 ET: 0 failed. At 15:35 the drift gate rebalanced:
+9 market-on-close orders (sell UNG 645, QQQ 4, VIS 9, VWO 18; buy VPU 26,
+VHT 10, ETHA 47, VEA 28, VNQ 11), no-leverage PASS (gross 99.3%, cash $7,429
+→ $6,998). All 9 filled at the close. The 16:30 capture saved the 9 fills and a
+NAV of $1,047,727.07; the API recorded the close at $1,047,800.70. The exit
+test has the session as doctor, run and reconcile pass, NAV pending Flex.
+
+**What went wrong.** The gateway acknowledged none of the 9 orders while the
+batch went out: each stayed `PendingSubmit`, with no status, warning or error
+in the run's log. The order path waited 30 s after each order, then recorded
+it as `ERROR` with no ids, so 9 orders took 4.5 minutes (15:35:13 to 15:39:44).
+The reconcile skips `ERROR` orders as never placed, so the next day's run would
+have seen 9 breaks of $1,000 to $6,400, armed the kill switch and halted the
+fund.
+
+**Fixed (af1fe9b1, deployed that evening).** The batch now goes out first,
+then one wait, 30 s in all, for IBKR's acknowledgments. An order still
+unacknowledged is recorded with its last status (`PendingSubmit`), its order
+id and a note, and the reconcile counts it as placed. `ERROR` stays for an
+order that never went out. The submission log's `acknowledged_s` column says
+how long IBKR took to acknowledge each order.
+
+**Repaired that evening on the VM, from IBKR's executions (order ids 4 to 20,
+permIds 355965664 to 355965672):**
+- the expected book: the 9 orders are `Filled` with their ids. Before the repair
+  it had 9 breaks; after, 0 with that day's fills visible and 0 without them
+  (as 10-22's run sees it). The original is
+  `data/broker/reconciliations/paper_expected_book.before_repair_20261021.json`.
+- the submission log `paper_orders_submitted_20261021_193513.csv` (original in
+  `data/broker/orders/repaired/`), and the store's orders, now linked to their
+  fills.
+
+**Still open: why the gateway didn't acknowledge.** Its stdout logged no
+dialog and its own logs are encrypted. The likeliest cause is IB Gateway
+holding each API order at a precaution or no-market-data ("blind trading")
+warning that nothing on the headless VM answers; IBC leaves
+`BypassOrderPrecautions` and `AllowBlindTrading` unset, and the paper login
+has delayed data only. The orders still went out before the close, so
+something released them. Turning those warnings off weakens a broker-side
+check: **the owner decides.** First read 10-22's submission log: statuses
+and `acknowledged_s`.
+
+**Check on 2026-10-22:** step 0's reconcile should report 0 breaks (the
+repaired book's first test), and the submission log should show the orders
+sent within seconds of each other.
+
+**Also that evening:** the VM took its 22 pending updates (Docker, Tailscale,
+Node; 6 more wait on Ubuntu's phased rollout) and rebooted into kernel
+7.0.0-1013-oracle. Everything came back by itself: the gateway logged in
+within 20 s, doctor 0 failed, API, Postgres, Tailscale and the timers up.
+
 ## Phase 0's exit test, tracked since 2026-10-21
 
 `bin/tradeit exit-test` (on the VM: `sudo -u dv02 /opt/dv02/bin/tradeit exit-test`)
