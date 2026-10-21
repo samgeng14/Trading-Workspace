@@ -9,12 +9,29 @@ and wrote `deploy/` for the VM. All of it is on PR [samgeng14/Trading-Workspace#
 from another session, is stacked on it). `CLAUDE.md` has the owner's rules;
 this file has the state. Keep both current as you work.
 
-## Read first: the fund is halted (since 2026-10-19)
+## Read first: halted 2026-10-19 to 2026-10-21, resumed
 
-**The VM's kill switch is armed, and stays armed until the owner resumes.**
-Nothing has traded since the first basket filled at the open on Friday
+**Resumed 2026-10-21 at 03:09 ET** (the owner asked; the doctor passed and the
+reconcile found 0 breaks against IBKR's 21 positions). The first rebalance from
+the VM is that day's 15:35 ET run: check its run log and fills that evening.
+Nothing had traded since the first basket filled at the open on Friday
 2026-10-16 (37 orders, forced from the Mac at 00:35; its reconcile that evening
 matched IBKR to the share: 21 positions).
+
+**2026-10-21, before the resume.** The first resume attempt at 03:04 ET
+refused, correctly: the gateway was cut off again. Its log showed why: at
+00:16 ET, near IBKR's nightly reset, a reconnect got "Unrecognized Username or
+Password" and the gateway sat on that dialog. `docker restart` logged it
+straight back in with the same saved login (so the login is fine), and the
+resume then passed. Since 856a2315 the runner's unit runs
+`deploy/bin/gateway-ready` before each run: when the gateway isn't logged in to
+IBKR it restarts the container once and waits for the login (under a minute,
+inside the 15:45 ET market-on-close deadline). Tuesday 2026-10-20 between
+02:01 and 02:23 ET the VM's gateway also fought a second session with the same
+paper login: the Mac's old container from `~/TradingWorkstation`, started by
+hand at 01:01 CDT (Docker hadn't restarted). **Don't run `bin/tradeit up` or
+`gateway start` in `~/TradingWorkstation` while the VM trades**: that checkout
+still has the login, and its gateway kicks the VM's (one session per login).
 
 What happened:
 - **Mon 2026-10-19, 15:35 ET.** The VM's IB Gateway had lost its own link to
@@ -396,8 +413,8 @@ Docs: https://code.claude.com/docs/en/chrome
 
 ## Owner's to-do list (only the owner can do these)
 
-- **Resume the fund** once you've read "Read first" above:
-  `sudo -u dv02 /opt/dv02/bin/tradeit resume` on the VM (or tell Claude to).
+- Don't start the Mac's gateway (`bin/tradeit up` in `~/TradingWorkstation`)
+  while the VM trades; move trading with `bin/tradeit switch mac` instead.
 - **Turn the alerts on.** Make three checks on healthchecks.io (free): the
   daily run (period 1 day, grace about 1 hour), the API (period 5 minutes) and
   the backup (1 day). Put their ping URLs in `/etc/dv02/dv02.env` on the VM as
