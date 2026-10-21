@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,17 +41,17 @@ MASTER_COLUMNS = [
     "settlement", "bid", "ask", "volume", "open_interest",
 ]
 
-# Map our internal ticker → IBKR continuous-future contract spec.
-# IBKR's "primary exchange" sometimes uses different identifiers than other vendors
-# (e.g. CBOT electronic is "ECBOT" rather than "CBOT" on some routes). Adjust as
-# needed if a symbol fails to qualify. Tickers below mirror the universe in
-# config/universes/futures.yaml `tracked:` list.
+# Map our internal ticker → IBKR continuous-future contract spec: (IBKR symbol,
+# exchange, currency). IBKR's names differ from other vendors': ICE Brent is COIL
+# on IPE, and the grains qualify on CBOT, not ECBOT. On 2026-10-21 each of these
+# qualified on the paper gateway and returned daily bars. Tickers below mirror
+# the universe in config/universes/futures.yaml `tracked:` list.
 FUTURES_CONTRACTS: dict[str, tuple[str, str, str]] = {
-    "BRN": ("BRN", "ICEEU", "USD"),
-    "ZC":  ("ZC",  "ECBOT", "USD"),
-    "ZW":  ("ZW",  "ECBOT", "USD"),
-    "ZS":  ("ZS",  "ECBOT", "USD"),
-    "ZO":  ("ZO",  "ECBOT", "USD"),
+    "BRN": ("COIL", "IPE", "USD"),
+    "ZC":  ("ZC",  "CBOT",  "USD"),
+    "ZW":  ("ZW",  "CBOT",  "USD"),
+    "ZS":  ("ZS",  "CBOT",  "USD"),
+    "ZO":  ("ZO",  "CBOT",  "USD"),
     "QG":  ("QG",  "NYMEX", "USD"),
     "QO":  ("QO",  "COMEX", "USD"),
     "QI":  ("QI",  "COMEX", "USD"),
@@ -85,7 +85,9 @@ def _fetch_symbol_bars(ib: IB, symbol: str, lookback: str) -> pd.DataFrame:
         raise ValueError(f"No IBKR futures contract mapping for {symbol}; add to FUTURES_CONTRACTS.")
 
     ib_symbol, exchange, currency = spec
-    contract = ContFuture(ib_symbol, exchange, currency)
+    # by name: ContFuture's third positional argument is localSymbol, and a currency
+    # there ("USD") matches no contract
+    contract = ContFuture(ib_symbol, exchange, currency=currency)
     ib.qualifyContracts(contract)
 
     bars = ib.reqHistoricalData(
@@ -126,14 +128,19 @@ def append_futures_daily(
     port: int = 4002,
     client_id: int = 105,
     lookback: str = "15 D",
+    through: date | None = None,
 ) -> dict[str, Any]:
+    """Append the tracked futures' daily bars to the master, through ``through``
+    (default the last completed NYSE session): a session still trading has a
+    partial bar, whose close is the last trade so far."""
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     master = _load_master()
     symbols = sorted(set(FUTURES_CONTRACTS.keys()) | set(master["symbol"].unique().tolist()))
 
     from src.broker.ibkr.client import connect_ib, fail_fast
-    from src.production.pipeline.append_ibkr_daily import HISTORY_TIMEOUT_S
+    from src.common.clock import last_completed_session
+    from src.production.pipeline.append_ibkr_daily import HISTORY_TIMEOUT_S, completed_sessions_only
 
     try:
         # fails on a gateway cut off from IBKR; caps each bars request (src/broker/ibkr/client.py)
@@ -150,12 +157,18 @@ def append_futures_daily(
 
     fetched_frames: list[pd.DataFrame] = []
     errors: list[str] = []
-    fetch = fail_fast(lambda sym: _fetch_symbol_bars(ib, sym, lookback), HISTORY_TIMEOUT_S)
+    unfinished: list[str] = []
+    fetch = fail_fast(
+        completed_sessions_only(
+            lambda sym, duration: _fetch_symbol_bars(ib, sym, duration), through or last_completed_session(), unfinished
+        ),
+        HISTORY_TIMEOUT_S,
+    )
 
     try:
         for symbol in symbols:
             try:
-                df_symbol = fetch(symbol)
+                df_symbol = fetch(symbol, lookback)
                 if not df_symbol.empty:
                     fetched_frames.append(df_symbol)
                 else:
