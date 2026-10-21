@@ -68,11 +68,11 @@ composition change the targets have wanted since 2026-10-16.
 ## Start here
 
 1. Pull the branch. On the owner's Mac the clone is `~/Code/deskd-live`, where
-   the GitHub repo is the remote `tw` (`origin` there is an older repo):
+   `origin` is the GitHub repo (the folder began as a Kalshi-desk clone; that repo is the remote `kalshi` since 2026-10-21):
    ```bash
    cd ~/Code/deskd-live
    git status            # the four price/targets data files are modified by the local refresh: leave them
-   git fetch tw && git merge --ff-only tw/claude/serene-babbage-0204ht
+   git fetch origin && git merge --ff-only origin/claude/serene-babbage-0204ht
    bin/tradeit engine    # rebuild the C++ engine after any pull that touches engine/
    .venv/bin/pip install pytest jsonschema httpx ruff==0.8.6   # what the checks need beyond `tradeit setup`
    ```
