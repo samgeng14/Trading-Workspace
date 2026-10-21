@@ -169,6 +169,11 @@ def test_best_effort_never_raises(store, caplog) -> None:
                                                                    source="t"), store.cfg) is True  # fmt: skip
 
 
+def test_payloads_hold_what_json_can() -> None:
+    assert record._finite({"a": float("nan"), 1: [float("inf"), 2.0, "x"], "b": {"c": float("-inf")}}) == {
+        "a": None, "1": [None, 2.0, "x"], "b": {"c": None}}  # fmt: skip
+
+
 # ── the daily run, the post-close capture and the backfill ─────────────────
 
 
@@ -182,6 +187,19 @@ def test_the_daily_runs_log_reaches_the_store(store, tmp_path, monkeypatch) -> N
     daily_runner._write_run_log("20261021_193500", {"run_id": "20261021_193500", "profile": "paper", "ok": True,
                                                     "dry_run": False, "should_rebalance": False})  # fmt: skip
     assert rows(store.conn, "SELECT run_id, status FROM run_logs") == [("20261021_193500", "ok")]
+
+
+def test_the_runs_orders_reach_the_store_with_an_order_ibkr_refused(store, tmp_path) -> None:
+    """A batch with an error row: its empty cells (no permId; no error on the others)
+    must not reach the payload as NaN, which Postgres refuses for the whole batch."""
+    from src.production import daily_runner
+
+    path = tmp_path / "paper_orders_submitted_20261021_193512.csv"
+    pd.DataFrame([{**SENT[0], "error": None}, {**SENT[2], "perm_id": None, "order_id": None}]).to_csv(path, index=False)
+    daily_runner._store_orders(store.conn, "paper", path)
+    got = rows(store.conn, "SELECT symbol, status, broker_perm_id, error, payload->>'error' FROM orders ORDER BY 1")
+    assert got == [("SPY", "submitted", 912, None, ""), ("XLE", "error", None, "no security definition",
+                                                        "no security definition")]  # fmt: skip
 
 
 def test_the_capture_saves_the_days_fills_positions_and_close(store) -> None:

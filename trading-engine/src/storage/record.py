@@ -9,6 +9,7 @@ off or down is logged, never raised, since the engine's files stay its record.
 """
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import math
@@ -32,10 +33,22 @@ ORDER_STATUS = {
 }
 
 
+def _finite(obj: Any) -> Any:
+    """``obj`` as JSON can hold it: NaN and infinities, which Postgres refuses, become
+    null, and keys become strings."""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, Mapping):
+        return {str(k): _finite(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_finite(v) for v in obj]
+    return obj
+
+
 def _jsonb(obj: Any):
     from psycopg.types.json import Jsonb
 
-    return Jsonb(obj, dumps=lambda o: json.dumps(o, default=str))
+    return Jsonb(_finite(obj), dumps=lambda o: json.dumps(o, default=str))
 
 
 def _num(value: Any) -> float | None:
@@ -122,6 +135,13 @@ def record_run(
 
 
 # ── orders ────────────────────────────────────────────────────────────────
+
+
+def read_submission(path: Any) -> list[dict[str, str]]:
+    """A submission log's rows as written (strings, "" where empty). The daily run and
+    the backfill both read it this way, so they write the same rows."""
+    with open(path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
 
 
 def submission_batch(path: Any) -> str | None:

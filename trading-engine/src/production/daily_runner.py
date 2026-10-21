@@ -721,12 +721,11 @@ def _record_submission(profile: str, run_id: str, result: dict[str, Any]) -> dic
 
 def _store_orders(conn: Any, profile: str, submission_path: Any) -> None:
     """The submission log just written, as the store's orders rows."""
-    import pandas as pd
-    from src.storage.record import record_submission, submission_batch
+    from src.storage.record import read_submission, record_submission, submission_batch
 
     batch = submission_batch(submission_path)
     if batch:
-        record_submission(conn, profile, batch, pd.read_csv(submission_path).to_dict("records"))
+        record_submission(conn, profile, batch, read_submission(submission_path))
 
 
 def step_append_daily(

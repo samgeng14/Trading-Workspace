@@ -31,6 +31,7 @@ from src.storage.record import (
     record_positions,
     record_reconciled_orders,
     record_run,
+    read_submission,
     record_submission,
     run_started,
     submission_batch,
@@ -73,8 +74,7 @@ def backfill(conn, root: Path = PROJECT_ROOT, profile: str = "paper") -> dict[st
         batch = submission_batch(path)
         if batch is None:
             continue
-        with path.open(newline="", encoding="utf-8") as f:
-            rows = list(csv.DictReader(f))
+        rows = read_submission(path)
         if rows and all(str(r.get("status", "")).upper() == "DRY_RUN" for r in rows):
             continue  # a dry run's preview: nothing was sent
         counts["orders"] += record_submission(conn, profile, batch, rows, tz=_zone(batch, path) or timezone.utc)
