@@ -171,6 +171,29 @@ now"):
   sleeve S1's carry research gets curves; a missed evening is lost for good.
 - The backup includes the lake, once R2 is set up.
 
+## Research: S1 (cross-asset trend) on ETF proxies, 2026-10-21
+
+`trading-engine/research/s1_trend/` took S1 through the plan's research gate,
+with the hypothesis fixed before any backtest. The run used the C++ walk-forward
+and costs, lag 1, a 3-year holdout and 8 counted trials. It is reproducible
+with one command. **REPORT.md** has the numbers. In short:
+- **It fails as a standalone sleeve.** Out of sample from 2008 to 2023 its
+  excess Sharpe is 0.15 (SE 0.25), and its deflated Sharpe is 0.44 against
+  the 0.90 required.
+- **It hedges S0 well.** It made +10% in 2008, when S0 lost 23%, and its
+  correlation with S0 is −0.08. Held 50/50 with S0 inside the one 100%
+  budget, it cut the book's worst drawdown from −38% to −16%.
+- **S0, the live model, wouldn't pass the gate either**: 0.27 (0.26), −38%
+  drawdown.
+- **Long/short books drift up to 111.5% gross between monthly rebalances.**
+  A long/short sleeve needs a daily trim or about 90% gross at rebalance.
+
+Next, by the report:
+1. Pre-register "S0 with a trend overlay" as its own hypothesis, counting the
+   8 trials already spent.
+2. The futures version of S1, once the curve archive has history.
+3. IBKR's adjusted closes back past 2016.
+
 ## Phase 0's exit test, tracked since 2026-10-21
 
 `bin/tradeit exit-test` (on the VM: `sudo -u dv02 /opt/dv02/bin/tradeit exit-test`)
