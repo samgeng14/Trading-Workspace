@@ -100,9 +100,12 @@ def own_navs(profile: str) -> dict[date, float]:
 
 
 def record_close_nav(profile: str, trading_date: date, nav: float) -> None:
-    """Upsert the NAV for a completed session (called after the close while connected)."""
+    """The NAV of a completed session, recorded once: the first value after its closing
+    prints settle (nyse.CLOSE_SETTLE). Later values carry after-hours marks, which drift
+    from IBKR's statement: up to 0.12% in October 2026, when every pass until midnight
+    replaced it. The next day's Flex NAV takes its place on the curve."""
     rows = own_navs(profile)
-    if rows.get(trading_date) == round(nav, 2):
+    if trading_date in rows:
         return
     rows[trading_date] = round(nav, 2)
     path = _own_path(profile)

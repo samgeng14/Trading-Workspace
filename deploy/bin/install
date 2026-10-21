@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # install: put the DV02 units in /etc/systemd/system and start the API, its
-# check and the backup. The daily run's timer is left off: turn it on last,
+# check, the daily doctor and the backup. The daily run's timer is left off: turn it on last,
 # once the Mac's schedule is removed and the gateway runs here (deploy/README.md,
 # "Cut over"), so nothing trades twice.
 set -euo pipefail
@@ -12,7 +12,7 @@ here="$(cd "$(dirname "$0")/.." && pwd)"
 [ -f /opt/dv02/apps/web/dist/index.html ] || { echo "no dashboard build: (cd /opt/dv02/apps/web && npm run build) first" >&2; exit 1; }
 install -m 644 "$here"/systemd/*.service "$here"/systemd/*.timer /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now dv02-api.service dv02-api-check.timer
+systemctl enable --now dv02-api.service dv02-api-check.timer dv02-doctor.timer
 # the backup only once it has somewhere to go (else it fails every day)
 if grep -q '^DV02_BACKUP_REMOTE=.' /etc/dv02/dv02.env && command -v rclone >/dev/null 2>&1; then
   systemctl enable --now dv02-backup.timer

@@ -15,6 +15,8 @@
 #   tradeit kill      "why": stop the fund: arm the kill switch, cancel every working order
 #   tradeit resume    start it again, once the doctor and a reconcile pass
 #   tradeit status    the kill switch, IBKR's working orders, the last reconcile
+#   tradeit exit-test Phase 0's exit test: each session's doctor, run, reconcile and NAV,
+#                     and how many in a row passed (10 needed; --since DATE, --json)
 #   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
 #   tradeit api       just the API
 #   tradeit demo      dashboard on simulated data, no IBKR needed
@@ -683,6 +685,11 @@ cmd_doctor() {
   cd "$ROOT/trading-engine" && exec "$PY" -m src.broker.ibkr.doctor "$@"
 }
 
+cmd_exit_test() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.runtime.exit_test "$@"
+}
+
 # The fund's stop button (src/execution/kill.py). kill arms the switch before it
 # touches IBKR, so nothing new goes out even if the cancels fail; resume refuses
 # while the doctor fails or the book doesn't match IBKR.
@@ -960,6 +967,7 @@ case "${1:-help}" in
   refresh) shift; cmd_refresh "$@" ;;
   gateway) shift; cmd_gateway "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
+  exit-test) shift; cmd_exit_test "$@" ;;
   kill) shift; cmd_kill "$@" ;;
   resume) shift; cmd_resume "$@" ;;
   status) shift; cmd_status "$@" ;;
@@ -968,5 +976,5 @@ case "${1:-help}" in
   demo) shift; cmd_demo "$@" ;;
   staging) shift; cmd_staging "$@" ;;
   switch) shift; cmd_switch "$@" ;;
-  *) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac

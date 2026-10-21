@@ -98,6 +98,28 @@ sudo -u dv02 /opt/dv02/bin/tradeit resume
 The next run is 15:35 ET on the next trading day. Its basket then holds the
 composition change the targets have wanted since 2026-10-16.
 
+## Phase 0's exit test, tracked since 2026-10-21
+
+`bin/tradeit exit-test` (on the VM: `sudo -u dv02 /opt/dv02/bin/tradeit exit-test`)
+scores each session on the plan's four checks and counts the streak; 10 in a
+row passes (`src/runtime/exit_test.py`):
+- **doctor:** that day's report has no FAIL. `dv02-doctor.timer` runs the
+  doctor at 15:15 ET on weekdays and keeps the day's copy in
+  `artifacts/doctor/`; the dashboard's Run doctor keeps one too. Until
+  2026-10-21 the doctor ran only when the API started, so no earlier session
+  can pass.
+- **run:** that day's last real run ended ok (dry runs don't count).
+- **reconcile:** that run's reconcile found no difference at all.
+- **nav:** the close the API recorded is within 0.10% of Flex's statement
+  NAV for that day (`--nav-tolerance-pct`; the owner hasn't set a number).
+  Since 2026-10-21 the API records the close once, 15 minutes after the
+  closing auction. Before, every pass until midnight replaced it with
+  after-hours marks, 0.01% to 0.12% from the statement on 10-12 to 10-20.
+
+Today's checks and the last few sessions' NAV stay pending until their
+evidence is in. If every session from 2026-10-21 passes, the tenth is
+2026-11-03, decided when its statement arrives on 11-04.
+
 ## The store (Postgres), since 2026-10-21
 
 The trading record now also goes to Postgres on the VM
@@ -472,13 +494,16 @@ Docs: https://code.claude.com/docs/en/chrome
 
 - Don't start the Mac's gateway (`bin/tradeit up` in `~/TradingWorkstation`)
   while the VM trades; move trading with `bin/tradeit switch mac` instead.
-- **Turn the alerts on.** Make four checks on healthchecks.io (free): the
+- **Turn the alerts on.** Make five checks on healthchecks.io (free): the
   daily run (period 1 day, grace about 1 hour), the API (period 5 minutes),
-  the backup (1 day) and the post-close capture (1 day, grace about 1 hour).
-  Put their ping URLs in `/etc/dv02/dv02.env` on the VM as
-  `DV02_HEARTBEAT_RUNNER`, `DV02_HEARTBEAT_API`, `DV02_HEARTBEAT_BACKUP` and
-  `DV02_HEARTBEAT_CAPTURE`, then `sudo systemctl restart dv02-api`. Until
+  the backup (1 day), the post-close capture (1 day, grace about 1 hour)
+  and the doctor before the run (1 day, grace 30 minutes). Put their ping
+  URLs in `/etc/dv02/dv02.env` on the VM as `DV02_HEARTBEAT_RUNNER`,
+  `DV02_HEARTBEAT_API`, `DV02_HEARTBEAT_BACKUP`, `DV02_HEARTBEAT_CAPTURE` and
+  `DV02_HEARTBEAT_DOCTOR`, then `sudo systemctl restart dv02-api`. Until
   then a failed or halted run tells nobody.
+- **Say how close "NAV matching the statement" must be** for Phase 0's exit
+  test. `bin/tradeit exit-test` uses 0.10% of NAV (about $1,000) until then.
 
 - Pull and rebuild (Start here), then import the daily NAV history once:
   ```bash

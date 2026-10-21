@@ -30,6 +30,9 @@ EARLY_CLOSES = {
 }
 
 OPEN = time(9, 30)
+# the closing auction's prints settle a few minutes after the close (the engine's
+# clock.DAILY_BAR_SETTLE): from then the account's marks are the day's closes
+CLOSE_SETTLE = timedelta(minutes=15)
 PRE_OPEN = time(4, 0)
 POST_CLOSE = time(20, 0)
 

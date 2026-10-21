@@ -858,7 +858,9 @@ async def _flex_refresh(profile: str) -> None:
 
 
 async def _maintenance(ctx: Ctx) -> None:
-    """Record closing NAV, keep daily bars and Flex NAV fresh, run the doctor once a day.
+    """Record closing NAV, keep daily bars and Flex NAV fresh, and run the doctor at
+    start when its last report is over 12 hours old (on the VM dv02-doctor.timer
+    runs it before every daily run).
 
     The Flex refresh runs as a task of its own, one at a time: a full history
     walk can take many minutes under IBKR's pacing and retries, and the
@@ -876,7 +878,8 @@ async def _maintenance(ctx: Ctx) -> None:
                 b = ctx.broker
                 s = nyse.session_state(now)
                 snap = b.snapshot() if b.connected else None
-                if snap is not None and s.session != "open" and nyse.et_date(now) == s.trading_date:
+                closed = nyse.et_time(s.trading_date, nyse.close_time(s.trading_date)) + nyse.CLOSE_SETTLE
+                if snap is not None and s.session != "open" and nyse.et_date(now) == s.trading_date and now >= closed:
                     history.record_close_nav(ctx.profile, s.trading_date, snap.nav)
                 if b.connected and (last_bars is None or time.monotonic() - last_bars > 1800):
                     last_bars = time.monotonic()

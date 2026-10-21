@@ -1,0 +1,12 @@
+# 15:15 New York time on weekdays, 20 minutes before the daily run, whatever
+# the VM's zone.
+[Unit]
+Description=DV02 IBKR doctor, 15:15 America/New_York on weekdays
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 15:15:00 America/New_York
+Persistent=true
+Unit=dv02-doctor.service
+
+[Install]
+WantedBy=timers.target

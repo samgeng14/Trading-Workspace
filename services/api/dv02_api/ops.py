@@ -90,13 +90,8 @@ def _run_doctor_blocking(profile: str) -> dict[str, Any]:
     endpoint = settings.resolve_endpoint(profile)
     started = datetime.now(timezone.utc)
     results = doctor.run_doctor(profile)
-    report = {
-        "ran_at": started.isoformat(timespec="seconds"),
-        "profile": profile,
-        "endpoint": f"{endpoint.host}:{endpoint.port}",
-        "results": [{"name": r.name, "status": r.status, "detail": r.detail, "fix": r.fix or ""} for r in results],
-    }
-    _doctor_path(profile).write_text(json.dumps(report, indent=2))
+    report = doctor.report(profile, results, ran_at=started, endpoint=f"{endpoint.host}:{endpoint.port}")
+    doctor.save_report(report, engine.artifacts_dir())  # where _doctor_path reads it, and the day's copy
     return report
 
 

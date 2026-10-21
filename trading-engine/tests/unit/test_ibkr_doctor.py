@@ -1,6 +1,7 @@
 """Unit tests for ``src.broker.ibkr.doctor`` against a fake gateway."""
 from __future__ import annotations
 
+import json
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -288,3 +289,28 @@ def test_render_shows_fix_lines():
     text = doctor.render(results, settings.resolve_endpoint("paper"))
     assert "→ start gateway" in text
     assert "1 failed" in text
+
+
+def test_save_keeps_the_latest_and_the_days_report(tmp_path):
+    results = [doctor.CheckResult("socket", doctor.PASS, "listening"),
+               doctor.CheckResult("quotes", doctor.WARN, "delayed 15 min", "share market data")]
+    doc = doctor.report("paper", results, ran_at=datetime(2026, 10, 21, 19, 15, tzinfo=timezone.utc),
+                        endpoint="127.0.0.1:4002")
+    dated = doctor.save_report(doc, tmp_path)
+    assert dated == tmp_path / "doctor" / "doctor_paper_2026-10-21.json"
+    assert json.loads((tmp_path / "api" / "doctor_paper.json").read_text()) == doc == json.loads(dated.read_text())
+    assert doc["results"][1] == {"name": "quotes", "status": "WARN", "detail": "delayed 15 min",
+                                 "fix": "share market data"}
+    # 23:30 in New York is still that day there (03:30 UTC the next)
+    late = doctor.report("paper", results, ran_at=datetime(2026, 10, 22, 3, 30, tzinfo=timezone.utc), endpoint="x")
+    assert doctor.save_report(late, tmp_path).name == "doctor_paper_2026-10-21.json"
+
+
+def test_main_save_keeps_a_failing_report_and_fails(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(settings, "port_is_open", lambda host, port, timeout=0.5: False)
+    monkeypatch.setattr(doctor, "ARTIFACTS_DIR", tmp_path)
+    assert doctor.main(["--save"]) == 1
+    (kept,) = (tmp_path / "doctor").glob("doctor_paper_*.json")
+    statuses = {r["name"]: r["status"] for r in json.loads(kept.read_text())["results"]}
+    assert statuses["socket"] == "FAIL"
+    assert "saved" in capsys.readouterr().err

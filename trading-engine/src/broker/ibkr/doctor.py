@@ -4,6 +4,7 @@ doctor.py — end-to-end check that this machine can trade through IBKR.
     python -m src.broker.ibkr.doctor                  # paper, settings from env / broker.yaml
     python -m src.broker.ibkr.doctor --port 7497      # TWS paper
     python -m src.broker.ibkr.doctor --json           # machine-readable
+    python -m src.broker.ibkr.doctor --save           # keep the report (dv02-doctor.timer)
 
 Walks the same path the daily runner takes: socket → API handshake →
 account → positions → contracts → historical bars → quotes → order
@@ -25,11 +26,15 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 from . import settings
 from .client import is_paper_account, sync_failure
 
 PASS, WARN, FAIL, SKIP = "PASS", "WARN", "FAIL", "SKIP"
+
+ARTIFACTS_DIR = Path(__file__).resolve().parents[3] / "artifacts"
+NEW_YORK = ZoneInfo("America/New_York")
 
 PORT_LABELS = {
     4002: "IB Gateway paper",
@@ -518,6 +523,47 @@ def run_doctor(
     return results
 
 
+def report(profile: str, results: list[CheckResult], *, ran_at: datetime, endpoint: str) -> dict[str, Any]:
+    """The results as the dashboard shows them (GET /ops/doctor)."""
+    return {
+        "ran_at": ran_at.isoformat(timespec="seconds"),
+        "profile": profile,
+        "endpoint": endpoint,
+        "results": [{"name": r.name, "status": r.status, "detail": r.detail, "fix": r.fix or ""} for r in results],
+    }
+
+
+def save_report(doc: dict[str, Any], artifacts: Path = ARTIFACTS_DIR) -> Path:
+    """Write ``doc`` where the dashboard reads the latest (artifacts/api/doctor_<profile>.json)
+    and keep it as that day's (artifacts/doctor/doctor_<profile>_<date>.json, the New York
+    date; a later one that day replaces it): Phase 0's exit test wants a green doctor on
+    every session (src/runtime/exit_test.py). Returns the day's copy."""
+    day = datetime.fromisoformat(doc["ran_at"]).astimezone(NEW_YORK).date()
+    latest = artifacts / "api" / f"doctor_{doc['profile']}.json"
+    dated = artifacts / "doctor" / f"doctor_{doc['profile']}_{day.isoformat()}.json"
+    text = json.dumps(doc, indent=2)
+    for path in (latest, dated):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(text)
+        tmp.replace(path)
+    return dated
+
+
+def _to_store(doc: dict[str, Any], started: datetime) -> None:
+    """The report as a run_logs row (job "doctor"), when the store is on. Best effort."""
+    try:
+        from src.storage.record import best_effort, record_run
+    except Exception:  # noqa: BLE001
+        return
+    failed = [r["name"] for r in doc["results"] if r["status"] == FAIL]
+    run = {**doc, "run_id": started.astimezone().strftime("%Y%m%d_%H%M%S"), "ok": not failed,
+           "error": f"failed: {', '.join(failed)}" if failed else None}  # fmt: skip
+    ended = datetime.now(timezone.utc)
+    best_effort("the doctor's report", lambda conn: record_run(conn, run, job="doctor", started_at=started,
+                                                               ended_at=ended))  # fmt: skip
+
+
 def render(results: list[CheckResult], endpoint: settings.IBKREndpoint) -> str:
     lines = [f"IBKR doctor · profile {endpoint.profile} · {endpoint.host}:{endpoint.port}", ""]
     width = max(len(r.name) for r in results)
@@ -543,10 +589,13 @@ def main(argv: list[str] | None = None) -> int:
                          help="run whatIf order previews (default: paper only)")
     preview.add_argument("--no-order-preview", dest="order_preview", action="store_false")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--save", action="store_true",
+                        help="keep the report: the dashboard's latest and the day's copy in artifacts/doctor")
     args = parser.parse_args(argv)
 
     logging.getLogger("ib_async").setLevel(logging.CRITICAL)
     symbols = args.symbols.split(",") if args.symbols else None
+    started = datetime.now(timezone.utc)
     results = run_doctor(
         args.profile,
         host=args.host,
@@ -560,6 +609,10 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps([asdict(r) for r in results], indent=2))
     else:
         print(render(results, endpoint))
+    if args.save:
+        doc = report(endpoint.profile, results, ran_at=started, endpoint=f"{endpoint.host}:{endpoint.port}")
+        print(f"saved {save_report(doc, ARTIFACTS_DIR)}", file=sys.stderr)
+        _to_store(doc, started)
     return 1 if any(r.status == FAIL for r in results) else 0
 
 
