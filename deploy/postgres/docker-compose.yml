@@ -1,5 +1,6 @@
-# Postgres for orders, fills, positions and NAV (trading-engine/config/db.yaml).
-# Nothing writes to it yet; deploy/bin/migrate creates the tables. Local only.
+# The store: Postgres for the trading record (runs, orders, fills, positions,
+# NAV; trading-engine/config/db.yaml and src/storage). deploy/bin/postgres-up
+# starts it and creates the tables. Local only.
 services:
   postgres:
     image: postgres:16

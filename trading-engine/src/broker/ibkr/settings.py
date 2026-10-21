@@ -71,6 +71,7 @@ ROLE_OFFSETS: dict[str, int] = {
     "research": 11,
     "kill": 12,  # bin/tradeit status: read-only, beside a run in progress
     "gateway_check": 13,  # deploy/bin/gateway-ready, just before the daily run
+    "capture": 14,  # src.storage.capture after the close: read-only
 }
 
 

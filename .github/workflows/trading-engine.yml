@@ -2,10 +2,10 @@ name: trading-engine
 
 on:
   pull_request:
-    paths: ["trading-engine/**", "engine/**", "services/api/requirements.txt", ".github/workflows/trading-engine.yml"]
+    paths: ["trading-engine/**", "engine/**", "services/api/requirements.txt", "deploy/bin/**", ".github/workflows/trading-engine.yml"]
   push:
     branches: [main]
-    paths: ["trading-engine/**", "engine/**", "services/api/requirements.txt", ".github/workflows/trading-engine.yml"]
+    paths: ["trading-engine/**", "engine/**", "services/api/requirements.txt", "deploy/bin/**", ".github/workflows/trading-engine.yml"]
 
 jobs:
   check:
@@ -13,6 +13,18 @@ jobs:
     defaults:
       run:
         working-directory: trading-engine
+    # A throwaway Postgres for the store's tests (tests/unit/test_storage.py)
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: trading_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DV02_TEST_DATABASE_URL: postgresql://postgres:test@localhost:5432/trading_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,7 +42,7 @@ jobs:
       - name: Lint
         run: |
           ruff check src/broker src/cli src/common src/data src/execution src/portfolio \
-            src/production src/runtime src/strategies tests \
+            src/production src/runtime src/storage src/strategies tests \
             --extend-exclude src/broker/ibkr/orders.py \
             --extend-exclude src/execution/build_live_basket.py \
             --extend-exclude src/execution/order_policy.py \
@@ -41,5 +53,5 @@ jobs:
             --extend-exclude tests/unit/test_adversarial_edge_cases.py \
             --extend-exclude tests/unit/test_ibkr_executions.py \
             --extend-exclude tests/unit/test_runtime_smoke.py
-      - name: Unit and integration tests (fake broker, no gateway)
+      - name: Unit and integration tests (fake broker, no gateway; the store against the Postgres above)
         run: python -m pytest

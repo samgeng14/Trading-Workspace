@@ -19,5 +19,11 @@ if grep -q '^DV02_BACKUP_REMOTE=.' /etc/dv02/dv02.env && command -v rclone >/dev
 else
   echo "Backups are off: set DV02_BACKUP_REMOTE in /etc/dv02/dv02.env (rclone config first), then run this again."
 fi
+# the post-close capture only once the store is on (deploy/bin/postgres-up, then DV02_DB_ENABLED=1)
+if grep -q '^DV02_DB_ENABLED=1' /etc/dv02/dv02.env; then
+  systemctl enable --now dv02-capture.timer
+else
+  echo "The store is off: the capture timer waits for DV02_DB_ENABLED=1 in /etc/dv02/dv02.env (after deploy/bin/postgres-up)."
+fi
 echo "Installed. The API is on 127.0.0.1:8000; check it: systemctl status dv02-api"
 echo "The daily run is NOT scheduled yet. At cutover: sudo systemctl enable --now dv02-runner.timer"

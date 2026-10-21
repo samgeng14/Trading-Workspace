@@ -80,6 +80,16 @@ nothing scheduled until `bin/tradeit schedule install`); the Oracle VM move
 (Phase 2) has not started. The doctor passes against the paper gateway; quotes
 are delayed until market data is shared to the paper login.
 
+**October 21:** Phase 2 has started. Since October 16 the fund runs on the
+Oracle VM: IB Gateway, the 15:35 ET daily run on a systemd timer (it restarts
+a gateway cut off from IBKR first), the API and the dashboard on the tailnet.
+The trading record now also goes to Postgres (`trading-engine/src/storage`):
+each daily run's log and the orders it sent, and at 16:30 ET the day's fills,
+every position and the closing NAV from IBKR. Writing it is best effort; the
+engine's files stay the record until something reads the store. Still to do:
+backups to R2 and heartbeat alerts (they need the owner's accounts), Flex
+trades into `fills`, and the dashboard reading the store.
+
 An audit of the current repo (October 2026) found a working core with a lot
 of scaffolding around it that is partly or entirely disconnected. The full
 list is in Appendix A. The items that matter most:
@@ -1139,7 +1149,9 @@ order paths).
 - No dividend or split adjustment; bond-ETF momentum and total returns are wrong.
 - The price master in git ends on 2026-05-06 (`tradeit refresh` refills it locally).
 - Futures, indices and rates masters are referenced but absent.
-- `src/storage/` is gitignored, so the storage package was never committed and its tests fail.
+- ~~`src/storage/` is gitignored, so the storage package was never committed and its tests fail.~~
+  Fixed: a new `src/storage` writes the trading record to Postgres; its tests run
+  against a real Postgres in CI.
 - ~~`db/migrations` table names don't match `db.yaml`.~~ Fixed: `db.yaml` lists the
   migrations' tables (a test keeps them in step), `006_nav.sql` adds daily NAV, and
   credentials come from the VM's `.env` (`DV02_DB_USER`, `DV02_DB_PASSWORD`).

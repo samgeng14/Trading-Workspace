@@ -40,17 +40,20 @@ Cloudflare Access in front (the manual setup below).
 | `systemd/dv02-api.service` | The API, also serving the built dashboard (`DV02_WEB_DIST`), on 127.0.0.1:8000 |
 | `systemd/dv02-runner.service`, `.timer` | The daily run, 15:35 America/New_York, Mon–Fri, whatever the VM's zone |
 | `systemd/dv02-api-check.service`, `.timer` | Every 5 min: the API answers, then its heartbeat ping |
-| `systemd/dv02-backup.service`, `.timer` | Daily 18:30 ET: the engine's state (and Postgres) to R2 |
+| `systemd/dv02-capture.service`, `.timer` | 16:30 ET, Mon–Fri: the day's fills, every position and the closing NAV from IBKR into the store |
+| `systemd/dv02-backup.service`, `.timer` | Daily 18:30 ET: the engine's state and the store to R2 |
 | `systemd/dv02-alert@.service` | Any DV02 unit that fails pings its heartbeat's `/fail` |
-| `bin/heartbeat`, `bin/backup`, `bin/migrate` | What those units run |
+| `bin/heartbeat`, `bin/backup` | What those units run |
+| `bin/postgres-up` | Starts the store (Postgres), making its password the first time (never shown); then `bin/migrate --backfill` |
+| `bin/migrate` | Creates the store's tables (`trading-engine/db/migrations`, each once); `--backfill` loads the engine's files |
 | `bin/gateway-ready` | Before each daily run: if IB Gateway isn't logged in to IBKR, restart its container once and wait for the login |
 | `bin/bootstrap` | A fresh Ubuntu 24.04 / Oracle Linux 9 VM to a running dashboard on Tailscale, in one command |
 | `bin/setup-app` | The `dv02` user, the checkout, its Python env, C++ engine and dashboard build (run again to update) |
-| `bin/install` | Installs the units; starts the API and its check (and the backup once it has a remote), **not** the daily run |
+| `bin/install` | Installs the units; starts the API and its check (the backup once it has a remote, the capture once the store is on), **not** the daily run |
 | `bin/check` | Checks the files: script syntax, calendar specs, `systemd-analyze verify` |
 | `dv02.env.example` | `/etc/dv02/dv02.env`: allowed host, heartbeat URLs, backup remote, DB user |
 | `cloudflared/config.yml.example` | The tunnel: one hostname to 127.0.0.1:8000 |
-| `postgres/docker-compose.yml` | Postgres 16 on 127.0.0.1:5432 (nothing writes to it yet) |
+| `postgres/docker-compose.yml` | Postgres 16 on 127.0.0.1:5432: the store for the trading record |
 
 The units expect the checkout at `/opt/dv02`, owned by a `dv02` user.
 
@@ -73,7 +76,6 @@ The architecture decides the first check below.
    - Docker with the compose plugin
    - git, curl, rclone
    - cloudflared
-   - the Postgres client (`psql`, `pg_dump`)
 2. **Check the gateway image runs on this CPU.**
    `docker manifest inspect ghcr.io/gnzsnz/ib-gateway:stable | grep architecture`
    must list the VM's (`arm64` on an Ampere A1 shape, `amd64` on x86). If it
@@ -96,12 +98,16 @@ The architecture decides the first check below.
    sudo -u dv02 bin/tradeit login   # the IBKR paper login, to ibgw/.env (mode 600)
    sudo -u dv02 bin/tradeit flex    # the Flex query and token, to .env
    ```
-5. **Postgres** (optional until something writes to it):
+5. **The store** (Postgres for the trading record; optional, the engine's
+   files stay its record):
    ```bash
-   sudo sh -c 'umask 077; printf %s "<the DV02_DB_PASSWORD value>" > /etc/dv02/pg_password'
-   sudo docker compose -f deploy/postgres/docker-compose.yml up -d
-   sudo -u dv02 bash -c 'set -a; . /etc/dv02/dv02.env; set +a; deploy/bin/migrate'
+   sudo deploy/bin/postgres-up    # the first time it makes the database password, in dv02.env
+                                  # and pg_password, never shown; then the tables and the
+                                  # engine's files go in. Safe to run again.
+   echo DV02_DB_ENABLED=1 | sudo tee -a /etc/dv02/dv02.env   # the run and the capture write to it
    ```
+   `bin/install` (next) then starts `dv02-capture.timer` too. To look inside:
+   `sudo docker compose -f deploy/postgres/docker-compose.yml exec postgres psql -U dv02 trading`.
 6. **The state, copied from the Mac.** These folders are git-ignored and exist
    only there. Without them the drift gate cold-starts (it rebalances at once)
    and the equity curve loses its history before Flex. With the Mac's run
@@ -132,6 +138,7 @@ The architecture decides the first check below.
    - **runner:** cron `35 15 * * 1-5`, zone America/New_York, grace 1 h
    - **api:** every 5 min, grace 10 min
    - **backup:** daily, grace 2 h
+   - **capture:** cron `30 16 * * 1-5`, zone America/New_York, grace 1 h
 
    A missing ping is the alert. So is a unit failing, through `dv02-alert@`.
 10. **Backups.** `rclone config` sets up an S3 remote, provider Cloudflare, with
@@ -200,5 +207,8 @@ What `switch vm` does, step by step:
 - The dashboard's schedule panel shows the 15:35 ET time and checks the timer
   (`systemctl is-enabled dv02-runner.timer`). It doesn't read the timer's own
   next run, so a timer edited by hand to another time would show wrong.
-- Nothing writes to Postgres yet. The run logs, NAV cache and expected book
-  are still files, which the backup covers.
+- Nothing reads the store yet: the dashboard and the reconcile read the
+  engine's files, which stay the record (writing to the store is best effort,
+  and a store that is down never stops a run). A run started by hand with
+  `bin/tradeit` doesn't load `/etc/dv02/dv02.env`, so it isn't written to the
+  store; `sudo deploy/bin/postgres-up` loads its files later.

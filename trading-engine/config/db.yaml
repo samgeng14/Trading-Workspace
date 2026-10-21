@@ -1,11 +1,13 @@
 # The Postgres store for bars, signals, targets, orders, fills, positions,
-# NAV and run logs (docs/PLAN.md, Phase 2). Not read by anything yet: until it
-# is wired, these settings have no effect. The tables are the ones
-# db/migrations creates, in that order; tests/unit/test_db_config.py keeps
-# this list and the migrations in step.
+# NAV and run logs (docs/PLAN.md, Phase 2). src/storage reads it: the daily
+# run records its log and the orders it sent, src.storage.capture the day's
+# fills, positions and close. The tables are the ones db/migrations creates,
+# in that order; tests/unit/test_db_config.py keeps this list and the
+# migrations in step.
 #
-# Credentials never go in this file: the VM's .env sets DV02_DB_USER and
-# DV02_DB_PASSWORD (git-ignored, entered by the owner over SSH).
+# Off here: DV02_DB_ENABLED=1 in the VM's /etc/dv02/dv02.env switches it on.
+# Credentials never go in this file: that env file sets DV02_DB_USER and
+# DV02_DB_PASSWORD (git-ignored, never in chat).
 
 database:
   enabled: false

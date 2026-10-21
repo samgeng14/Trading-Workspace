@@ -1,12 +1,24 @@
 #!/usr/bin/env bash
-# Apply trading-engine/db/migrations/*.sql, in order, to the local Postgres
-# (deploy/postgres). Each migration is CREATE ... IF NOT EXISTS, so a re-run
-# changes nothing. Credentials from DV02_DB_USER / DV02_DB_PASSWORD.
+# migrate [--backfill]: apply trading-engine/db/migrations/*.sql to the store, in
+# order and each once (src.storage.migrate notes them in schema_migrations); the
+# engine's own driver does it, as the VM has no psql. --backfill then loads the
+# engine's files (run logs, orders sent, positions, NAV), which changes nothing
+# already there. The login is DV02_DB_USER and DV02_DB_PASSWORD, from the
+# environment or /etc/dv02/dv02.env. Run as dv02.
 set -euo pipefail
 ROOT="${DV02_ROOT:-/opt/dv02}"
-: "${DV02_DB_PASSWORD:?set DV02_DB_PASSWORD in /etc/dv02/dv02.env}"
-for sql in "$ROOT"/trading-engine/db/migrations/*.sql; do
-  echo "applying $(basename "$sql")"
-  PGPASSWORD="$DV02_DB_PASSWORD" psql -h 127.0.0.1 -U "${DV02_DB_USER:-dv02}" -d trading \
-    -v ON_ERROR_STOP=1 -q -f "$sql"
-done
+ENV_FILE="${DV02_ENV_FILE:-/etc/dv02/dv02.env}"
+PY="${DV02_PYTHON:-$ROOT/.venv/bin/python}"
+if [ -z "${DV02_DB_PASSWORD:-}" ] && [ -r "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  set +a
+fi
+: "${DV02_DB_PASSWORD:?no DV02_DB_PASSWORD in $ENV_FILE: sudo deploy/bin/postgres-up makes one}"
+export DV02_DB_ENABLED=1  # this is the store's own setup: on, whatever the env file says
+cd "$ROOT/trading-engine"
+"$PY" -m src.storage.migrate
+if [ "${1:-}" = --backfill ]; then
+  "$PY" -m src.storage.backfill
+fi

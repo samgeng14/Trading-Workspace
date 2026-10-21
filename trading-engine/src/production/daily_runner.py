@@ -37,7 +37,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
@@ -582,6 +582,17 @@ def _halted_reason() -> str | None:
     return (state.reason or "no reason given") if state.armed else None
 
 
+def _to_store(what: str, write: Any) -> None:
+    """Copy part of the run to the Postgres store (src/storage) when it is on.
+    Best effort: a store that is off or down never touches the run."""
+    try:
+        from src.storage.record import best_effort
+    except Exception as exc:  # noqa: BLE001
+        log.debug("store not available: %s", exc)
+        return
+    best_effort(what, write)
+
+
 def _write_run_log(run_id: str, result: dict[str, Any]) -> Path:
     # A halted fund needs a person, so a real run reports an armed kill switch as
     # a failure whatever else it did: systemd's OnFailure alert then fires every
@@ -599,6 +610,13 @@ def _write_run_log(run_id: str, result: dict[str, Any]) -> Path:
     with open(out, "w") as f:
         json.dump(result, f, indent=2, default=str)
     log.info("Run log saved: %s", out)
+
+    def write(conn: Any) -> None:
+        from src.storage.record import record_run
+
+        record_run(conn, {**result, "run_id": run_id}, ended_at=datetime.now(timezone.utc))
+
+    _to_store("the run log", write)
     return out
 
 
@@ -699,6 +717,16 @@ def _record_submission(profile: str, run_id: str, result: dict[str, Any]) -> dic
         # the safe side, and the run log says why.
         log.exception("Could not record the submission in the expected book")
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _store_orders(conn: Any, profile: str, submission_path: Any) -> None:
+    """The submission log just written, as the store's orders rows."""
+    import pandas as pd
+    from src.storage.record import record_submission, submission_batch
+
+    batch = submission_batch(submission_path)
+    if batch:
+        record_submission(conn, profile, batch, pd.read_csv(submission_path).to_dict("records"))
 
 
 def step_append_daily(
@@ -996,6 +1024,7 @@ def step_submit_orders(
                 result["recorded"] = _record_submission(
                     profile, run_id or datetime.now().strftime("%Y%m%d_%H%M%S"), result
                 )
+                _to_store("the orders sent", lambda conn: _store_orders(conn, profile, result["submission_path"]))
         else:
             log.error("✗ Submit failed: %s", result.get("reason") or result.get("error"))
         return result

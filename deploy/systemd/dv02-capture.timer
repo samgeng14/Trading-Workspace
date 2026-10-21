@@ -1,0 +1,12 @@
+# 16:30 New York time on weekdays: after the close and the closing auction's
+# fills, whatever the VM's zone.
+[Unit]
+Description=DV02 post-close capture, 16:30 America/New_York on weekdays
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 16:30:00 America/New_York
+Persistent=true
+Unit=dv02-capture.service
+
+[Install]
+WantedBy=timers.target

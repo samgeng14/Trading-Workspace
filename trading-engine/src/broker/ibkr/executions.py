@@ -58,8 +58,11 @@ def _normalize_fill(fill: Any) -> dict[str, Any] | None:
             ts_iso = datetime.now(timezone.utc).isoformat()
 
         order_id = getattr(execution, "orderId", None)
+        perm_id = getattr(execution, "permId", None)
         return {
             "order_id": str(order_id) if order_id is not None else "",
+            # unique across clients and days, unlike orderId: how a fill finds its order
+            "perm_id": str(perm_id) if perm_id else "",
             "exec_id": str(getattr(execution, "execId", "") or ""),
             "symbol": str(symbol).strip().upper(),
             "qty": qty,
