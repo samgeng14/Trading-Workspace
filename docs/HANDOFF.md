@@ -102,7 +102,8 @@ composition change the targets have wanted since 2026-10-16.
 
 `bin/tradeit exit-test` (on the VM: `sudo -u dv02 /opt/dv02/bin/tradeit exit-test`)
 scores each session on the plan's four checks and counts the streak; 10 in a
-row passes (`src/runtime/exit_test.py`):
+row passes (`src/runtime/exit_test.py`). The dashboard's Operations page shows
+the same (GET /ops/exit-test), newest session first, with why a session failed:
 - **doctor:** that day's report has no FAIL. `dv02-doctor.timer` runs the
   doctor at 15:15 ET on weekdays and keeps the day's copy in
   `artifacts/doctor/`; the dashboard's Run doctor keeps one too. Until
