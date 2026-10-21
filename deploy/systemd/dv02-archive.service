@@ -1,0 +1,23 @@
+# Each evening: every listed futures contract's daily bar into the lake
+# (trading-engine/src/data/ingest/futures_curves.py, dataset futures_curves): the
+# forward archive of curves that carry research needs, since IBKR gives no history
+# of expired contracts. Read-only on IBKR, on its own client ID. Started by
+# dv02-archive.timer.
+[Unit]
+Description=DV02 futures curve archive
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=dv02-alert@%n.service
+
+[Service]
+Type=oneshot
+User=dv02
+Group=dv02
+WorkingDirectory=/opt/dv02/trading-engine
+EnvironmentFile=/etc/dv02/dv02.env
+Environment=APP_ENV=vm
+ExecStart=/opt/dv02/.venv/bin/python -m src.data.ingest.futures_curves
+ExecStartPost=/opt/dv02/deploy/bin/heartbeat archive
+TimeoutStartSec=45min
+NoNewPrivileges=true
+PrivateTmp=true

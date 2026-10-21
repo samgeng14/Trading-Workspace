@@ -88,7 +88,10 @@ each daily run's log and the orders it sent, and at 16:30 ET the day's fills,
 every position and the closing NAV from IBKR. Writing it is best effort; the
 engine's files stay the record until something reads the store. Phase 0's exit
 test is scored every session by `bin/tradeit exit-test`, with the doctor now run
-at 15:15 ET before each run. Still to do:
+at 15:15 ET before each run. The point-in-time lake has begun
+(`src/data/lake.py`: Parquet with `available_at`, DuckDB reads as of a moment),
+and its first dataset is the forward archive of futures curves: every listed
+contract of 23 roots, each evening from October 21. Still to do:
 backups to R2 and heartbeat alerts (they need the owner's accounts), Flex
 trades into `fills`, and the dashboard reading the store.
 

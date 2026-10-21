@@ -42,7 +42,8 @@ Cloudflare Access in front (the manual setup below).
 | `systemd/dv02-api-check.service`, `.timer` | Every 5 min: the API answers, then its heartbeat ping |
 | `systemd/dv02-doctor.service`, `.timer` | 15:15 ET, Mon–Fri: the IBKR doctor before the run; it keeps the day's report for `bin/tradeit exit-test`, and a FAIL alerts |
 | `systemd/dv02-capture.service`, `.timer` | 16:30 ET, Mon–Fri: the day's fills, every position and the closing NAV from IBKR into the store |
-| `systemd/dv02-backup.service`, `.timer` | Daily 18:30 ET: the engine's state and the store to R2 |
+| `systemd/dv02-archive.service`, `.timer` | 17:20 ET, Mon–Fri: every listed futures contract's daily bar into the lake (`data/lake/futures_curves`), the curve history carry research needs |
+| `systemd/dv02-backup.service`, `.timer` | Daily 18:30 ET: the engine's state, the lake and the store to R2 |
 | `systemd/dv02-alert@.service` | Any DV02 unit that fails pings its heartbeat's `/fail` |
 | `bin/heartbeat`, `bin/backup` | What those units run |
 | `bin/postgres-up` | Starts the store (Postgres), making its password the first time (never shown); then `bin/migrate --backfill` |
@@ -50,7 +51,7 @@ Cloudflare Access in front (the manual setup below).
 | `bin/gateway-ready` | Before each daily run: if IB Gateway isn't logged in to IBKR, restart its container once and wait for the login |
 | `bin/bootstrap` | A fresh Ubuntu 24.04 / Oracle Linux 9 VM to a running dashboard on Tailscale, in one command |
 | `bin/setup-app` | The `dv02` user, the checkout, its Python env, C++ engine and dashboard build (run again to update) |
-| `bin/install` | Installs the units; starts the API, its check and the daily doctor (the backup once it has a remote, the capture once the store is on), **not** the daily run |
+| `bin/install` | Installs the units; starts the API, its check, the daily doctor and the curve archive (the backup once it has a remote, the capture once the store is on), **not** the daily run |
 | `bin/check` | Checks the files: script syntax, calendar specs, `systemd-analyze verify` |
 | `dv02.env.example` | `/etc/dv02/dv02.env`: allowed host, heartbeat URLs, backup remote, DB user |
 | `cloudflared/config.yml.example` | The tunnel: one hostname to 127.0.0.1:8000 |
@@ -141,6 +142,7 @@ The architecture decides the first check below.
    - **backup:** daily, grace 2 h
    - **capture:** cron `30 16 * * 1-5`, zone America/New_York, grace 1 h
    - **doctor:** cron `15 15 * * 1-5`, zone America/New_York, grace 30 min
+   - **archive:** cron `20 17 * * 1-5`, zone America/New_York, grace 1 h
 
    A missing ping is the alert. So is a unit failing, through `dv02-alert@`.
 10. **Backups.** `rclone config` sets up an S3 remote, provider Cloudflare, with

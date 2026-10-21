@@ -16,6 +16,7 @@ ibgw/.env
 # runtime/local data
 trading-engine/artifacts/
 trading-engine/data/broker/
+trading-engine/data/lake/
 trading-engine/data/logs/
 
 # Office temp files

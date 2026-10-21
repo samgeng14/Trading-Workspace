@@ -151,6 +151,26 @@ Node; 6 more wait on Ubuntu's phased rollout) and rebooted into kernel
 7.0.0-1013-oracle. Everything came back by itself: the gateway logged in
 within 20 s, doctor 0 failed, API, Postgres, Tailscale and the timers up.
 
+## The lake and the futures curve archive, since 2026-10-21
+
+The plan's point-in-time lake has begun (`trading-engine/src/data/lake.py`):
+- **What it is.** Parquet under `trading-engine/data/lake/<dataset>/date=<session>/`
+  (git-ignored). Every row carries its session (`as_of`) and when it was known
+  (`available_at`, UTC).
+- **Writing and reading.** Nothing is overwritten: a session recorded again
+  adds a file. `lake.read(dataset, keys=..., known_at=...)` returns, through
+  DuckDB, what was known at a moment: the latest row per key by then.
+
+Its first dataset is the forward archive the plan asks for ("Start recording
+now"):
+- `dv02-archive.timer`, at 17:20 ET on weekdays, records every listed futures
+  contract expiring within about 13 months (`src/data/ingest/futures_curves.py`).
+- It covers the 23 roots in `config/universes/futures.yaml`'s `archive` list,
+  about 220 contracts, one daily bar each into `futures_curves`.
+- IBKR keeps no history of expired contracts, so this archive is the only way
+  sleeve S1's carry research gets curves; a missed evening is lost for good.
+- The backup includes the lake, once R2 is set up.
+
 ## Phase 0's exit test, tracked since 2026-10-21
 
 `bin/tradeit exit-test` (on the VM: `sudo -u dv02 /opt/dv02/bin/tradeit exit-test`)
@@ -548,13 +568,14 @@ Docs: https://code.claude.com/docs/en/chrome
 
 - Don't start the Mac's gateway (`bin/tradeit up` in `~/TradingWorkstation`)
   while the VM trades; move trading with `bin/tradeit switch mac` instead.
-- **Turn the alerts on.** Make five checks on healthchecks.io (free): the
+- **Turn the alerts on.** Make six checks on healthchecks.io (free): the
   daily run (period 1 day, grace about 1 hour), the API (period 5 minutes),
   the backup (1 day), the post-close capture (1 day, grace about 1 hour)
-  and the doctor before the run (1 day, grace 30 minutes). Put their ping
-  URLs in `/etc/dv02/dv02.env` on the VM as `DV02_HEARTBEAT_RUNNER`,
-  `DV02_HEARTBEAT_API`, `DV02_HEARTBEAT_BACKUP`, `DV02_HEARTBEAT_CAPTURE` and
-  `DV02_HEARTBEAT_DOCTOR`, then `sudo systemctl restart dv02-api`. Until
+  the doctor before the run (1 day, grace 30 minutes) and the curve archive
+  (1 day, grace 1 hour). Put their ping URLs in `/etc/dv02/dv02.env` on the VM
+  as `DV02_HEARTBEAT_RUNNER`, `DV02_HEARTBEAT_API`, `DV02_HEARTBEAT_BACKUP`,
+  `DV02_HEARTBEAT_CAPTURE`, `DV02_HEARTBEAT_DOCTOR` and `DV02_HEARTBEAT_ARCHIVE`,
+  then `sudo systemctl restart dv02-api`. Until
   then a failed or halted run tells nobody.
 - **Say how close "NAV matching the statement" must be** for Phase 0's exit
   test. `bin/tradeit exit-test` uses 0.10% of NAV (about $1,000) until then.
