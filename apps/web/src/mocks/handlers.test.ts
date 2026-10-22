@@ -159,7 +159,16 @@ describe.each(MOMENTS)("demo API at %s", (_label, at, session) => {
 
     // the shadow book mixes the live book and the trend sleeve half and half, as the engine does
     const strat = await get<S["StrategiesResponse"]>("/strategies");
-    expect(strat.sleeves.map((s) => s.id)).toEqual(["s0", "h2", "s1", "s3a", "r2-vix", "r2-vix-overlay", "r2-cot"]);
+    expect(strat.sleeves.map((s) => s.id)).toEqual([
+      "s0",
+      "h2",
+      "r3",
+      "s1",
+      "s3a",
+      "r2-vix",
+      "r2-vix-overlay",
+      "r2-cot",
+    ]);
     const pts = strat.shadow.points;
     expect(pts.length).toBeGreaterThan(20);
     for (let i = 1; i < pts.length; i++) {

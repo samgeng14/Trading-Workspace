@@ -1,0 +1,13 @@
+hypothesis,book,criterion,value,pass
+R3,R3 primary: short 10% in contango,1. excess Sharpe >= 0.40,0.7914351254656082,True
+R3,R3 primary: short 10% in contango,2. deflated Sharpe >= 0.90 (n 27),0.9257249210586783,True
+R3,R3 primary: short 10% in contango,3. block bootstrap 5th percentile of the excess Sharpe > 0,0.4356979186060349,True
+R3,R3 primary: short 10% in contango,4. every variant's excess Sharpe > 0 (worst variant),0.34428398262067933,True
+R3,R3 primary: short 10% in contango,5. max drawdown no worse than -20%,-0.07280929421910187,True
+R3,R3 primary: short 10% in contango,6. cost drag <= 1% a year,0.0032108859377364255,True
+R3,R3 primary: short 10% in contango,7. no day outside the mandate,0.0,True
+R3,R3 primary: short 10% in contango,8. worst day no worse than -12%,-0.039174090293806696,True
+R3,R3 primary: short 10% in contango,9. worst calendar month no worse than -15%,-0.029381095558314252,True
+R3,R3 primary: short 10% in contango,10. each stress window no worse than -15% (worst window),-0.06838681099769728,True
+R3,R3 primary: short 10% in contango,11a. 50/50 S0 + R3's excess Sharpe > S0's (difference),0.21393277446990805,True
+R3,R3 primary: short 10% in contango,11b. 50/50 S0 + R3 loses no more than S0 in each stress window (smallest margin),0.009634088746242497,True

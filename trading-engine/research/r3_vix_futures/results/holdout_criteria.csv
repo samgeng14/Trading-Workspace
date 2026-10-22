@@ -1,0 +1,2 @@
+hypothesis,book,rule,sharpe_excess,max_drawdown,worst_day,killed
+R3,R3 primary: short 10% in contango,"killed if its excess Sharpe is below -0.5, its drawdown worse than -15%, or its worst day worse than -12%",-0.2863736344131178,-0.09452990075765044,-0.02018482706756286,False

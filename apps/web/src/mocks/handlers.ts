@@ -1075,6 +1075,18 @@ const SLEEVES: S["Sleeve"][] = [
     report: "trading-engine/research/s3a_vol_overlay/REPORT.md",
   },
   {
+    id: "r3",
+    name: "R3, the VIX futures premium",
+    status: "shadow",
+    since: "2026-10-22",
+    summary:
+      "Short VIX futures at 10% of NAV while they trade above the VIX, else T-bills. Passed all 12 criteria, but one day decided it: short on 2018-02-05 it would have failed, and its holdout Sharpe was -0.29. Three months of shadow before anyone considers paper.",
+    sharpe: 0.79,
+    sharpe_se: 0.29,
+    max_drawdown: -0.073,
+    report: "trading-engine/research/r3_vix_futures/REPORT.md",
+  },
+  {
     id: "s1",
     name: "S1, cross-asset trend on ETFs",
     status: "failed",

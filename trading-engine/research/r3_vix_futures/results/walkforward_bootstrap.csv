@@ -1,0 +1,6 @@
+book,percentile,sharpe_excess
+R3 primary: short 10% in contango,5,0.4356979186060349
+R3 primary: short 10% in contango,25,0.6573793056875876
+R3 primary: short 10% in contango,50,0.8232523728200302
+R3 primary: short 10% in contango,75,0.9805751902673214
+R3 primary: short 10% in contango,95,1.21636464270644
