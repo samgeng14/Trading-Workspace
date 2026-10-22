@@ -197,6 +197,16 @@ as a miss, never raised: the shadow can't change a run. The Operations page
 the streak. PLAN §14's bar is two weeks: **10 sessions in a row matching, from
 the first run with it on 2026-10-22, so 2026-11-04 at the earliest.**
 
+**The first live session, 2026-10-22, matched on all three comparisons.**
+- **Reconcile:** the same 0 breaks. The 9 orders of 2026-10-21 counted in
+  full, the repaired book's first test.
+- **Drift gate:** the same decision. No rebalance: the composition changed,
+  but the run was inside the 3-day cooldown after the 10-21 orders.
+- **What-if basket:** the same 11 orders and auction (market-on-close).
+- No orders went out, so no `basket` or `orders` comparison yet, and no
+  acknowledgment timings for the slow-ack question. The next rebalance is due
+  on Monday 2026-10-26, once the cooldown has passed.
+
 Tested: 133 C++ tests (GCC 13 on the VM and Clang, sanitizers on), and
 `tests/unit/test_engine_oms.py` checks the engine against Python input for
 input: every day 1990–2045, the auction at the minutes around each cutoff,
