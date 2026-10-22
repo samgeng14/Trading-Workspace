@@ -1,0 +1,4 @@
+hypothesis,book,rule,sharpe_vs_benchmark,drawdown_vs_benchmark,killed
+H1,H1 1.00 1d,killed if its excess Sharpe is more than 0.5 below SPY's or its drawdown deeper than SPY's,-0.1468979032182285,0.07420085890158556,False
+H1b,H1b S0 out while inverted,killed if its drawdown is deeper than S0's or its excess Sharpe more than 0.5 below S0's,-0.15634797669433398,-0.02702203075865417,True
+H2,H2 TS-156,killed if its excess Sharpe is below -0.5 or its drawdown worse than -15%,0.6689492127384856,-0.05886119513726662,False

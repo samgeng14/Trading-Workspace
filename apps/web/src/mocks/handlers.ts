@@ -1098,6 +1098,41 @@ const SLEEVES: S["Sleeve"][] = [
     max_drawdown: -0.244,
     report: "trading-engine/research/s3a_vol_overlay/REPORT.md",
   },
+  {
+    id: "r2-vix",
+    name: "R2, VIX term-structure timing",
+    status: "failed",
+    since: "2026-10-21",
+    summary:
+      "SPY while VIX is below VIX3M, else T-bills (from 2009-10, when VIX3M starts). Trailed holding SPY (0.69) and lost 31% in 2022, whipsawed nine times.",
+    sharpe: 0.51,
+    sharpe_se: 0.28,
+    max_drawdown: -0.346,
+    report: "trading-engine/research/r2_vol_positioning/REPORT.md",
+  },
+  {
+    id: "r2-vix-overlay",
+    name: "R2, S0 out while the VIX curve is inverted",
+    status: "failed",
+    since: "2026-10-21",
+    summary: "Lowered S0's Sharpe and lost more than S0 in 2018 and 2022; the holdout killed it too (from 2009-10).",
+    sharpe: 0.29,
+    sharpe_se: 0.27,
+    max_drawdown: -0.216,
+    report: "trading-engine/research/r2_vol_positioning/REPORT.md",
+  },
+  {
+    id: "r2-cot",
+    name: "R2, COT hedging pressure",
+    status: "failed",
+    since: "2026-10-21",
+    summary:
+      "Long the ETF proxies of ten futures markets while hedgers are more net short than usual. Weak, negative in 2008 and 2022, and correlated 0.65 with S0.",
+    sharpe: 0.27,
+    sharpe_se: 0.26,
+    max_drawdown: -0.108,
+    report: "trading-engine/research/r2_vol_positioning/REPORT.md",
+  },
 ];
 
 /**

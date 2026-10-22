@@ -1,0 +1,15 @@
+check,value
+"Cboe VIX and VIX3M, both",from 2009-09-18
+sessions 2009-10-01 to 2023-10-11 with no same-day Cboe close (the latest before is used),0: 
+sessions 2009-10-01 to 2023-10-11 with no ratio at all,0
+COT GLD (088691),1938 reports 1986-01-15 to 2026-10-13; 156th usable from 1992-07-07; 34 published late
+COT SLV (084691),1938 reports 1986-01-15 to 2026-10-13; 156th usable from 1992-07-07; 34 published late
+COT USO (067651),1937 reports 1986-01-15 to 2026-10-13; 156th usable from 1992-07-07; 34 published late
+COT UNG (023651),1835 reports 1990-04-12 to 2026-10-13; 156th usable from 1994-08-09; 34 published late
+COT TLT (020601),1939 reports 1986-01-15 to 2026-10-13; 156th usable from 1992-07-07; 34 published late
+COT IEI (044601),1882 reports 1988-05-31 to 2026-10-13; 156th usable from 1993-09-28; 34 published late
+COT SPY (13874A),1513 reports 1997-09-16 to 2026-10-13; 156th usable from 2000-10-17; 34 published late
+COT QQQ (209742),1426 reports 1999-06-22 to 2026-10-13; 156th usable from 2002-06-18; 34 published late
+COT VEA (244041),801 reports 2011-06-14 to 2026-10-13; 156th usable from 2014-06-10; 34 published late
+COT VWO (244042),801 reports 2011-06-14 to 2026-10-13; 156th usable from 2014-06-10; 34 published late
+"S0 from 2008-01-02: excess Sharpe here, and in S3a's results","0.268481 here, 0.268481 in S3a's, equal"
