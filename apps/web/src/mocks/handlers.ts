@@ -1145,6 +1145,18 @@ const SLEEVES: S["Sleeve"][] = [
     max_drawdown: -0.108,
     report: "trading-engine/research/r2_vol_positioning/REPORT.md",
   },
+  {
+    id: "r1",
+    name: "R1, calendar timing",
+    status: "failed",
+    since: "2026-10-22",
+    summary:
+      "SPY on the turn of the month, else T-bills. Its days earned no more than SPY's others (t = 0.48), and the FOMC days that helped a variant did so only before 2016.",
+    sharpe: 0.22,
+    sharpe_se: 0.25,
+    max_drawdown: -0.151,
+    report: "trading-engine/research/r1_calendar_macro/REPORT.md",
+  },
 ];
 
 /**

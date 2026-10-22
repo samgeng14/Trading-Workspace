@@ -355,6 +355,15 @@ of NAV while the futures trade above the VIX, else T-bills.
   (`src/production/shadows.py`), as does `bin/tradeit shadow`.
 - The Strategies page shows each book (GET /strategies `shadows`).
 
+**R1, calendar timing, 2026-10-22** (`research/r1_calendar_macro/`,
+pre-registered, its costs amended at review before it ran, 3 trials, 30
+counted): **fails.** SPY on the turn of the month, else T-bills, scored 0.22,
+against 0.45 for holding SPY and 0.31 for SPY on all the other days.
+Turn-of-month days earned 5.6 bps a day over T-bills against 3.2 on the rest
+(t = 0.48). FOMC days earned far more (34.5 bps), but almost all of it before
+2016, as the literature on the fading pre-FOMC drift says. Data: the Fed's
+FOMC calendar and ALFRED's release dates, fetched by `fetch.py`.
+
 Cboe publishes a session's settlement overnight, so the evening's shadow holds
 the session before. Trading it later needs a futures path in the runner (VX has
 no market-on-close order) and CFE permissions on the paper account, or a short

@@ -13,11 +13,11 @@ Strategies page shows.
 | `s3a_vol_overlay/` | S0 scaled by its volatility (H1); S0 with a trend overlay (H2) | as S1 | 6 | H1 fails; **H2 passes, in shadow since 2026-10-22** |
 | `r2_vol_positioning/` | VIX term-structure timing, as an overlay on S0; COT hedging pressure | Cboe VIX and VIX3M, CFTC Commitments of Traders | 9 | all three fail |
 | `r3_vix_futures/` | short the VIX futures premium while in contango | Cboe VX settlements since 2004 | 4 | **passes, fragile; in shadow since 2026-10-22** |
-| `r1_calendar_macro/` | calendar and macro-announcement timing | the Fed's FOMC calendar, release dates | | being prepared |
+| `r1_calendar_macro/` | the turn of the month; with FOMC days; with jobs and CPI days | the Fed's FOMC calendar, ALFRED's release dates | 3 | fails (Sharpe 0.22; the days earn no more than SPY's others) |
 
-**27 trials are counted so far.** The deflated Sharpe of every study counts all
+**30 trials are counted so far.** The deflated Sharpe of every study counts all
 of them, and the newest study's `results/trials.csv` lists them with their
-Sharpes. Their variance (0.0414 a year since R3) sets the bar each new study
+Sharpes. Their variance (0.0378 a year after R1) sets the bar each new study
 must clear.
 
 ## The protocol, as these studies ran it
