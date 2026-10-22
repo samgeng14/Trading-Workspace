@@ -379,6 +379,37 @@ the day 3.5%, so the papers' "all of it overnight" didn't hold from 2008 to
 that trade every day need edges several times larger; the next candidates
 should hold for weeks.
 
+**R5, Treasury duration by the curve's carry, 2026-10-22**
+(`research/r5_bond_carry/`, pre-registered, reviewed and amended before it
+ran, 3 trials, 36 counted): **fails, on 5 of 14 criteria.** TLT while its
+yield is above the 3-month bill's, else T-bills, scored 0.28 against TLT
+held's 0.19.
+- It held TLT on 178 of 190 decisions, so the verdict mostly grades long
+  Treasuries from 2008 to 2023.
+- Its carry turned negative only at the end of November 2022, after most of
+  that year's fall: −26.8% in 2022, a −44% drawdown.
+- Beside S0 it lifted the Sharpe from 0.33 to 0.49 and halved S0's loss in
+  six of the eight crashes. But in 2022 the 50/50 lost 18.3% against S0's
+  9.8%.
+- Data: FRED's and Treasury's daily yields (they agree on all 54,261),
+  and the bond ETFs' coupons from the vendor's total-return index and IBKR's
+  adjusted closes.
+- **Every book is on total returns from R5 on,** and S0 scores 0.33 on that
+  basis, not 0.27.
+- **IBKR's adjusted closes miss BIL's $0.39 distribution of 2024-12-19,** and
+  have one-day blips that reverse (`research/README.md`). The live model's
+  signals read them; no error is inside today's lookbacks.
+
+**Free data checked for the next studies** (2026-10-22):
+- EIA's files need no key. Its weekly US crude inventories run from 1982 to
+  last week, Cushing's from 2004, natural gas storage from 2010, and the WTI
+  spot price daily to the day before.
+- EIA's NYMEX futures prices (crude contracts 1–4 from 1983, natural gas from
+  1994) stop at 2024-04-05, short of the holdout.
+- So "oil while inventories are low, else T-bills", trading USO (in the
+  master since 2006), is testable over the whole window. A test of the curve
+  itself isn't.
+
 Cboe publishes a session's settlement overnight, so the evening's shadow holds
 the session before. Trading it later needs a futures path in the runner (VX has
 no market-on-close order) and CFE permissions on the paper account, or a short

@@ -15,10 +15,11 @@ Strategies page shows.
 | `r3_vix_futures/` | short the VIX futures premium while in contango | Cboe VX settlements since 2004 | 4 | **passes, fragile; in shadow since 2026-10-22** |
 | `r1_calendar_macro/` | the turn of the month; with FOMC days; with jobs and CPI days | the Fed's FOMC calendar, ALFRED's release dates | 3 | fails (Sharpe 0.22; the days earn no more than SPY's others) |
 | `r4_overnight/` | SPY (or QQQ) held only from the close to the next open, through the auctions | the ETF master's opens and closes, dividends | 3 | fails (Sharpe 0.15; the day earned too, and a round trip a night costs 3.5% a year) |
+| `r5_bond_carry/` | TLT (or IEI, SHY) while its yield is above the 3-month bill's, else T-bills | FRED's and Treasury's daily yields; the bond ETFs' coupons from two sources | 3 | fails (Sharpe 0.28, TLT held's 0.19; it held TLT through 2022) |
 
-**33 trials are counted so far.** The deflated Sharpe of every study counts all
+**36 trials are counted so far.** The deflated Sharpe of every study counts all
 of them, and the newest study's `results/trials.csv` lists them with their
-Sharpes. Their variance (0.0360 a year after R4) sets the bar each new study
+Sharpes. Their variance (0.0335 a year after R5) sets the bar each new study
 must clear.
 
 ## The protocol, as these studies ran it
@@ -51,5 +52,14 @@ must clear.
   `fetch.py` caches them in `_data/` (git-ignored) and fetches again what's
   missing. They are data only: parsed, never run.
 - WRDS needs a Duo prompt: never automated (CLAUDE.md).
-- The ETF prices are the repo's master. Before 2016-10 they leave out
-  dividends, for every book alike.
+- The ETF prices are the repo's master. Up to R4, every book left out
+  dividends before 2016-10, all alike.
+- **R5 put every book on total returns** (`r5_bond_carry/data.py`'s
+  `tr_closes`): the vendor's total-return index to 2026-03-06, then IBKR's
+  adjusted closes. A bond fund's coupon is most of its return. On that basis
+  S0 scores 0.33 instead of 0.27. Later studies should use it.
+- **IBKR's adjusted closes have errors the vendor's index shows:**
+  - They miss BIL's $0.39 distribution on 2024-12-19, so the earlier
+    studies' 2024 T-bill return (in their holdouts) is 0.42% too low.
+  - One-day blips that reverse: TLT 2023-08-09; SLV, VNQ, VWO and VIXY
+    2017-03-20; and SPY's that R4 found.
