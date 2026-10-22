@@ -23,6 +23,25 @@ def trade_status(trade: Any) -> str:
     return str(getattr(getattr(trade, "orderStatus", None), "status", None) or "")
 
 
+def trade_log(trade: Any) -> list[dict[str, Any]]:
+    """What IBKR said about an order, from ib_async's trade log: each status change and
+    each message IBKR attached (a warning, a rejection), in seconds after it was sent.
+    Kept with each order to find out why the gateway is slow to acknowledge."""
+    log = list(getattr(trade, "log", None) or [])
+    if not log:
+        return []
+    sent = log[0].time
+    return [
+        {
+            "s": round((e.time - sent).total_seconds(), 2),
+            "status": e.status or "",
+            "code": int(getattr(e, "errorCode", 0) or 0),
+            "message": e.message or "",
+        }
+        for e in log
+    ]
+
+
 def acknowledged_after(trade: Any) -> float | None:
     """Seconds from sending an order to IBKR's first word on it, from ib_async's
     trade log; None while IBKR has said nothing (or the trade keeps no log)."""

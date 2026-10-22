@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -26,6 +28,7 @@ from src.broker.ibkr.orders import (  # noqa: E402
     IBKROrderManager,
     OrderRequest,
     acknowledged_after,
+    trade_log,
     trade_status,
 )
 from src.broker.ibkr.settings import resolve_endpoint  # noqa: E402
@@ -298,12 +301,19 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
         for row, trade in sent:
             summary = manager.summarize_trade(trade)
             status = trade_status(trade)
+            said = trade_log(trade)
             row.update(
                 status=status,
                 order_id=summary.get("order_id"),
                 perm_id=summary.get("perm_id"),
                 acknowledged_s=acknowledged_after(trade),
+                status_log=json.dumps(said),
             )
+            logging.getLogger(__name__).info(
+                "%s %s %s: %s", row["action"], row["quantity"], row["symbol"],
+                " → ".join(f"{e['status'] or e['code']} at {e['s']}s" + (f" ({e['message']})" if e["message"] else "")
+                           for e in said) or status,
+            )  # fmt: skip
             # sent, so not an error the reconcile skips: IBKR has it unless it says otherwise
             if config.wait_for_status and status in UNACKNOWLEDGED:
                 row["error"] = (

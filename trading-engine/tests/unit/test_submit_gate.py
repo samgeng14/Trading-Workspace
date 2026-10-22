@@ -321,3 +321,34 @@ def test_the_wait_is_one_wait_for_the_whole_batch():
            SimpleNamespace(time=sent + timedelta(seconds=0.4), status="PreSubmitted")]  # fmt: skip
     assert acknowledged_after(SimpleNamespace(log=log)) == 0.4
     assert acknowledged_after(SimpleNamespace(log=log[:1])) is None
+
+
+def test_each_orders_timeline_from_ibkr_is_kept(run_root, monkeypatch, caplog):
+    import json
+    import logging
+    from datetime import datetime, timedelta, timezone
+
+    sent = datetime(2026, 10, 22, 19, 35, 14, tzinfo=timezone.utc)
+
+    class Talkative(FakeManager):
+        def place_order(self, request, **kw):
+            trade = super().place_order(request, **kw)
+            trade.log = [
+                SimpleNamespace(time=sent, status="PendingSubmit", message="", errorCode=0),
+                SimpleNamespace(time=sent + timedelta(seconds=31.2), status="PendingSubmit", errorCode=399,
+                                message="Order Message: warning, held until the closing auction"),
+                SimpleNamespace(time=sent + timedelta(seconds=31.9), status="PreSubmitted", message="", errorCode=0),
+            ]  # fmt: skip
+            return trade
+
+    monkeypatch.setattr(spo, "IBKROrderManager", Talkative)
+    orders = write_run(run_root, MODEL, [("SPY", -100, 100.0)], cash=100_000)
+    with caplog.at_level(logging.INFO):
+        spo.submit_paper_orders(config_for(run_root, orders))
+    log = pd.read_csv(submissions(run_root)[0])
+    said = json.loads(log.loc[0, "status_log"])
+    assert [e["status"] for e in said] == ["PendingSubmit", "PendingSubmit", "PreSubmitted"]
+    assert said[1] == {"s": 31.2, "status": "PendingSubmit", "code": 399,
+                       "message": "Order Message: warning, held until the closing auction"}  # fmt: skip
+    assert log.loc[0, "acknowledged_s"] == 31.9
+    assert "SELL 100 SPY: PendingSubmit at 0.0s → PendingSubmit at 31.2s (Order Message" in caplog.text
