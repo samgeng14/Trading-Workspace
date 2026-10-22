@@ -37,7 +37,11 @@ from src.common import clock
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SESSIONS_NEEDED = 10
 # The API records the close from IBKR's live marks 15 minutes after it; the
-# statement uses the official closes and accruals. 0.10% is about $1,000.
+# statement uses the official closes and accruals. Set at 0.10%, about $1,000
+# (the owner left the number to Claude, 2026-10-21): a few times the timing noise
+# of marks against closing prints, and under any real accounting error. A missing
+# position or a fill off by tens of shares is 0.3% or more, and the reconcile
+# checks every position to the share underneath it.
 NAV_TOLERANCE = 0.001
 FLEX_LAG_SESSIONS = 3  # today and the two sessions before it may still lack a statement
 CHECKS = ("doctor", "run", "reconcile", "nav")

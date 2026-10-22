@@ -34,6 +34,8 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
 
 ## Owner decisions already made (don't re-ask)
 
+- Phase 0's NAV check: the recorded close within 0.10% of IBKR's statement
+  (`src/runtime/exit_test.py`; the owner left the number to Claude).
 - Holdings outside the model are sold at the next rebalance.
 - TQQQ is out of the model (QQQ is already in it). The model universe is
   `trading-engine/config/universes/etfs.yaml`.

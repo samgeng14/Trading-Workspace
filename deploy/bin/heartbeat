@@ -7,7 +7,7 @@
 # reported on stderr only.
 set -uo pipefail
 job="${1:?usage: heartbeat JOB [fail]}"
-job="${job#dv02-}"; job="${job%.service}"
+job="${job#dv02-}"; job="${job%.service}"; job="${job%-check}"  # dv02-api-check is the API's
 var="DV02_HEARTBEAT_$(printf '%s' "$job" | tr '[:lower:]-' '[:upper:]_')"
 url="${!var:-}"
 if [ -z "$url" ]; then

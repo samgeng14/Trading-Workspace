@@ -47,6 +47,7 @@ Cloudflare Access in front (the manual setup below).
 | `systemd/dv02-backup.service`, `.timer` | Daily 18:30 ET: the engine's state, the lake and the store to R2 |
 | `systemd/dv02-alert@.service` | Any DV02 unit that fails pings its heartbeat's `/fail` |
 | `bin/heartbeat`, `bin/backup` | What those units run |
+| `bin/set-heartbeats` | Asks for each job's healthchecks.io ping URL, saves it in `/etc/dv02/dv02.env` and pings it once |
 | `bin/postgres-up` | Starts the store (Postgres), making its password the first time (never shown); then `bin/migrate --backfill` |
 | `bin/migrate` | Creates the store's tables (`trading-engine/db/migrations`, each once); `--backfill` loads the engine's files |
 | `bin/gateway-ready` | Before each daily run: if IB Gateway isn't logged in to IBKR, restart its container once and wait for the login |
@@ -136,8 +137,9 @@ The architecture decides the first check below.
    - In Cloudflare Zero Trust → Access → Applications, add a self-hosted
      application for the hostname. Its one policy allows only the owner's
      email. Check from the phone: the login page, then the dashboard.
-9. **Heartbeats.** Create one healthchecks.io check per job, and put their
-   ping URLs in `/etc/dv02/dv02.env`:
+9. **Heartbeats.** Create one healthchecks.io check per job, then run
+   `sudo deploy/bin/set-heartbeats`: it asks for each ping URL, saves it in
+   `/etc/dv02/dv02.env` and pings it once.
    - **runner:** cron `35 15 * * 1-5`, zone America/New_York, grace 1 h
    - **api:** every 5 min, grace 10 min
    - **backup:** daily, grace 2 h
