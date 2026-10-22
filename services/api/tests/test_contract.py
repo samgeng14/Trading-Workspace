@@ -76,6 +76,7 @@ GETS = [
     ("/ops/doctor", "/ops/doctor"),
     ("/ops/exit-test", "/ops/exit-test"),
     ("/data/datasets", "/data/datasets"),
+    ("/strategies", "/strategies"),
     ("/ops/runs", "/ops/runs"),
 ]
 

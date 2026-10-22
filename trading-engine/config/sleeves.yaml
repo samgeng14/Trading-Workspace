@@ -1,0 +1,59 @@
+# The fund's sleeves and where each stands against the research gate
+# (docs/PLAN.md §9). The dashboard's Strategies page shows this list
+# (src/strategies/sleeves.py). sharpe, sharpe_se and max_drawdown are each study's
+# walk-forward, 2008-01 to 2023-10, costs on, in excess of T-bills; the report
+# has the rest. Update an entry when a sleeve moves on (shadow, paper, live) or a
+# study finishes.
+#
+# status: live (trades the account), shadow (logged daily, nothing sent),
+#         paper (trades the paper account beside the live model),
+#         failed (didn't pass the gate), research (being tested)
+
+sleeves:
+  - id: s0
+    name: S0, the live model
+    status: live
+    since: 2026-10-16  # from the VM; from the Mac before
+    summary: >-
+      Long-only cross-sectional momentum on 21 ETFs, rebalanced on drift. A
+      plumbing test: its Sharpe is indistinguishable from zero.
+    sharpe: 0.27
+    sharpe_se: 0.26
+    max_drawdown: -0.380
+    report: trading-engine/research/s1_trend/REPORT.md
+
+  - id: h2
+    name: S0 with a trend overlay
+    status: shadow
+    since: 2026-10-22
+    summary: >-
+      Half S0, half the S1 trend sleeve long/flat. Passed the gate on drawdown at
+      S0's Sharpe; three months of shadow, then paper if it holds.
+    sharpe: 0.31
+    sharpe_se: 0.26
+    max_drawdown: -0.221
+    report: trading-engine/research/s3a_vol_overlay/REPORT.md
+
+  - id: s1
+    name: S1, cross-asset trend on ETFs
+    status: failed
+    since: 2026-10-21
+    summary: >-
+      Fails alone; hedges S0 well (+10% in 2008, when S0 lost 23%). The futures
+      version, with carry, waits for the curve archive.
+    sharpe: 0.15
+    sharpe_se: 0.25
+    max_drawdown: -0.103
+    report: trading-engine/research/s1_trend/REPORT.md
+
+  - id: s3a
+    name: S3a, a volatility overlay on S0
+    status: failed
+    since: 2026-10-21
+    summary: >-
+      Cut S0's drawdown to 64% of it against a 60% limit fixed beforehand; the
+      holdout would have killed it too.
+    sharpe: 0.32
+    sharpe_se: 0.26
+    max_drawdown: -0.244
+    report: trading-engine/research/s3a_vol_overlay/REPORT.md

@@ -20,7 +20,22 @@ from fastapi import FastAPI, Query, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.datastructures import Headers
 
-from . import engine, flex, history, mandate, nyse, ops, orders, performance, rebalance, risk, runs, stats, stream
+from . import (
+    engine,
+    flex,
+    history,
+    mandate,
+    nyse,
+    ops,
+    orders,
+    performance,
+    rebalance,
+    risk,
+    runs,
+    stats,
+    strategies,
+    stream,
+)
 from .broker import PER_CONTRACT, AccountSnap, Broker, PositionSnap, lookup_position
 from .universe import BENCHMARKS, BY_SYMBOL
 
@@ -702,6 +717,11 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
                 except Exception as exc:  # noqa: BLE001
                     log.warning("kill switch armed, but cancelling %s failed: %s", orders.order_id(trade), exc)
         return state
+
+    @app.get(f"{v1}/strategies")
+    async def get_strategies() -> dict[str, Any]:
+        doc = await asyncio.to_thread(strategies.load)
+        return {"as_of": _now().isoformat(timespec="seconds"), **doc}
 
     @app.get(f"{v1}/data/datasets")
     async def get_datasets() -> dict[str, Any]:

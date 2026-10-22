@@ -474,8 +474,37 @@
   font-size: var(--fs-xs);
 }
 
+/* Strategies: a sleeve's name, then what it is and where it stands */
+.table td.sleeve-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 16rem;
+  white-space: normal;
+}
+
+.sleeve-summary {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+.table.sleeves td {
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  vertical-align: top;
+}
+
+.sleeve-weights,
+.panel-note {
+  padding: 8px 12px;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+
 /* Data: a dataset's name, then where it comes from and when it is filled */
-.dataset-name {
+.table td.dataset-name {
   display: flex;
   flex-direction: column;
   gap: 2px;

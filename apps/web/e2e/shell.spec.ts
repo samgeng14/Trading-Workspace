@@ -6,6 +6,7 @@ const SECTIONS = [
   { id: "nav.performance", path: "/performance", title: "Performance", key: "f" },
   { id: "nav.risk", path: "/risk", title: "Risk", key: "r" },
   { id: "nav.trading", path: "/trading", title: "Trading", key: "t" },
+  { id: "nav.strategies", path: "/strategies", title: "Strategies", key: "y" },
   { id: "nav.data", path: "/data", title: "Data", key: "d" },
   { id: "nav.operations", path: "/ops", title: "Operations", key: "s" },
 ];

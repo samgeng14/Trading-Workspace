@@ -6,6 +6,7 @@ import { startStream } from "./api/stream";
 import { ToastProvider } from "./components/Toasts";
 import { ServerClockProvider } from "./lib/serverClock";
 import { Data } from "./pages/Data";
+import { Strategies } from "./pages/Strategies";
 import { Operations } from "./pages/Operations";
 import { Overview } from "./pages/Overview";
 import { Performance } from "./pages/Performance";
@@ -43,6 +44,7 @@ export function App() {
                   <Route path="/performance" element={<Performance />} />
                   <Route path="/risk" element={<Risk />} />
                   <Route path="/trading" element={<Trading />} />
+                  <Route path="/strategies" element={<Strategies />} />
                   <Route path="/data" element={<Data />} />
                   <Route path="/ops" element={<Operations />} />
                 </Routes>

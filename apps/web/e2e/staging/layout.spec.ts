@@ -12,6 +12,7 @@ const PAGES = [
   { path: "/performance", title: "Performance", ready: ".history-empty" },
   { path: "/risk", title: "Risk", ready: '[aria-label="Limits"] .meter-row' },
   { path: "/trading", title: "Trading", ready: '[aria-label="Pre-trade checks"] li' },
+  { path: "/strategies", title: "Strategies", ready: '[aria-label="Sleeves"] tbody tr' },
   { path: "/data", title: "Data", ready: '[aria-label="Datasets"] tbody tr' },
   { path: "/ops", title: "Operations", ready: '[aria-label="Schedule"] .schedule-row' },
 ];

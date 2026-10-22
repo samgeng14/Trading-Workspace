@@ -16,6 +16,7 @@ export const CONTROLS = [
   "nav.performance",
   "nav.risk",
   "nav.trading",
+  "nav.strategies",
   "nav.data",
   "nav.operations",
   "topbar.health",
@@ -55,6 +56,7 @@ export const CONTROLS = [
   "performance.growth.plot",
   "performance.growth.mode.*",
   "performance.drawdown.plot",
+  "strategies.shadow.plot",
   "performance.monthly.*",
   // risk
   "risk.exposure.plot",

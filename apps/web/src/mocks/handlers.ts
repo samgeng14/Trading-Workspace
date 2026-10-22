@@ -1048,6 +1048,106 @@ function doctor(): S["DoctorReport"] {
   };
 }
 
+// trading-engine/config/sleeves.yaml, as the real API serves it
+const SLEEVES: S["Sleeve"][] = [
+  {
+    id: "s0",
+    name: "S0, the live model",
+    status: "live",
+    since: "2026-10-16",
+    summary:
+      "Long-only cross-sectional momentum on 21 ETFs, rebalanced on drift. A plumbing test: its Sharpe is indistinguishable from zero.",
+    sharpe: 0.27,
+    sharpe_se: 0.26,
+    max_drawdown: -0.38,
+    report: "trading-engine/research/s1_trend/REPORT.md",
+  },
+  {
+    id: "h2",
+    name: "S0 with a trend overlay",
+    status: "shadow",
+    since: "2026-10-22",
+    summary:
+      "Half S0, half the S1 trend sleeve long/flat. Passed the gate on drawdown at S0's Sharpe; three months of shadow, then paper if it holds.",
+    sharpe: 0.31,
+    sharpe_se: 0.26,
+    max_drawdown: -0.221,
+    report: "trading-engine/research/s3a_vol_overlay/REPORT.md",
+  },
+  {
+    id: "s1",
+    name: "S1, cross-asset trend on ETFs",
+    status: "failed",
+    since: "2026-10-21",
+    summary:
+      "Fails alone; hedges S0 well (+10% in 2008, when S0 lost 23%). The futures version, with carry, waits for the curve archive.",
+    sharpe: 0.15,
+    sharpe_se: 0.25,
+    max_drawdown: -0.103,
+    report: "trading-engine/research/s1_trend/REPORT.md",
+  },
+  {
+    id: "s3a",
+    name: "S3a, a volatility overlay on S0",
+    status: "failed",
+    since: "2026-10-21",
+    summary:
+      "Cut S0's drawdown to 64% of it against a 60% limit fixed beforehand; the holdout would have killed it too.",
+    sharpe: 0.32,
+    sharpe_se: 0.26,
+    max_drawdown: -0.244,
+    report: "trading-engine/research/s3a_vol_overlay/REPORT.md",
+  },
+];
+
+/**
+ * The shadow book on the demo's history: the live book is the simulated NAV, the
+ * trend sleeve a calmer mix of SPY and cash, and the shadow book half of each, as
+ * trading-engine/src/production/shadow_h2.py mixes them.
+ */
+function strategies(): S["StrategiesResponse"] {
+  const { at, snap } = current();
+  const book = snap.hist.book.slice(-41, snap.live ? -1 : undefined);
+  const spy = snap.hist.close.get("SPY")!;
+  const dates = snap.hist.dates;
+  let h2 = 1;
+  let live = 1;
+  let sleeve = 1;
+  const points: S["ShadowPoint"][] = [];
+  for (let i = 1; i < book.length; i++) {
+    const day = book[i]!.date;
+    const k = dates.indexOf(day);
+    const rLive = book[i]!.nav / book[i - 1]!.nav - 1;
+    const rSleeve = 0.3 * (spy[k]! / spy[k - 1]! - 1) + 0.7 * 0.00017;
+    live *= 1 + rLive;
+    sleeve *= 1 + rSleeve;
+    h2 *= 1 + 0.5 * rLive + 0.5 * rSleeve;
+    points.push({ date: day, h2, live, sleeve });
+  }
+  const start = book[0]!.date;
+  return {
+    as_of: iso(at),
+    sleeves: SLEEVES,
+    shadow: {
+      name: "S0 with a trend overlay (H2)",
+      start,
+      sessions: points.length,
+      through: points.at(-1)?.date ?? null,
+      points,
+      decision: {
+        decided: start,
+        executed: nextTradingDay(start),
+        weights: { BIL: 0.62, SPY: 0.11, VWO: 0.081, VNQ: 0.065, VEA: 0.052, GLD: 0.033, USO: 0.023, SLV: 0.01 },
+      },
+      would_be_orders: [
+        { symbol: "BIL", action: "BUY", quantity: 3298, dollars: 301865.38 },
+        { symbol: "GLD", action: "SELL", quantity: 158, dollars: 60206.01 },
+        { symbol: "VWO", action: "BUY", quantity: 906, dollars: 53144.06 },
+      ],
+    },
+  };
+}
+
 /**
  * Every dataset's watermark, as the engine's registry measures it
  * (trading-engine/src/data/datasets.py), on the demo's clock: each one holds the
@@ -1320,4 +1420,5 @@ export const handlers = [
   http.get(`${API}/ops/runs`, () => HttpResponse.json(runs())),
   http.get(`${API}/ops/exit-test`, () => HttpResponse.json(exitTest())),
   http.get(`${API}/data/datasets`, () => HttpResponse.json(datasets())),
+  http.get(`${API}/strategies`, () => HttpResponse.json(strategies())),
 ];

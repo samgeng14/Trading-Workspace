@@ -22,6 +22,7 @@ export const keys = {
   doctor: ["ops", "doctor"] as const,
   exitTest: ["ops", "exit-test"] as const,
   datasets: ["data", "datasets"] as const,
+  strategies: ["strategies"] as const,
   runs: ["ops", "runs"] as const,
 };
 
@@ -108,6 +109,9 @@ export const useDoctor = () => useQuery({ queryKey: keys.doctor, queryFn: () => 
 
 export const useRuns = () =>
   useQuery({ queryKey: keys.runs, queryFn: () => unwrap(api.GET("/ops/runs")), refetchInterval: SLOW_MS });
+
+export const useStrategies = () =>
+  useQuery({ queryKey: keys.strategies, queryFn: () => unwrap(api.GET("/strategies")), refetchInterval: SLOW_MS });
 
 export const useDatasets = () =>
   useQuery({ queryKey: keys.datasets, queryFn: () => unwrap(api.GET("/data/datasets")), refetchInterval: SLOW_MS });

@@ -157,6 +157,16 @@ describe.each(MOMENTS)("demo API at %s", (_label, at, session) => {
     const runs = await get<S["RunsResponse"]>("/ops/runs");
     expect(runs.runs.length).toBeGreaterThan(5);
 
+    // the shadow book mixes the live book and the trend sleeve half and half, as the engine does
+    const strat = await get<S["StrategiesResponse"]>("/strategies");
+    expect(strat.sleeves.map((s) => s.id)).toEqual(["s0", "h2", "s1", "s3a"]);
+    const pts = strat.shadow.points;
+    expect(pts.length).toBeGreaterThan(20);
+    for (let i = 1; i < pts.length; i++) {
+      const r = (k: "h2" | "live" | "sleeve") => pts[i]![k] / pts[i - 1]![k] - 1;
+      expect(r("h2")).toBeCloseTo(0.5 * r("live") + 0.5 * r("sleeve"), 12);
+    }
+
     // every dataset current but the store, which the demo doesn't keep
     const data = await get<S["DatasetsResponse"]>("/data/datasets");
     expect(data.datasets.map((d) => d.state)).toEqual([...Array(9).fill("ok"), "off"]);

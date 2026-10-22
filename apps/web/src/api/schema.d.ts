@@ -290,6 +290,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/strategies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The fund's sleeves against the research gate, and the shadow book's record.
+         * @description Sleeves come from trading-engine/config/sleeves.yaml: each one's status
+         *     (live, paper, shadow, research, failed) and its walk-forward numbers.
+         *     The shadow book is H2, S0 with a trend overlay
+         *     (trading-engine/src/production/shadow_h2.py): its value since its start
+         *     beside the live account's and the trend sleeve's, its latest decision,
+         *     and the orders it would send to replace S0. Nothing from it is sent.
+         */
+        get: operations["getStrategies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/data/datasets": {
         parameters: {
             query?: never;
@@ -767,6 +792,63 @@ export interface components {
             endpoint: string;
             results: components["schemas"]["DoctorResult"][];
         };
+        Sleeve: {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            status: "live" | "paper" | "shadow" | "research" | "failed";
+            /** Format: date */
+            since: string | null;
+            summary: string;
+            /** @description walk-forward Sharpe in excess of T-bills */
+            sharpe: number | null;
+            sharpe_se: number | null;
+            /** @description a fraction, negative */
+            max_drawdown: number | null;
+            /** @description the study's report, a path in the repository */
+            report: string | null;
+        };
+        ShadowPoint: {
+            /** Format: date */
+            date: string;
+            /** @description growth of 1 since the start */
+            h2: number;
+            live: number;
+            sleeve: number;
+        };
+        WouldBeOrder: {
+            symbol: string;
+            /** @enum {string} */
+            action: "BUY" | "SELL";
+            quantity: number;
+            dollars: number;
+        };
+        ShadowBook: {
+            name: string;
+            /** Format: date */
+            start: string;
+            sessions: number;
+            /** Format: date */
+            through: string | null;
+            points: components["schemas"]["ShadowPoint"][];
+            /** @description The trend sleeve's latest decision, or null before its first. */
+            decision: {
+                /** Format: date */
+                decided: string;
+                /** Format: date */
+                executed: string;
+                weights: {
+                    [key: string]: number;
+                };
+            } | null;
+            would_be_orders: components["schemas"]["WouldBeOrder"][];
+        };
+        StrategiesResponse: {
+            /** Format: date-time */
+            as_of: string;
+            sleeves: components["schemas"]["Sleeve"][];
+            shadow: components["schemas"]["ShadowBook"];
+        };
         Dataset: {
             name: string;
             title: string;
@@ -1243,6 +1325,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunsResponse"];
+                };
+            };
+        };
+    };
+    getStrategies: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategiesResponse"];
                 };
             };
         };

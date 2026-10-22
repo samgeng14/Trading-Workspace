@@ -239,6 +239,24 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/RunsResponse" }
 
+  /strategies:
+    get:
+      operationId: getStrategies
+      summary: The fund's sleeves against the research gate, and the shadow book's record.
+      description: |
+        Sleeves come from trading-engine/config/sleeves.yaml: each one's status
+        (live, paper, shadow, research, failed) and its walk-forward numbers.
+        The shadow book is H2, S0 with a trend overlay
+        (trading-engine/src/production/shadow_h2.py): its value since its start
+        beside the live account's and the trend sleeve's, its latest decision,
+        and the orders it would send to replace S0. Nothing from it is sent.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StrategiesResponse" }
+
   /data/datasets:
     get:
       operationId: getDatasets
@@ -913,6 +931,75 @@ components:
         results:
           type: array
           items: { $ref: "#/components/schemas/DoctorResult" }
+
+    Sleeve:
+      type: object
+      required: [id, name, status, since, summary, sharpe, sharpe_se, max_drawdown, report]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status: { type: string, enum: ["live", "paper", "shadow", "research", "failed"] }
+        since: { type: [string, "null"], format: date }
+        summary: { type: string }
+        sharpe: { type: [number, "null"], description: "walk-forward Sharpe in excess of T-bills" }
+        sharpe_se: { type: [number, "null"] }
+        max_drawdown: { type: [number, "null"], description: "a fraction, negative" }
+        report: { type: [string, "null"], description: "the study's report, a path in the repository" }
+
+    ShadowPoint:
+      type: object
+      required: [date, h2, live, sleeve]
+      properties:
+        date: { type: string, format: date }
+        h2: { type: number, description: "growth of 1 since the start" }
+        live: { type: number }
+        sleeve: { type: number }
+
+    WouldBeOrder:
+      type: object
+      required: [symbol, action, quantity, dollars]
+      properties:
+        symbol: { type: string }
+        action: { type: string, enum: ["BUY", "SELL"] }
+        quantity: { type: integer }
+        dollars: { type: number }
+
+    ShadowBook:
+      type: object
+      required: [name, start, sessions, through, points, decision, would_be_orders]
+      properties:
+        name: { type: string }
+        start: { type: string, format: date }
+        sessions: { type: integer }
+        through: { type: [string, "null"], format: date }
+        points:
+          type: array
+          items: { $ref: "#/components/schemas/ShadowPoint" }
+        decision:
+          description: The trend sleeve's latest decision, or null before its first.
+          oneOf:
+            - type: object
+              required: [decided, executed, weights]
+              properties:
+                decided: { type: string, format: date }
+                executed: { type: string, format: date }
+                weights:
+                  type: object
+                  additionalProperties: { type: number }
+            - type: "null"
+        would_be_orders:
+          type: array
+          items: { $ref: "#/components/schemas/WouldBeOrder" }
+
+    StrategiesResponse:
+      type: object
+      required: [as_of, sleeves, shadow]
+      properties:
+        as_of: { type: string, format: date-time }
+        sleeves:
+          type: array
+          items: { $ref: "#/components/schemas/Sleeve" }
+        shadow: { $ref: "#/components/schemas/ShadowBook" }
 
     Dataset:
       type: object
