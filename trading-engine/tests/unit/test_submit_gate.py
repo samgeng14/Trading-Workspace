@@ -269,10 +269,11 @@ def test_the_batch_goes_out_before_one_wait_and_an_unacknowledged_order_counts_a
     cfg.wait_for_status = True
     out = spo.submit_paper_orders(cfg)
     assert out["submitted"] is True
-    assert SlowAckManager.calls == ["place SPY", "place TLT", "wait 2"]  # not a wait after each order
+    # not a wait after each order; then, with both still unacknowledged, the longer wait that records when
+    assert SlowAckManager.calls == ["place SPY", "place TLT", "wait 2", "wait 2"]
     log = pd.read_csv(submissions(run_root)[0])
     assert list(log["status"]) == ["PendingSubmit", "PendingSubmit"] and list(log["order_id"]) == [1, 1]
-    assert log["error"].str.startswith("sent, but IBKR hadn't acknowledged it 30s later").all()
+    assert log["error"].str.startswith("sent, but IBKR hadn't acknowledged it 150s later").all()
     # the reconcile counts a sent order: it skipped them as "never reached IBKR" before
     book = {"positions": {"SPY": 1_800, "TLT": 1_800}, "orders": [
         {"symbol": r.symbol, "quantity": r.delta_shares, "status": r.status, "order_id": "1", "perm_id": None}
@@ -280,6 +281,42 @@ def test_the_batch_goes_out_before_one_wait_and_an_unacknowledged_order_counts_a
     expected, counted = expected_positions(book, fills=[])
     assert expected == {"SPY": 1_700, "TLT": 2_200}
     assert all(c["counted"].startswith("in full") for c in counted)
+
+
+def test_a_late_acknowledgment_is_waited_for_and_recorded(run_root, monkeypatch):
+    class LateAck(SlowAckManager):
+        waits: list[float] = []
+
+        def wait_for_acknowledgments(self, trades, *, timeout=30.0, poll_interval=0.5):  # noqa: ARG002
+            LateAck.waits.append(timeout)
+            if len(LateAck.waits) == 2:  # IBKR answers during the longer wait
+                for t in trades:
+                    t.orderStatus.status = "PreSubmitted"
+            return [t.orderStatus.status for t in trades]
+
+    class Broken(SlowAckManager):
+        def wait_for_acknowledgments(self, trades, *, timeout=30.0, poll_interval=0.5):  # noqa: ARG002
+            if timeout == spo.LATE_ACK_WAIT:
+                raise ConnectionError("gateway went away")
+            return [t.orderStatus.status for t in trades]
+
+    monkeypatch.setattr(spo, "IBKROrderManager", LateAck)
+    LateAck.waits = []
+    orders = write_run(run_root, MODEL, [("SPY", -100, 100.0)], cash=100_000)
+    cfg = config_for(run_root, orders)
+    cfg.wait_for_status = True
+    assert spo.submit_paper_orders(cfg)["submitted"] is True
+    assert LateAck.waits == [30.0, spo.LATE_ACK_WAIT]
+    log = pd.read_csv(submissions(run_root)[-1])
+    assert log.loc[0, "status"] == "PreSubmitted" and "error" not in log  # acknowledged: no note
+
+    # the longer wait failing leaves the batch sent and its log written
+    monkeypatch.setattr(spo, "IBKROrderManager", Broken)
+    orders = write_run(run_root, MODEL, [("SPY", -100, 100.0)], cash=100_000)
+    cfg = config_for(run_root, orders)
+    cfg.wait_for_status = True
+    assert spo.submit_paper_orders(cfg)["submitted"] is True
+    assert pd.read_csv(submissions(run_root)[-1]).loc[0, "status"] == "PendingSubmit"
 
 
 def test_an_order_that_never_went_out_is_an_error_and_the_rest_go(run_root, monkeypatch):

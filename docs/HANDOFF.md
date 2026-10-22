@@ -141,7 +141,11 @@ warning that nothing on the headless VM answers; IBC leaves
 has delayed data only. The orders still went out before the close, so
 something released them. Turning those warnings off weakens a broker-side
 check: **the owner decides.** First read 10-22's submission log: statuses
-and `acknowledged_s`.
+and `acknowledged_s`. Since 2026-10-22 a batch with orders still
+unacknowledged after the 30 s wait listens up to 120 s more
+(`LATE_ACK_WAIT`, diagnostics only), so the log shows when IBKR does answer.
+The gateway image takes `BYPASS_WARNING=yes` (the API's order precautions)
+and `ALLOW_BLIND_TRADING=yes` in `ibgw/.env`; the VM sets neither.
 
 **Check on 2026-10-22:** step 0's reconcile should report 0 breaks (the
 repaired book's first test), and the submission log should show the orders

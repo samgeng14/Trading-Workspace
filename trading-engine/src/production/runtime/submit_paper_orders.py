@@ -152,6 +152,12 @@ def _plan_rows(orders_df: pd.DataFrame, execution: Execution, dry_run: bool) -> 
 
 PROFILE = "paper"  # the only profile this path sends; the client refuses a live account
 
+# Diagnostics: on 2026-10-21 the VM's gateway acknowledged none of its orders within
+# the 30 s wait. When some are still unacknowledged after it, the batch listens this
+# much longer, so the submission log shows when (or whether) IBKR acknowledges them.
+# The orders are already at IBKR: nothing here changes them.
+LATE_ACK_WAIT = 120.0
+
 # IBKR order states in which an order can still fill (PendingCancel too: a cancel
 # can lose the race with a fill).
 WORKING = {"PendingSubmit", "ApiPending", "PreSubmitted", "Submitted", "ApiUpdate", "PendingCancel"}
@@ -296,8 +302,18 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
                 continue
             sent.append((row, trade))
 
+        waited = 0.0
         if config.wait_for_status and sent:
-            manager.wait_for_acknowledgments([trade for _, trade in sent], timeout=config.timeout)
+            trades = [trade for _, trade in sent]
+            manager.wait_for_acknowledgments(trades, timeout=config.timeout)
+            waited = config.timeout
+            late = [t for t in trades if trade_status(t) in UNACKNOWLEDGED]
+            if late:
+                waited += LATE_ACK_WAIT
+                try:
+                    manager.wait_for_acknowledgments(late, timeout=LATE_ACK_WAIT)
+                except Exception as exc:  # noqa: BLE001 — diagnostics only: the orders are sent
+                    logging.getLogger(__name__).warning("The wait for late acknowledgments stopped: %s", exc)
         for row, trade in sent:
             summary = manager.summarize_trade(trade)
             status = trade_status(trade)
@@ -317,7 +333,7 @@ def submit_paper_orders(config: SubmitPaperOrdersConfig) -> dict[str, Any]:
             # sent, so not an error the reconcile skips: IBKR has it unless it says otherwise
             if config.wait_for_status and status in UNACKNOWLEDGED:
                 row["error"] = (
-                    f"sent, but IBKR hadn't acknowledged it {config.timeout:.0f}s later "
+                    f"sent, but IBKR hadn't acknowledged it {waited:.0f}s later "
                     f"(status {status or 'none'}); the reconcile counts it as placed"
                 )
             fill_rows.append({"timestamp": datetime.now().isoformat(timespec="seconds"), **summary})
