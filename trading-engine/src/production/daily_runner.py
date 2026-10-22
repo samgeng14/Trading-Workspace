@@ -1054,6 +1054,7 @@ def step_submit_orders(
                     profile, run_id or datetime.now().strftime("%Y%m%d_%H%M%S"), result
                 )
                 _to_store("the orders sent", lambda conn: _store_orders(conn, profile, result["submission_path"]))
+                result["engine_shadow"] = _engine_shadow("orders", submission_path=result["submission_path"])
         else:
             log.error("✗ Submit failed: %s", result.get("reason") or result.get("error"))
         return result

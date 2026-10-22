@@ -471,6 +471,41 @@ Reconcile reconcile(const ExpectedBook& book, const std::vector<Holding>& positi
     return r;
 }
 
+// ── Order statuses ───────────────────────────────────────────────────────
+
+bool unacknowledged(std::string_view status) {
+    return status.empty() || status == "PendingSubmit" || status == "ApiPending";
+}
+
+bool working(std::string_view status) {
+    return status == "PendingSubmit" || status == "ApiPending" || status == "PreSubmitted" || status == "Submitted" ||
+           status == "ApiUpdate" || status == "PendingCancel";
+}
+
+bool never_placed(std::string_view status) {
+    return status == "ERROR" || status == "Cancelled" || status == "ApiCancelled";
+}
+
+OrderTimeline replay(const std::vector<StatusEvent>& log) {
+    OrderTimeline t;
+    if (log.empty()) return t;
+    std::string done;  // a status after which only the same one may follow
+    for (std::size_t i = 0; i < log.size(); ++i) {
+        const StatusEvent& e = log[i];
+        if (i > 0 && !t.acknowledged_s && !unacknowledged(e.status)) t.acknowledged_s = e.s;
+        if (i > 0 && e.s < log[i - 1].s)
+            t.anomalies.push_back("time runs backwards at entry " + std::to_string(i + 1));
+        if (!done.empty() && e.status != done)
+            t.anomalies.push_back(e.status + " after " + done + " at entry " + std::to_string(i + 1));
+        if (e.code != 0 || !e.message.empty())
+            t.messages.push_back(std::to_string(e.code) + ": " + e.message);
+        if (done.empty() && (e.status == "Filled" || e.status == "Cancelled" || e.status == "ApiCancelled"))
+            done = e.status;
+    }
+    t.status = log.back().status;
+    return t;
+}
+
 // ── The auction ──────────────────────────────────────────────────────────
 
 nyse::Micros moc_cutoff(std::string_view exchange) {

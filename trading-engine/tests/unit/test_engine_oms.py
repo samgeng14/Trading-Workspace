@@ -382,3 +382,37 @@ def test_the_reconcile_records_its_comparison(tmp_path: Path) -> None:
     out = engine_shadow.reconcile(root=tmp_path, at=AT, book=book, positions=positions, fills=[], threshold=100.0,
                                   expected=expected, orders=orders, breaks=found, material=True)  # fmt: skip
     assert out["match"] is True and out["summary"] == "same 1 break, material"
+
+
+# ── order states ─────────────────────────────────────────────────────────
+
+STATUSES = ["", "PendingSubmit", "ApiPending", "PreSubmitted", "Submitted", "ApiUpdate", "PendingCancel", "Cancelled",
+            "ApiCancelled", "Filled", "Inactive", "ERROR"]  # fmt: skip
+
+
+def test_order_states_match_the_order_path_on_random_status_logs() -> None:
+    """Fake ib_async trades, recorded exactly as submit_paper_orders records them,
+    then each row's status log replayed by the engine."""
+    from types import SimpleNamespace
+
+    from src.broker.ibkr.orders import acknowledged_after, trade_log, trade_status
+
+    rng = random.Random(22)
+    sent = datetime(2026, 10, 22, 19, 35, 1, tzinfo=timezone.utc)
+    rows, acknowledged = [], 0
+    for _ in range(3000):
+        t, entries = sent, []
+        for k in range(rng.randint(1, 6)):
+            t += timedelta(seconds=rng.choice([0.0, 0.004, 0.31, 2.5, 12.04, 29.99]))
+            status = "PendingSubmit" if k == 0 else rng.choice(STATUSES[:-1])
+            code, message = rng.choice([(0, ""), (0, ""), (399, "Order Message: Warning"), (201, "Order rejected")])
+            entries.append(SimpleNamespace(time=t, status=status, errorCode=code, message=message))
+        trade = SimpleNamespace(log=entries, orderStatus=SimpleNamespace(status=entries[-1].status))
+        ack = acknowledged_after(trade)
+        acknowledged += ack is not None
+        rows.append({"symbol": "SPY", "action": "BUY", "quantity": 1, "status": trade_status(trade),
+                     "acknowledged_s": "" if ack is None else str(ack), "status_log": json.dumps(trade_log(trade))})  # fmt: skip
+    rows += [{"symbol": "GLD", "action": "SELL", "quantity": 3, "status": "ERROR", "error": "not qualified"}]
+    out = engine_shadow.compare_orders(rows)
+    assert out["differences"] == [], out["differences"][:5]
+    assert out["same"] == "same 3001 order states" and 500 < acknowledged < 2900

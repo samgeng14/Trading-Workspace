@@ -261,6 +261,25 @@ void bind_orders(nb::module_& m) {
         "material_threshold_usd"_a = 100.0,
         "The expected book (its positions, unit values and orders) against IBKR's positions and fills.");
 
+    nb::class_<om::StatusEvent>(o, "StatusEvent")
+        .def(
+            "__init__",
+            [](om::StatusEvent* self, double s, std::string status, int code, std::string message) {
+                new (self) om::StatusEvent{s, std::move(status), code, std::move(message)};
+            },
+            "s"_a, "status"_a, "code"_a = 0, "message"_a = "");
+
+    nb::class_<om::OrderTimeline>(o, "OrderTimeline")
+        .def_ro("status", &om::OrderTimeline::status)
+        .def_ro("acknowledged_s", &om::OrderTimeline::acknowledged_s)
+        .def_ro("messages", &om::OrderTimeline::messages)
+        .def_ro("anomalies", &om::OrderTimeline::anomalies);
+
+    o.def("replay", &om::replay, "log"_a, "An order's status log as the order path reads it.");
+    o.def("unacknowledged", &om::unacknowledged, "status"_a);
+    o.def("working", &om::working, "status"_a);
+    o.def("never_placed", &om::never_placed, "status"_a);
+
     o.def("moc_cutoff", &om::moc_cutoff, "exchange"_a, "microseconds before the close");
     o.def("moc_deadline", &om::moc_deadline, "close"_a, "exchanges"_a);
     o.def("execution_for", &om::execution_for, "exchanges"_a, "at"_a);

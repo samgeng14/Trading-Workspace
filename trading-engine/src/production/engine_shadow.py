@@ -14,6 +14,9 @@ Python runner decided on and records whether the engine decided the same:
             positions and fills: the same breaks, and the same verdict on
             whether one is material, which arms the kill switch
             (src/runtime/end_of_day_reconcile.py)
+  * orders: each order sent, its status log replayed: the same last status,
+            the same time to IBKR's acknowledgment, and the same reading of it
+            (unacknowledged, still working, never placed), on the days orders go
 
 The two baskets also compare the auction the batch would go to (market-on-close
 or market-on-open), at the same instant for both.
@@ -44,7 +47,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 STREAK_NEEDED = 10  # sessions in a row with every comparison matching: two weeks
-KINDS = ("reconcile", "drift", "whatif", "basket")
+KINDS = ("reconcile", "drift", "whatif", "basket", "orders")
 FIELDS = ["at", "session", "kind", "match", "python_orders", "engine_orders", "differences", "summary"]
 INT_FIELDS = ("current_shares", "target_shares", "delta_shares", "abs_delta_shares", "trimmed_shares")
 FLOAT_FIELDS = ("close", "price", "target_weight", "target_dollars", "estimated_trade_dollars", "estimated_commission")
@@ -294,6 +297,44 @@ def compare_reconcile(
             "breaks": n, "material": bool(material)}  # fmt: skip
 
 
+def compare_orders(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """The submission log's rows (submit_paper_orders): for each order sent, what
+    Python recorded against the engine's replay of its status log; for one never
+    sent, whether both read it as never placed."""
+    from dv02_engine import oms
+
+    from src.broker.ibkr.orders import UNACKNOWLEDGED
+    from src.production.runtime.submit_paper_orders import WORKING
+    from src.runtime.end_of_day_reconcile import NOT_PLACED
+
+    diffs = Differences()
+    timelines = []
+    for i, row in enumerate(rows):
+        where = f"order {i + 1} ({row.get('action')} {row.get('quantity')} {row.get('symbol')})"
+        status = str(row.get("status") or "")
+        for name, py, en in (("unacknowledged", status in UNACKNOWLEDGED, oms.unacknowledged(status)),
+                             ("working", status in WORKING, oms.working(status)),
+                             ("never placed", status in NOT_PLACED, oms.never_placed(status))):  # fmt: skip
+            if py != en:
+                diffs.add(f"{where} {name}", py, en)
+        raw = row.get("status_log")
+        if not raw:
+            continue  # never sent: nothing to replay
+        log = json.loads(raw) if isinstance(raw, str) else list(raw)
+        t = oms.replay([oms.StatusEvent(float(e["s"]), str(e["status"] or ""), int(e["code"] or 0), str(e["message"] or ""))
+                        for e in log])  # fmt: skip
+        if t.status != status:
+            diffs.add(f"{where} status", status, t.status)
+        recorded = row.get("acknowledged_s")
+        recorded = None if recorded in (None, "") or _float(recorded) != _float(recorded) else _float(recorded)
+        if recorded != t.acknowledged_s:
+            diffs.add(f"{where} acknowledged after", recorded, t.acknowledged_s)
+        timelines.append({"symbol": row.get("symbol"), "status": t.status, "acknowledged_s": t.acknowledged_s,
+                          "messages": list(t.messages), "anomalies": list(t.anomalies)})  # fmt: skip
+    n = len(rows)
+    return {"differences": diffs, "same": f"same {n} order state{'s' if n != 1 else ''}", "timelines": timelines}
+
+
 # ── the shadow, as the run calls it (never raises) ───────────────────────
 
 
@@ -448,6 +489,16 @@ def whatif(positions: Any, nav: float | None, *, root: Path = PROJECT_ROOT, at: 
 def drift(*, root: Path = PROJECT_ROOT, at: datetime | None = None, **inputs: Any) -> dict[str, Any]:
     """The rebalance gate, Python's decision against the engine's (compare_drift's inputs)."""
     return _guarded("drift", root, at, lambda: compare_drift(**inputs))
+
+
+def orders(submission_path: Any, *, root: Path = PROJECT_ROOT, at: datetime | None = None) -> dict[str, Any]:
+    """The orders a run sent (its submission log), replayed: compare_orders."""
+
+    def compare() -> dict[str, Any]:
+        with Path(submission_path).open(newline="", encoding="utf-8") as f:
+            return compare_orders(list(csv.DictReader(f)))
+
+    return _guarded("orders", root, at, compare)
 
 
 def reconcile(*, root: Path = PROJECT_ROOT, at: datetime | None = None, **inputs: Any) -> dict[str, Any]:

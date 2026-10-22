@@ -14,6 +14,8 @@
 //   execution_for()      src/broker/ibkr/auction.execution_for
 //   reconcile()          src/runtime/end_of_day_reconcile: the expected book against
 //                        IBKR's positions, the run's first step
+//   replay()             an order's status log as the order path reads it
+//                        (src/broker/ibkr/orders.py, submit_paper_orders)
 //
 // The ports keep Python's arithmetic step for step, down to the order of the
 // additions in a sum (numpy's pairwise summation), so the same inputs give the
@@ -281,6 +283,40 @@ Held held(const std::vector<Holding>& positions, std::string* error = nullptr);
 // else the order's price, else the book's value.
 Reconcile reconcile(const ExpectedBook& book, const std::vector<Holding>& positions, const std::vector<Fill>& fills,
                     double material_threshold_usd = 100.0);
+
+// ── Order statuses ───────────────────────────────────────────────────────
+//
+// IBKR's order statuses as the Python order path reads them today:
+//   unacknowledged  IBKR hasn't said anything yet: "", PendingSubmit, ApiPending
+//                   (orders.UNACKNOWLEDGED)
+//   working         it can still fill, so a second batch must not trade it again:
+//                   PendingSubmit, ApiPending, PreSubmitted, Submitted, ApiUpdate,
+//                   PendingCancel (submit_paper_orders.WORKING)
+//   never placed    it never reached IBKR's book: the order path's own ERROR,
+//                   Cancelled, ApiCancelled (end_of_day_reconcile.NOT_PLACED).
+//                   Inactive, IBKR's rejection, isn't one: the reconcile counts a
+//                   rejected order in full, and its missing shares show as a break.
+bool unacknowledged(std::string_view status);
+bool working(std::string_view status);
+bool never_placed(std::string_view status);
+
+// One entry of an order's status log (orders.trade_log): IBKR's status and any
+// message it attached, in seconds after the order went out.
+struct StatusEvent {
+    double s = 0.0;
+    std::string status;
+    int code = 0;
+    std::string message;
+};
+
+struct OrderTimeline {
+    std::string status;                    // the last entry's: where the order stood when the log was kept
+    std::optional<double> acknowledged_s;  // the first status past the unacknowledged ones (orders.acknowledged_after)
+    std::vector<std::string> messages;     // each message IBKR attached, as "code: text"
+    std::vector<std::string> anomalies;    // a status after a fill or a cancel, time running backwards
+};
+
+OrderTimeline replay(const std::vector<StatusEvent>& log);
 
 // ── Shared helpers ───────────────────────────────────────────────────────
 

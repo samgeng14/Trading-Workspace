@@ -162,6 +162,9 @@ decisions from the same inputs, and the runner records whether they agree.
     in full, or not at all if it never reached IBKR), every break against
     IBKR's positions valued at the mark, the order's price or the book's, and
     whether one is material (which arms the kill switch in Python).
+  - `replay`, `unacknowledged`, `working`, `never_placed`: an order's status
+    log as the order path reads it (`orders.acknowledged_after`, the WORKING
+    and NOT_PLACED sets), so the engine can own order tracking later.
 
 The match is meant to be exact, so the port keeps Python's arithmetic: sums in
 numpy's pairwise order (`pairwise_sum`), no fused multiply-adds in `oms.cpp`

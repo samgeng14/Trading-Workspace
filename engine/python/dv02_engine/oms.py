@@ -28,6 +28,8 @@ Fill = _core.Fill
 CountedOrder = _core.CountedOrder
 PositionBreak = _core.PositionBreak
 Reconcile = _core.Reconcile
+StatusEvent = _core.StatusEvent
+OrderTimeline = _core.OrderTimeline
 Line = _core.Line
 PlannedOrder = _core.PlannedOrder
 Basket = _core.Basket
@@ -36,6 +38,10 @@ DriftDecision = _core.DriftDecision
 
 plan_basket = _core.plan_basket
 reconcile = _core.reconcile
+replay = _core.replay
+unacknowledged = _core.unacknowledged
+working = _core.working
+never_placed = _core.never_placed
 current_weights = _core.current_weights
 gate_targets = _core.gate_targets
 moc_cutoff = _core.moc_cutoff
@@ -50,9 +56,11 @@ __all__ = [
     "Fill",
     "Holding",
     "Line",
+    "OrderTimeline",
     "PlannedOrder",
     "PositionBreak",
     "Reconcile",
+    "StatusEvent",
     "Target",
     "Weights",
     "clean_symbol",
@@ -60,10 +68,14 @@ __all__ = [
     "execution_for",
     "gate_targets",
     "moc_cutoff",
+    "never_placed",
     "pairwise_sum",
     "plan_basket",
     "rebalance_decision",
     "reconcile",
+    "replay",
+    "unacknowledged",
+    "working",
 ]
 
 

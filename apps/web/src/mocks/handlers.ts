@@ -1381,7 +1381,12 @@ function engineShadow(): S["EngineShadow"] {
       reconcile: { match: true, summary: "same 0 breaks", at: stamp("15:35") },
       drift: { match: true, summary: "same decision", at: stamp("15:35") },
       whatif: { match: true, summary: same, at: stamp("15:35") },
-      ...(trades.length > 0 ? { basket: { match: true, summary: same, at: stamp("15:36") } } : {}),
+      ...(trades.length > 0
+        ? {
+            basket: { match: true, summary: same, at: stamp("15:36") },
+            orders: { match: true, summary: `same ${trades.length} order states`, at: stamp("15:37") },
+          }
+        : {}),
     };
     return { session: date, match: true, comparisons: Object.keys(kinds).length, kinds };
   });

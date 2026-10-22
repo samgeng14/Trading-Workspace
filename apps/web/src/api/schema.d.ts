@@ -271,8 +271,9 @@ export interface paths {
          *     runner decided on and records whether it decided the same: the
          *     reconcile of the expected book (reconcile, the run's first step), the
          *     rebalance gate (drift), the basket the run would build now (whatif,
-         *     every run), and the basket the run built (basket, on rebalance days),
-         *     each with the auction it would go to. A session matches when every
+         *     every run), the basket the run built (basket, on rebalance days), each
+         *     with the auction it would go to, and the status logs of the orders it
+         *     sent, replayed (orders). A session matches when every
          *     comparison it ran matched exactly: the same orders, the same shares on
          *     every line, the same dollars. Nothing the engine decides is sent; it may
          *     take over sending after `needed` sessions in a row match, an owner
@@ -968,6 +969,7 @@ export interface components {
                 drift?: components["schemas"]["EngineShadowCheck"];
                 whatif?: components["schemas"]["EngineShadowCheck"];
                 basket?: components["schemas"]["EngineShadowCheck"];
+                orders?: components["schemas"]["EngineShadowCheck"];
             };
         };
         EngineShadow: {

@@ -293,3 +293,24 @@ TEST(reconcile_values_a_break_at_the_mark_then_the_order_then_the_book) {
     CHECK(reconcile(book, {shares("GLD", 10), shares("VNQ", 1)}, {}, 50.0).material);  // a lower threshold
     CHECK(!reconcile(book, {shares("SPY", kNaN)}, {}).ok);
 }
+
+TEST(order_status_sets_are_the_order_path_s) {
+    CHECK(unacknowledged("") && unacknowledged("PendingSubmit") && unacknowledged("ApiPending"));
+    CHECK(!unacknowledged("PreSubmitted") && !unacknowledged("Inactive"));
+    CHECK(working("PreSubmitted") && working("PendingCancel") && !working("Filled") && !working("Inactive"));
+    CHECK(never_placed("ERROR") && never_placed("ApiCancelled") && !never_placed("Inactive"));
+}
+
+TEST(replay_reads_an_orders_status_log) {
+    OrderTimeline t = replay({{0.0, "PendingSubmit", 0, ""},
+                              {12.4, "PendingSubmit", 399, "Order Message: Warning"},
+                              {12.9, "PreSubmitted", 0, ""},
+                              {1505.0, "Filled", 0, ""}});
+    CHECK(t.status == "Filled" && t.acknowledged_s && *t.acknowledged_s == 12.9);
+    CHECK(t.messages == std::vector<std::string>{"399: Order Message: Warning"} && t.anomalies.empty());
+    t = replay({{0.0, "PendingSubmit", 0, ""}, {30.0, "PendingSubmit", 0, ""}});
+    CHECK(t.status == "PendingSubmit" && !t.acknowledged_s);
+    t = replay({{0.0, "PendingSubmit", 0, ""}, {2.0, "Filled", 0, ""}, {1.0, "Submitted", 0, ""}});
+    CHECK(t.anomalies.size() == 2);
+    CHECK(replay({}).status.empty());
+}

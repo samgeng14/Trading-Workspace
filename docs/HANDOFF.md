@@ -177,6 +177,9 @@ and nothing the engine decides is sent:
   from the gate's positions and NAV (no cash trim), and its auction.
 - `basket`, on rebalance days: the basket the run built, with the cash, from
   the same inputs (`build_paper_basket`).
+- `orders`, on days orders go: each order's status log replayed (its last
+  status, when IBKR first acknowledged it, the messages IBKR attached) and the
+  order path's reading of it: unacknowledged, still working, never placed.
 
 A comparison matches when everything is equal: every line's shares, side and
 dollars, and the orders in sending order. Anything else is listed in
@@ -191,9 +194,20 @@ Tested: 133 C++ tests (GCC 13 on the VM and Clang, sanitizers on), and
 `tests/unit/test_engine_oms.py` checks the engine against Python input for
 input: every day 1990–2045, the auction at the minutes around each cutoff,
 4,000 random drift gates, 1,500 random baskets (trims, refusals, holdings
-outside the model) and 2,000 random reconciles (partial, stray and missing
-fills, orders never placed, unpriced breaks), all exact. A one-ulp difference
-shows as a miss.
+outside the model), 2,000 random reconciles (partial, stray and missing
+fills, orders never placed, unpriced breaks) and 3,000 random status logs, all
+exact. A one-ulp difference shows as a miss.
+
+**Found while porting:** the order statuses mean different things in
+different places.
+- The reconcile counts an order as never placed only for `ERROR`,
+  `Cancelled` and `ApiCancelled`. So an order IBKR rejects (`Inactive`) counts
+  in full, and its missing shares show as a break that arms the kill switch.
+  That's safe, but it reports a rejection as a break.
+- The kill counts `Inactive` as cancelled, and the dashboard calls it
+  rejected.
+- The engine copies today's rules so the shadow can match them. One rule set
+  for all of them is a change to the safety logic: the owner decides.
 
 **Next for the engine:**
 1. The order state machine (PLAN §6 `oms`), replayed each evening against the
