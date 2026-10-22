@@ -3,9 +3,9 @@ cboe_vx.py — VIX futures settlements and the VIX close from Cboe, for R3's sha
 book (src/production/shadow_r3.py). Free and keyless: Cboe's list of VX
 contracts, each monthly contract's history file, and the VIX's daily history.
 
-Cboe publishes a session's settlement overnight: on 2026-10-22 the front
-contract's file had 10-21's row by 03:35 ET, and not at 23:30 the evening
-before. So an evening fetch holds the session before.
+Cboe publishes a session's settlement overnight: the front contract's file
+didn't have 10-21's row at 00:59 ET on 2026-10-22, and had it at 01:30. So an
+evening fetch holds the session before.
 
 The files are cached under data/market/raw/cboe/ (git-ignored): vx_list.json,
 vx/VX_<expiry>.csv and VIX_History.csv. A contract still trading is fetched
