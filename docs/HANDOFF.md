@@ -632,15 +632,15 @@ Docs: https://code.claude.com/docs/en/chrome
 
 - Don't start the Mac's gateway (`bin/tradeit up` in `~/TradingWorkstation`)
   while the VM trades; move trading with `bin/tradeit switch mac` instead.
-- **Turn the alerts on.** Make six checks on healthchecks.io (free): the
-  daily run (period 1 day, grace about 1 hour), the API (period 5 minutes),
-  the backup (1 day), the post-close capture (1 day, grace about 1 hour)
-  the doctor before the run (1 day, grace 30 minutes) and the curve archive
-  (1 day, grace 1 hour). Put their ping URLs in `/etc/dv02/dv02.env` on the VM
-  as `DV02_HEARTBEAT_RUNNER`, `DV02_HEARTBEAT_API`, `DV02_HEARTBEAT_BACKUP`,
-  `DV02_HEARTBEAT_CAPTURE`, `DV02_HEARTBEAT_DOCTOR` and `DV02_HEARTBEAT_ARCHIVE`,
-  then `sudo systemctl restart dv02-api`. Until
-  then a failed or halted run tells nobody.
+- **Turn the alerts on.** Make a check on healthchecks.io (free) for each job;
+  `deploy/README.md` step 9 has each one's schedule and grace:
+  - the daily run, the API, the doctor before the run
+  - the post-close capture, the shadow book, the curve archive
+  - the backup, once R2 is set up
+  Put their ping URLs in `/etc/dv02/dv02.env` on the VM as
+  `DV02_HEARTBEAT_RUNNER`, `_API`, `_DOCTOR`, `_CAPTURE`, `_SHADOW`, `_ARCHIVE`
+  and `_BACKUP`, then `sudo systemctl restart dv02-api`. Until then a failed
+  or halted run tells nobody.
 - **Say how close "NAV matching the statement" must be** for Phase 0's exit
   test. `bin/tradeit exit-test` uses 0.10% of NAV (about $1,000) until then.
 
