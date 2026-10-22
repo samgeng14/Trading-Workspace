@@ -71,6 +71,7 @@ class EodReconcileResult:
     error: str | None = None
     skipped: str | None = None  # why nothing was compared
     orders: list[dict[str, Any]] = field(default_factory=list)  # each reconciled order and how it counted
+    engine: dict[str, Any] | None = None  # the C++ engine's reconcile beside this one (engine_shadow.py)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -441,6 +442,11 @@ def reconcile_end_of_day(
     material = any(
         b["notional_diff_usd"] is None or b["notional_diff_usd"] >= material_threshold_usd for b in breaks
     )
+    engine = _engine_shadow(
+        root,
+        book=book, positions=positions, fills=fills, threshold=material_threshold_usd,
+        expected=expected, orders=orders, breaks=breaks, material=material,
+    )  # fmt: skip
 
     report_path = _recon_dir(root) / f"{profile}_eod_{as_of.isoformat()}.json"
     payload = {
@@ -460,7 +466,7 @@ def reconcile_end_of_day(
         _atomic_write_json(report_path, payload)
     except OSError as exc:
         log.exception("EOD reconcile: failed to write report")
-        return result(False, diffs=breaks, material_mismatch=material, orders=orders,
+        return result(False, diffs=breaks, material_mismatch=material, orders=orders, engine=engine,
                       error=f"report write failed: {exc}")
 
     if material and arm_switch_on_mismatch:
@@ -481,7 +487,7 @@ def reconcile_end_of_day(
                 )
             except Exception as exc:
                 log.exception("EOD reconcile: failed to arm kill switch")
-                return result(False, diffs=breaks, material_mismatch=material, orders=orders,
+                return result(False, diffs=breaks, material_mismatch=material, orders=orders, engine=engine,
                               report_path=str(report_path), error=f"arm failed: {exc}")
         else:
             log.info("Material mismatch on rerun — kill switch already armed.")
@@ -501,9 +507,28 @@ def reconcile_end_of_day(
     except OSError as exc:
         # The next reconcile would report these breaks again: say so now.
         log.exception("EOD reconcile: failed to reset the expected book")
-        return result(False, diffs=breaks, material_mismatch=material, orders=orders,
+        return result(False, diffs=breaks, material_mismatch=material, orders=orders, engine=engine,
                       report_path=str(report_path), error=f"expected book reset failed: {exc}")
-    return result(True, diffs=breaks, material_mismatch=material, orders=orders, report_path=str(report_path))
+    return result(True, diffs=breaks, material_mismatch=material, orders=orders, engine=engine,
+                  report_path=str(report_path))
+
+
+def _engine_shadow(root: Path | None, **inputs: Any) -> dict[str, Any]:
+    """The C++ engine's reconcile from the same book, positions and fills,
+    compared with this one and recorded (src/production/engine_shadow.reconcile)
+    beside this reconcile's own files: under the engine root that holds
+    data/broker/reconciliations, else in that folder. It never raises: nothing
+    it finds changes this reconcile or the kill switch."""
+    recon = _recon_dir(root)
+    shadow_root = recon.parents[2] if recon.parts[-3:] == ("data", "broker", "reconciliations") else recon
+    try:
+        from src.production import engine_shadow
+
+        out = engine_shadow.reconcile(root=shadow_root, **inputs)
+    except Exception as exc:  # noqa: BLE001
+        out = {"kind": "reconcile", "match": False, "summary": f"the shadow failed: {type(exc).__name__}: {exc}"}
+    (log.info if out.get("match") else log.warning)("Engine shadow, reconcile: %s", out.get("summary"))
+    return out
 
 
 __all__ = [

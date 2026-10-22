@@ -17,6 +17,7 @@ const EXIT_CHECKS = [
   ["nav", "NAV"],
 ] as const;
 const SHADOW_KINDS = [
+  ["reconcile", "Reconcile"],
   ["drift", "Gate"],
   ["whatif", "Basket now"],
   ["basket", "Basket sent"],
@@ -283,11 +284,11 @@ function EngineShadowPanel() {
       flush
       foot={
         <>
-          Each run gives the C++ order manager the inputs the Python runner decided on: the rebalance gate, the basket
-          it would build now, and on rebalance days the basket it sent, with the auction for each. Match means the same
-          decision and the same orders, to the share and the cent. Nothing the engine decides is sent. It can take over
-          after {data?.needed ?? 10} sessions in a row match, and that is your call. Same as{" "}
-          <code>bin/tradeit engine-shadow</code>.
+          Each run gives the C++ order manager the inputs the Python runner decided on: the reconcile of earlier orders,
+          the rebalance gate, the basket it would build now, and on rebalance days the basket it sent, with the auction
+          for each. Match means the same breaks, the same decision and the same orders, to the share and the cent.
+          Nothing the engine decides is sent. It can take over after {data?.needed ?? 10} sessions in a row match, and
+          that is your call. Same as <code>bin/tradeit engine-shadow</code>.
         </>
       }
     >

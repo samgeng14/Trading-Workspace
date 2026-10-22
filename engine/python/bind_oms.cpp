@@ -71,14 +71,16 @@ void bind_orders(nb::module_& m) {
     nb::class_<om::Holding>(o, "Holding")
         .def(
             "__init__",
-            [](om::Holding* self, std::string symbol, double quantity, std::string sec_type, double market_price) {
-                new (self) om::Holding{std::move(symbol), quantity, std::move(sec_type), market_price};
+            [](om::Holding* self, std::string symbol, double quantity, std::string sec_type, double market_price,
+               double multiplier) {
+                new (self) om::Holding{std::move(symbol), quantity, std::move(sec_type), market_price, multiplier};
             },
-            "symbol"_a, "quantity"_a, "sec_type"_a = "", "market_price"_a = om::kNaN)
+            "symbol"_a, "quantity"_a, "sec_type"_a = "", "market_price"_a = om::kNaN, "multiplier"_a = om::kNaN)
         .def_rw("symbol", &om::Holding::symbol)
         .def_rw("quantity", &om::Holding::quantity)
         .def_rw("sec_type", &om::Holding::sec_type)
-        .def_rw("market_price", &om::Holding::market_price);
+        .def_rw("market_price", &om::Holding::market_price)
+        .def_rw("multiplier", &om::Holding::multiplier);
 
     nb::class_<om::Target>(o, "Target")
         .def(
@@ -199,6 +201,65 @@ void bind_orders(nb::module_& m) {
         .def_ro("session", &om::Execution::session)
         .def_ro("fills_at", &om::Execution::fills_at)
         .def_ro("moc_deadline", &om::Execution::moc_deadline);
+
+    nb::class_<om::BookOrder>(o, "BookOrder")
+        .def(
+            "__init__",
+            [](om::BookOrder* self, std::string symbol, double quantity, std::string status, std::string order_id,
+               std::string perm_id, double price) {
+                new (self) om::BookOrder{std::move(symbol), quantity,           std::move(status),
+                                         std::move(order_id), std::move(perm_id), price};
+            },
+            "symbol"_a, "quantity"_a, "status"_a = "", "order_id"_a = "", "perm_id"_a = "", "price"_a = om::kNaN)
+        .def_ro("symbol", &om::BookOrder::symbol)
+        .def_ro("quantity", &om::BookOrder::quantity)
+        .def_ro("status", &om::BookOrder::status)
+        .def_ro("order_id", &om::BookOrder::order_id)
+        .def_ro("perm_id", &om::BookOrder::perm_id)
+        .def_ro("price", &om::BookOrder::price);
+
+    nb::class_<om::Fill>(o, "Fill")
+        .def(
+            "__init__",
+            [](om::Fill* self, std::string perm_id, std::string order_id, std::string symbol, double quantity) {
+                new (self) om::Fill{std::move(perm_id), std::move(order_id), std::move(symbol), quantity};
+            },
+            "perm_id"_a, "order_id"_a, "symbol"_a, "quantity"_a);
+
+    nb::class_<om::CountedOrder>(o, "CountedOrder")
+        .def_ro("order", &om::CountedOrder::order)
+        .def_ro("filled", &om::CountedOrder::filled)
+        .def_ro("counted", &om::CountedOrder::counted);
+
+    nb::class_<om::PositionBreak>(o, "PositionBreak")
+        .def_ro("symbol", &om::PositionBreak::symbol)
+        .def_ro("expected_qty", &om::PositionBreak::expected_qty)
+        .def_ro("broker_qty", &om::PositionBreak::broker_qty)
+        .def_ro("qty_diff", &om::PositionBreak::qty_diff)
+        .def_ro("ref_price", &om::PositionBreak::ref_price)
+        .def_ro("notional_diff_usd", &om::PositionBreak::notional_diff_usd);
+
+    nb::class_<om::Reconcile>(o, "Reconcile")
+        .def_ro("ok", &om::Reconcile::ok)
+        .def_ro("error", &om::Reconcile::error)
+        .def_ro("expected", &om::Reconcile::expected)
+        .def_ro("actual", &om::Reconcile::actual)
+        .def_ro("unit_values", &om::Reconcile::unit_values)
+        .def_ro("orders", &om::Reconcile::orders)
+        .def_ro("breaks", &om::Reconcile::breaks)
+        .def_ro("material", &om::Reconcile::material);
+
+    o.def(
+        "reconcile",
+        [](std::map<std::string, double> positions, std::map<std::string, double> unit_values,
+           std::vector<om::BookOrder> orders, const std::vector<om::Holding>& holdings,
+           const std::vector<om::Fill>& fills, double material_threshold_usd) {
+            const om::ExpectedBook book{std::move(positions), std::move(unit_values), std::move(orders)};
+            return om::reconcile(book, holdings, fills, material_threshold_usd);
+        },
+        "book_positions"_a, "book_unit_values"_a, "book_orders"_a, "holdings"_a, "fills"_a,
+        "material_threshold_usd"_a = 100.0,
+        "The expected book (its positions, unit values and orders) against IBKR's positions and fills.");
 
     o.def("moc_cutoff", &om::moc_cutoff, "exchange"_a, "microseconds before the close");
     o.def("moc_deadline", &om::moc_deadline, "close"_a, "exchanges"_a);

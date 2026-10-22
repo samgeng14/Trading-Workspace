@@ -157,6 +157,11 @@ decisions from the same inputs, and the runner records whether they agree.
     `sells_first`'s sending order.
   - `execution_for`: market-on-close until the earliest cutoff among the
     batch's exchanges less 5 minutes, else market-on-open (`auction.py`).
+  - `reconcile`: the run's first step (`end_of_day_reconcile.py`): the
+    expected book's positions plus each order at the fills IBKR reports (else
+    in full, or not at all if it never reached IBKR), every break against
+    IBKR's positions valued at the mark, the order's price or the book's, and
+    whether one is material (which arms the kill switch in Python).
 
 The match is meant to be exact, so the port keeps Python's arithmetic: sums in
 numpy's pairwise order (`pairwise_sum`), no fused multiply-adds in `oms.cpp`

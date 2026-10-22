@@ -10,6 +10,10 @@ Python runner decided on and records whether the engine decided the same:
             gate read and without the cash trim, on every run, rebalance or not
   * basket: the basket the run built, from the same inputs, cash included, on
             the days it rebalances (build_paper_basket)
+  * reconcile: the run's first step, the expected book against IBKR's
+            positions and fills: the same breaks, and the same verdict on
+            whether one is material, which arms the kill switch
+            (src/runtime/end_of_day_reconcile.py)
 
 The two baskets also compare the auction the batch would go to (market-on-close
 or market-on-open), at the same instant for both.
@@ -40,7 +44,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 STREAK_NEEDED = 10  # sessions in a row with every comparison matching: two weeks
-KINDS = ("drift", "whatif", "basket")
+KINDS = ("reconcile", "drift", "whatif", "basket")
 FIELDS = ["at", "session", "kind", "match", "python_orders", "engine_orders", "differences", "summary"]
 INT_FIELDS = ("current_shares", "target_shares", "delta_shares", "abs_delta_shares", "trimmed_shares")
 FLOAT_FIELDS = ("close", "price", "target_weight", "target_dollars", "estimated_trade_dollars", "estimated_commission")
@@ -80,6 +84,7 @@ def holdings(positions: Any) -> list[Any]:
                 0.0 if qty is None else _float(qty),
                 sec_type if isinstance(sec_type, str) else "",
                 _float(row.get("market_price")),
+                _float(row.get("multiplier")),
             )
         )
     return out
@@ -230,6 +235,65 @@ def compare_drift(
     }
 
 
+def compare_reconcile(
+    *,
+    book: Mapping[str, Any],
+    positions: Any,
+    fills: list[Mapping[str, Any]],
+    threshold: float,
+    expected: Mapping[str, float],
+    orders: list[Mapping[str, Any]],
+    breaks: list[Mapping[str, Any]],
+    material: bool,
+) -> dict[str, Any]:
+    """The reconcile: Python's expected positions, counted orders, breaks and
+    verdict (end_of_day_reconcile.reconcile_end_of_day) against the engine's from
+    the same book, positions and fills."""
+    from dv02_engine import oms
+
+    from src.runtime.end_of_day_reconcile import _qty
+
+    r = oms.reconcile(
+        {str(k): float(v) for k, v in book["positions"].items()},
+        {str(k): float(v) for k, v in (book.get("unit_values") or {}).items()},
+        [oms.BookOrder(str(o["symbol"]), float(o["quantity"]), str(o.get("status") or ""), str(o.get("order_id") or ""),
+                       str(o.get("perm_id") or ""), _float(o.get("price"))) for o in book["orders"]],
+        holdings(positions),
+        [oms.Fill(str(f.get("perm_id") or ""), str(f.get("order_id") or ""), str(f["symbol"]), float(f["quantity"]))
+         for f in fills],
+        float(threshold),
+    )  # fmt: skip
+    diffs = Differences()
+    if not r.ok:
+        diffs.add("the engine refused the positions", None, r.error)
+        return {"differences": diffs}
+    for s in sorted(set(expected) | set(r.expected)):
+        if not _same(expected.get(s), r.expected.get(s)):
+            diffs.add(f"expected {s}", expected.get(s), r.expected.get(s))
+    if len(orders) != len(r.orders):
+        diffs.add("orders counted", len(orders), len(r.orders))
+    for i, (p, e) in enumerate(zip(orders, r.orders)):
+        if not _same(p["filled"], e.filled):
+            diffs.add(f"order {i + 1} ({p['symbol']}) filled", p["filled"], e.filled)
+        if p["counted"] != e.counted:
+            diffs.add(f"order {i + 1} ({p['symbol']}) counted", p["counted"], e.counted)
+    if [b["symbol"] for b in breaks] != [b.symbol for b in r.breaks]:
+        diffs.add("breaks", [b["symbol"] for b in breaks], [b.symbol for b in r.breaks])
+    for p, e in zip(breaks, r.breaks):
+        if p["symbol"] != e.symbol:
+            continue
+        engine = {"expected_qty": _qty(e.expected_qty), "broker_qty": _qty(e.broker_qty), "qty_diff": _qty(e.qty_diff),
+                  "ref_price": e.ref_price, "notional_diff_usd": e.notional_diff_usd}  # fmt: skip
+        for f, v in engine.items():
+            if not (p[f] is None and v is None) and (p[f] is None or v is None or not _same(p[f], v)):
+                diffs.add(f"break {p['symbol']} {f}", p[f], v)
+    if bool(material) != r.material:
+        diffs.add("material (arms the kill switch)", bool(material), r.material)
+    n = len(breaks)
+    return {"differences": diffs, "same": f"same {n} break{'s' if n != 1 else ''}" + (", material" if material else ""),
+            "breaks": n, "material": bool(material)}  # fmt: skip
+
+
 # ── the shadow, as the run calls it (never raises) ───────────────────────
 
 
@@ -252,7 +316,7 @@ def record(kind: str, result: Mapping[str, Any], *, root: Path = PROJECT_ROOT, a
     if error:
         summary = f"could not compare: {error}"
     elif match:
-        summary = "same decision" if kind == "drift" else f"same {len(py_orders or [])} orders"
+        summary = result.get("same") or ("same decision" if kind == "drift" else f"same {len(py_orders or [])} orders")
     else:
         summary = f"{len(diffs)} difference{'s' if len(diffs) != 1 else ''}, the first: {diffs[0]['what']}"
     out = {"kind": kind, "session": session, "match": match, "summary": summary}
@@ -384,6 +448,11 @@ def whatif(positions: Any, nav: float | None, *, root: Path = PROJECT_ROOT, at: 
 def drift(*, root: Path = PROJECT_ROOT, at: datetime | None = None, **inputs: Any) -> dict[str, Any]:
     """The rebalance gate, Python's decision against the engine's (compare_drift's inputs)."""
     return _guarded("drift", root, at, lambda: compare_drift(**inputs))
+
+
+def reconcile(*, root: Path = PROJECT_ROOT, at: datetime | None = None, **inputs: Any) -> dict[str, Any]:
+    """The reconcile, Python's breaks and verdict against the engine's (compare_reconcile's inputs)."""
+    return _guarded("reconcile", root, at, lambda: compare_reconcile(**inputs))
 
 
 # ── the record ───────────────────────────────────────────────────────────

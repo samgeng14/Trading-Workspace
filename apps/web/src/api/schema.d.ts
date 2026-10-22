@@ -269,6 +269,7 @@ export interface paths {
          * The C++ engine's order manager beside the Python one (trading-engine/src/production/engine_shadow.py).
          * @description Every run gives the engine (dv02_engine.oms) the inputs the Python
          *     runner decided on and records whether it decided the same: the
+         *     reconcile of the expected book (reconcile, the run's first step), the
          *     rebalance gate (drift), the basket the run would build now (whatif,
          *     every run), and the basket the run built (basket, on rebalance days),
          *     each with the auction it would go to. A session matches when every
@@ -950,7 +951,7 @@ export interface components {
         };
         EngineShadowCheck: {
             match: boolean;
-            /** @description "same 9 orders", "same decision", or the first difference */
+            /** @description "same 9 orders", "same decision", "same 0 breaks", or the first difference */
             summary: string;
             /** Format: date-time */
             at: string;
@@ -963,6 +964,7 @@ export interface components {
             comparisons: number;
             /** @description the session's last comparison of each kind it ran */
             kinds: {
+                reconcile?: components["schemas"]["EngineShadowCheck"];
                 drift?: components["schemas"]["EngineShadowCheck"];
                 whatif?: components["schemas"]["EngineShadowCheck"];
                 basket?: components["schemas"]["EngineShadowCheck"];

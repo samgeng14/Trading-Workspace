@@ -387,6 +387,90 @@ Basket plan_basket(const BasketInput& in) {
     return b;
 }
 
+// ── The reconcile ────────────────────────────────────────────────────────
+
+Held held(const std::vector<Holding>& positions, std::string* error) {
+    Held out;
+    for (const auto& h : positions) {
+        const std::string symbol = clean_symbol(h.symbol);
+        if (!std::isfinite(h.quantity)) {
+            if (error) *error = "position " + symbol + " has no quantity";
+            return {};
+        }
+        if (std::fabs(h.quantity) <= kShareTolerance) continue;
+        double& q = out.quantities[symbol];
+        q = q + h.quantity;
+        const double mark = positive(h.market_price);
+        double multiplier = positive(h.multiplier);
+        if (std::isnan(multiplier) && is_shares(h.sec_type)) multiplier = 1.0;
+        if (std::isfinite(mark) && std::isfinite(multiplier)) out.unit_values[symbol] = mark * multiplier;
+    }
+    return out;
+}
+
+Reconcile reconcile(const ExpectedBook& book, const std::vector<Holding>& positions, const std::vector<Fill>& fills,
+                    double material_threshold_usd) {
+    Reconcile r;
+    const Held account = held(positions, &r.error);
+    if (!r.error.empty()) {
+        r.ok = false;
+        return r;
+    }
+    r.actual = account.quantities;
+
+    std::map<std::string, double> expected = book.positions;
+    for (const auto& order : book.orders) {
+        CountedOrder c{order, 0.0, ""};
+        std::vector<const Fill*> reported;
+        for (const auto& f : fills) {
+            if (!order.perm_id.empty() ? f.perm_id == order.perm_id
+                                       : (!order.order_id.empty() && f.order_id == order.order_id &&
+                                          f.symbol == order.symbol))
+                reported.push_back(&f);
+        }
+        if (order.status == "ERROR" || order.status == "Cancelled" || order.status == "ApiCancelled") {
+            c.counted = "not counted: it never reached IBKR (status " + order.status + ")";
+        } else if (!reported.empty()) {
+            double sum = 0.0;
+            for (const Fill* f : reported) sum = sum + f->quantity;
+            c.filled = sum;
+            c.counted = "at the fills IBKR reports";
+        } else {
+            c.filled = order.quantity;
+            c.counted = "in full: IBKR reports no fill for it (its API keeps the current day's)";
+        }
+        double& q = expected[order.symbol];
+        q = q + c.filled;
+        r.orders.push_back(std::move(c));
+    }
+    for (const auto& [symbol, q] : expected)
+        if (std::fabs(q) > kShareTolerance) r.expected[symbol] = q;
+
+    // valued at IBKR's mark now, else the price the order was sized at, else the book's value
+    r.unit_values = book.unit_values;
+    for (const auto& order : book.orders)
+        if (std::isfinite(order.price) && order.price != 0.0) r.unit_values[order.symbol] = order.price;
+    for (const auto& [symbol, v] : account.unit_values) r.unit_values[symbol] = v;
+
+    std::set<std::string> symbols;
+    for (const auto& [s, q] : r.expected) symbols.insert(s);
+    for (const auto& [s, q] : r.actual) symbols.insert(s);
+    for (const auto& symbol : symbols) {
+        const double want = lookup(r.expected, symbol), have = lookup(r.actual, symbol);
+        if (std::fabs(have - want) <= kShareTolerance) continue;
+        PositionBreak b{symbol, want, have, have - want, std::nullopt, std::nullopt};
+        const auto it = r.unit_values.find(symbol);
+        if (it != r.unit_values.end()) {
+            b.ref_price = it->second;
+            if (it->second != 0.0) b.notional_diff_usd = std::fabs(have - want) * it->second;
+        }
+        // as Python: no notional is material; a NaN one compares false
+        if (!b.notional_diff_usd || *b.notional_diff_usd >= material_threshold_usd) r.material = true;
+        r.breaks.push_back(std::move(b));
+    }
+    return r;
+}
+
 // ── The auction ──────────────────────────────────────────────────────────
 
 nyse::Micros moc_cutoff(std::string_view exchange) {

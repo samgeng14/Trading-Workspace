@@ -244,3 +244,52 @@ TEST(execution_on_early_closes_and_weekends) {
     e = execution_for({"ARCA"}, {{2026, 10, 24}, hm(11, 0)});
     CHECK(e.auction == Auction::Open && e.session == (Date{2026, 10, 26}));
 }
+
+TEST(held_sums_duplicates_and_values_units_at_the_mark) {
+    std::string error;
+    const Held h = held({shares("spy", 100, 500.0), shares("SPY ", 5, 501.0), {"MESZ6", -2, "FUT", 6650.0, 5.0},
+                         shares("TLT", 0.0, 100.0), {"ESZ6", 1, "FUT", 6650.0}},
+                        &error);
+    CHECK(error.empty());
+    CHECK(h.quantities.size() == 3 && h.quantities.at("SPY") == 105.0 && h.quantities.at("MESZ6") == -2.0);
+    CHECK(h.unit_values.at("SPY") == 501.0);           // the last row's mark
+    CHECK(h.unit_values.at("MESZ6") == 6650.0 * 5.0);  // times the multiplier
+    CHECK(!h.unit_values.count("ESZ6"));               // a future IBKR gave no multiplier for
+    held({shares("SPY", kNaN)}, &error);
+    CHECK(error == "position SPY has no quantity");
+}
+
+TEST(reconcile_counts_each_order_at_its_fills_in_full_or_not_at_all) {
+    ExpectedBook book;
+    book.positions = {{"SPY", 100.0}, {"TLT", 50.0}};
+    book.unit_values = {{"SPY", 490.0}, {"TLT", 95.0}, {"GLD", 300.0}};
+    book.orders = {{"SPY", 10.0, "PreSubmitted", "4", "355", 495.0},
+                   {"TLT", -50.0, "PendingSubmit", "5", "356", kNaN},
+                   {"GLD", 5.0, "ERROR", "", "", kNaN}};
+    const std::vector<Fill> fills{{"355", "4", "SPY", 4.0}, {"355", "4", "SPY", 2.0}, {"999", "4", "SPY", 7.0}};
+    Reconcile r = reconcile(book, {shares("SPY", 106, 500.0)}, fills);
+    CHECK(r.ok && r.breaks.empty() && !r.material);
+    CHECK(r.orders.size() == 3);
+    CHECK(r.orders[0].filled == 6.0 && r.orders[0].counted == "at the fills IBKR reports");
+    CHECK(r.orders[1].filled == -50.0 && r.orders[1].counted.rfind("in full", 0) == 0);
+    CHECK(r.orders[2].filled == 0.0 && r.orders[2].counted == "not counted: it never reached IBKR (status ERROR)");
+    CHECK(r.expected.size() == 1 && r.expected.at("SPY") == 106.0);  // TLT sold to zero
+
+    // one share short in SPY ($500 at IBKR's mark: material), and XYZ nobody can price
+    r = reconcile(book, {shares("SPY", 105, 500.0), shares("XYZ", 3)}, fills);
+    CHECK(r.material && r.breaks.size() == 2);
+    CHECK(r.breaks[0].symbol == "SPY" && r.breaks[0].qty_diff == -1.0 && *r.breaks[0].notional_diff_usd == 500.0);
+    CHECK(r.breaks[1].symbol == "XYZ" && !r.breaks[1].ref_price && !r.breaks[1].notional_diff_usd);
+}
+
+TEST(reconcile_values_a_break_at_the_mark_then_the_order_then_the_book) {
+    ExpectedBook book;
+    book.positions = {{"GLD", 10.0}};
+    book.unit_values = {{"GLD", 300.0}, {"VNQ", 80.0}};
+    book.orders = {{"VNQ", 2.0, "Filled", "7", "", 90.0}};
+    // VNQ: one share short, valued at the order's $90 (no mark now): under $100, not material
+    Reconcile r = reconcile(book, {shares("GLD", 10, kNaN), shares("VNQ", 1)}, {});
+    CHECK(!r.material && r.breaks.size() == 1 && *r.breaks[0].ref_price == 90.0);
+    CHECK(reconcile(book, {shares("GLD", 10), shares("VNQ", 1)}, {}, 50.0).material);  // a lower threshold
+    CHECK(!reconcile(book, {shares("SPY", kNaN)}, {}).ok);
+}

@@ -8,6 +8,9 @@ still sends the orders.
                              nav=100_000, cash=40_000)
     [(o.side, o.quantity, o.symbol) for o in basket.orders]     # sells first, then buys
     oms.execution_for(["ARCA"], datetime(2026, 10, 21, 15, 35, tzinfo=nyse.NY))["order_type"]  # "MOC"
+    r = oms.reconcile({"SPY": 100.0}, {"SPY": 500.0}, [oms.BookOrder("SPY", 10, "PreSubmitted", "4", "355")],
+                      [oms.Holding("SPY", 109, "STK", 501.0)], [])
+    r.material, [(b.symbol, b.qty_diff) for b in r.breaks]                # True, [("SPY", -1.0)]
 """
 
 from __future__ import annotations
@@ -20,6 +23,11 @@ from ._core import oms as _core
 
 Holding = _core.Holding
 Target = _core.Target
+BookOrder = _core.BookOrder
+Fill = _core.Fill
+CountedOrder = _core.CountedOrder
+PositionBreak = _core.PositionBreak
+Reconcile = _core.Reconcile
 Line = _core.Line
 PlannedOrder = _core.PlannedOrder
 Basket = _core.Basket
@@ -27,6 +35,7 @@ Weights = _core.Weights
 DriftDecision = _core.DriftDecision
 
 plan_basket = _core.plan_basket
+reconcile = _core.reconcile
 current_weights = _core.current_weights
 gate_targets = _core.gate_targets
 moc_cutoff = _core.moc_cutoff
@@ -35,10 +44,15 @@ clean_symbol = _core.clean_symbol
 
 __all__ = [
     "Basket",
+    "BookOrder",
+    "CountedOrder",
     "DriftDecision",
+    "Fill",
     "Holding",
     "Line",
     "PlannedOrder",
+    "PositionBreak",
+    "Reconcile",
     "Target",
     "Weights",
     "clean_symbol",
@@ -49,6 +63,7 @@ __all__ = [
     "pairwise_sum",
     "plan_basket",
     "rebalance_decision",
+    "reconcile",
 ]
 
 

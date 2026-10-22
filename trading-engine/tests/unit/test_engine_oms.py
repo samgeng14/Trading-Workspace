@@ -313,3 +313,72 @@ def test_the_runner_shadows_its_drift_gate(tmp_path: Path, monkeypatch) -> None:
     assert decided is True  # no last basket: a cold start
     assert diag["engine"]["match"] is True, diag["engine"]
     assert engine_shadow.read_record(tmp_path)[0]["kind"] == "drift"
+
+
+# ── the reconcile ────────────────────────────────────────────────────────
+
+
+def random_reconcile(rng: random.Random) -> dict:
+    names = rng.sample(MODEL + OUTSIDE, rng.randint(1, 10))
+    book_positions = {s: float(rng.randint(-50, 3000)) for s in rng.sample(names, rng.randint(0, len(names)))}
+    unit_values = {s: rng.uniform(5, 700) for s in names if rng.random() < 0.6}
+    orders, fills = [], []
+    for k, s in enumerate(rng.sample(names, rng.randint(0, len(names)))):
+        qty = float(rng.choice([1, -1]) * rng.randint(1, 400))
+        perm = str(355965660 + k) if rng.random() < 0.7 else None
+        oid = str(4 + k) if rng.random() < 0.8 else None
+        status = rng.choice(["PreSubmitted", "PendingSubmit", "Submitted", "Filled", "ERROR", "Cancelled", ""])
+        orders.append({"symbol": s, "quantity": qty, "status": status, "order_id": oid, "perm_id": perm,
+                       "price": rng.choice([None, rng.uniform(5, 700)])})  # fmt: skip
+        if rng.random() < 0.5:  # IBKR reports part, all or more than the order (a stray fill)
+            for _ in range(rng.randint(1, 3)):
+                fills.append({"perm_id": perm if rng.random() < 0.8 else "999", "order_id": oid, "symbol": s,
+                              "quantity": qty * rng.choice([0.25, 0.5, 1.0])})  # fmt: skip
+    from src.runtime.end_of_day_reconcile import expected_positions
+
+    book = {"positions": book_positions, "unit_values": unit_values, "orders": orders}
+    expected_now, _ = expected_positions(book, fills)
+    agree = rng.random() < 0.4  # IBKR holds exactly the expected book, or differs here and there
+    rows = []
+    for s, q in expected_now.items():
+        have = q if agree or rng.random() < 0.7 else q + rng.choice([-3.0, -1.0, 0.5, 2.0, -q])
+        rows.append({"symbol": rng.choice([s, s.lower()]), "current_shares": have, "sec_type": "STK", "multiplier": math.nan,
+                     "market_price": rng.choice([math.nan, rng.uniform(5, 700)])})  # fmt: skip
+    if rng.random() < 0.3:
+        rows.append({"symbol": "MESZ6", "current_shares": -2.0, "sec_type": "FUT", "multiplier": rng.choice([5.0, math.nan]),
+                     "market_price": 6650.0})  # fmt: skip
+    return {"book": book, "positions": pd.DataFrame(rows), "fills": fills, "threshold": rng.choice([0.0, 100.0, 1000.0])}
+
+
+def test_the_reconcile_matches_end_of_day_reconcile_on_random_books() -> None:
+    from src.runtime import end_of_day_reconcile as eod
+
+    rng = random.Random(1021)
+    material = breaks = 0
+    for case in range(2000):
+        c = random_reconcile(rng)
+        actual, marks = eod._held(c["positions"])
+        expected, orders = eod.expected_positions(c["book"], c["fills"])
+        order_prices = {o["symbol"]: o["price"] for o in c["book"]["orders"] if o.get("price")}
+        found = eod.position_breaks(expected, actual, {**c["book"]["unit_values"], **order_prices, **marks})
+        is_material = any(b["notional_diff_usd"] is None or b["notional_diff_usd"] >= c["threshold"] for b in found)
+        out = engine_shadow.compare_reconcile(book=c["book"], positions=c["positions"], fills=c["fills"],
+                                              threshold=c["threshold"], expected=expected, orders=orders, breaks=found,
+                                              material=is_material)  # fmt: skip
+        assert out["differences"] == [], (case, out["differences"][:5])
+        material += is_material
+        breaks += bool(found)
+    assert material > 300 and breaks > 500 and 2000 - breaks > 300, (material, breaks)
+
+
+def test_the_reconcile_records_its_comparison(tmp_path: Path) -> None:
+    from src.runtime import end_of_day_reconcile as eod
+
+    book = {"positions": {"SPY": 100.0}, "unit_values": {"SPY": 500.0},
+            "orders": [{"symbol": "SPY", "quantity": 10.0, "status": "PreSubmitted", "order_id": "4", "perm_id": "355"}]}  # fmt: skip
+    positions = pd.DataFrame([{"symbol": "SPY", "current_shares": 109.0, "sec_type": "STK", "market_price": 501.0}])
+    expected, orders = eod.expected_positions(book, [])
+    found = eod.position_breaks(expected, {"SPY": 109.0}, {"SPY": 501.0})
+    out = engine_shadow.reconcile(root=tmp_path, at=AT, book=book, positions=positions, fills=[], threshold=100.0,
+                                  expected=expected, orders=orders, breaks=found, material=True)  # fmt: skip
+    assert out["match"] is True and out["summary"] == "same 1 break, material"

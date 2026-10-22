@@ -69,3 +69,16 @@ def test_pairwise_sum_is_numpy_s() -> None:
     np = pytest.importorskip("numpy")
     values = [1e16, 1.0, -1e16, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0] * 7
     assert oms.pairwise_sum(values) == float(np.sum(np.array(values)))
+
+
+def test_reconcile() -> None:
+    order = oms.BookOrder("SPY", 10.0, "PreSubmitted", "4", "355", 495.0)
+    fills = [oms.Fill("355", "4", "SPY", 6.0)]
+    r = oms.reconcile({"SPY": 100.0}, {"SPY": 490.0}, [order], [oms.Holding("SPY", 106, "STK", 500.0)], fills)
+    assert r.ok and not r.material and r.breaks == [] and r.orders[0].filled == 6.0
+    r = oms.reconcile({"SPY": 100.0}, {}, [order], [oms.Holding("SPY", 105, "STK", 500.0), oms.Holding("XYZ", 3)], fills)
+    assert r.material and [(b.symbol, b.qty_diff, b.notional_diff_usd) for b in r.breaks] == [
+        ("SPY", -1.0, 500.0),
+        ("XYZ", 3.0, None),
+    ]
+    assert not oms.reconcile({}, {}, [], [oms.Holding("SPY", math.nan)], []).ok

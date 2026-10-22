@@ -12,6 +12,8 @@
 //   plan_basket()        build_paper_basket.build_reconciliation, and the
 //                        sending order of submit_paper_orders.sells_first
 //   execution_for()      src/broker/ibkr/auction.execution_for
+//   reconcile()          src/runtime/end_of_day_reconcile: the expected book against
+//                        IBKR's positions, the run's first step
 //
 // The ports keep Python's arithmetic step for step, down to the order of the
 // additions in a sum (numpy's pairwise summation), so the same inputs give the
@@ -42,6 +44,7 @@ struct Holding {
     double quantity = 0.0;      // signed; NaN when the snapshot has none
     std::string sec_type;       // IBKR's secType; "" when not recorded
     double market_price = kNaN; // IBKR's mark; NaN when it has none
+    double multiplier = kNaN;   // contract size; NaN when IBKR gave none (1 for shares)
 };
 
 // One row of the latest targets.
@@ -200,6 +203,84 @@ nyse::Instant moc_deadline(const nyse::Instant& close, const std::vector<std::st
 // a trading day; otherwise market-on-open at the next open. `exchanges` are
 // the batch's primary exchanges, one per symbol.
 Execution execution_for(const std::vector<std::string>& exchanges, const nyse::Instant& at);
+
+// ── The reconcile ────────────────────────────────────────────────────────
+//
+// The run's first step: what the account should hold after the orders sent
+// since the last reconcile, against what IBKR holds, to the share. A break
+// worth the threshold or more, or one with no price to value it, is material:
+// Python then arms the kill switch.
+
+// Quantities closer than this are equal (IBKR allows fractional shares).
+inline constexpr double kShareTolerance = 1e-6;
+
+// An order in the expected book (end_of_day_reconcile.record_submission).
+struct BookOrder {
+    std::string symbol;
+    double quantity = 0.0;  // signed: sells negative
+    std::string status;     // as recorded when it was sent
+    std::string order_id;   // "" when none
+    std::string perm_id;    // "" when none
+    double price = kNaN;    // dollars per share it was sized at; NaN when none
+};
+
+struct ExpectedBook {
+    std::map<std::string, double> positions;    // what the basket was built on
+    std::map<std::string, double> unit_values;  // dollars per unit then
+    std::vector<BookOrder> orders;              // sent since
+};
+
+// An execution IBKR reports (its API keeps the current day's).
+struct Fill {
+    std::string perm_id;
+    std::string order_id;
+    std::string symbol;
+    double quantity = 0.0;  // signed: sells negative
+};
+
+struct CountedOrder {
+    BookOrder order;
+    double filled = 0.0;  // what it adds to the expected positions
+    std::string counted;  // how: at its fills, in full, or not at all
+};
+
+struct PositionBreak {
+    std::string symbol;
+    double expected_qty = 0.0;
+    double broker_qty = 0.0;
+    double qty_diff = 0.0;  // broker less expected
+    std::optional<double> ref_price;          // dollars per unit, when there is one
+    std::optional<double> notional_diff_usd;  // none without a price (or at 0): material whatever its size
+};
+
+struct Held {
+    std::map<std::string, double> quantities;   // symbol (upper case) to quantity
+    std::map<std::string, double> unit_values;  // IBKR's mark times the multiplier
+};
+
+struct Reconcile {
+    bool ok = true;
+    std::string error;  // a position with no quantity: Python raises there
+    std::map<std::string, double> expected;
+    std::map<std::string, double> actual;
+    std::map<std::string, double> unit_values;  // what the breaks were valued at
+    std::vector<CountedOrder> orders;
+    std::vector<PositionBreak> breaks;
+    bool material = false;
+};
+
+// IBKR's positions as the reconcile reads them: zero positions dropped,
+// duplicates summed, and each unit's dollar value where IBKR had a mark.
+// A position with no finite quantity is an error.
+Held held(const std::vector<Holding>& positions, std::string* error = nullptr);
+
+// The reconcile: the book's positions plus each order at the fills IBKR
+// reports for it (by permId, else orderId and symbol), else in full, or not at
+// all when it never reached IBKR (status ERROR, Cancelled or ApiCancelled);
+// then every symbol where IBKR's quantity differs, valued at IBKR's mark now,
+// else the order's price, else the book's value.
+Reconcile reconcile(const ExpectedBook& book, const std::vector<Holding>& positions, const std::vector<Fill>& fills,
+                    double material_threshold_usd = 100.0);
 
 // ── Shared helpers ───────────────────────────────────────────────────────
 

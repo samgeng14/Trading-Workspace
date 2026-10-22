@@ -1363,7 +1363,8 @@ function exitTest(): S["ExitTest"] {
 /**
  * The C++ engine's shadow (trading-engine/src/production/engine_shadow.py) over the
  * demo's runs: from eight sessions back, every run that got past its gate compared
- * the gate and the basket it would build, and a rebalance the basket it sent too.
+ * its reconcile, the gate and the basket it would build, and a rebalance the
+ * basket it sent too.
  * A run that failed (as runs() fails one) compared nothing. All of them matched.
  */
 function engineShadow(): S["EngineShadow"] {
@@ -1377,6 +1378,7 @@ function engineShadow(): S["EngineShadow"] {
     const stamp = (hhmm: string) => iso(etTime(date, hhmm));
     const same = `same ${trades.length} orders`;
     const kinds: S["EngineShadowSession"]["kinds"] = {
+      reconcile: { match: true, summary: "same 0 breaks", at: stamp("15:35") },
       drift: { match: true, summary: "same decision", at: stamp("15:35") },
       whatif: { match: true, summary: same, at: stamp("15:35") },
       ...(trades.length > 0 ? { basket: { match: true, summary: same, at: stamp("15:36") } } : {}),

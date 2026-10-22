@@ -159,7 +159,9 @@ which needs the TWS C++ API: below). The engine now holds the order manager's
 decisions, ported from the Python runner step for step:
 - `engine/src/nyse.cpp` (`dv02_engine.nyse`): the NYSE calendar of
   `src/common/clock.py`, rule for rule, in New York local time.
-- `engine/src/oms.cpp` (`dv02_engine.oms`): the drift gate
+- `engine/src/oms.cpp` (`dv02_engine.oms`): the reconcile of the expected
+  book (`end_of_day_reconcile`: expected positions, breaks, and whether one is
+  material, which arms the kill switch), the drift gate
   (`auto_rebalance.decide_rebalance_with_drift` and the runner's
   `_current_weights`), the basket (`build_reconciliation`, the cash trim and
   `sells_first`) and the auction choice (`auction.execution_for`). Sums use
@@ -168,6 +170,8 @@ decisions, ported from the Python runner step for step:
 
 **Every run compares them with Python's** (`trading-engine/src/production/engine_shadow.py`),
 and nothing the engine decides is sent:
+- `reconcile`, every run that reconciles (step 0): the expected positions,
+  how each order counted, every break and its value, and the verdict.
 - `drift`, every run: the gate's weights and decision.
 - `whatif`, every run, rebalance or not: the basket the run would build now
   from the gate's positions and NAV (no cash trim), and its auction.
@@ -186,8 +190,10 @@ the first run with it on 2026-10-22, so 2026-11-04 at the earliest.**
 Tested: 133 C++ tests (GCC 13 on the VM and Clang, sanitizers on), and
 `tests/unit/test_engine_oms.py` checks the engine against Python input for
 input: every day 1990–2045, the auction at the minutes around each cutoff,
-4,000 random drift gates and 1,500 random baskets (trims, refusals, holdings
-outside the model), all exact. A one-ulp difference shows as a miss.
+4,000 random drift gates, 1,500 random baskets (trims, refusals, holdings
+outside the model) and 2,000 random reconciles (partial, stray and missing
+fills, orders never placed, unpriced breaks), all exact. A one-ulp difference
+shows as a miss.
 
 **Next for the engine:**
 1. The order state machine (PLAN §6 `oms`), replayed each evening against the
