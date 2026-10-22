@@ -1,0 +1,28 @@
+# One daily run (trading-engine/src/production/daily_runner.py), as the Mac's
+# LaunchAgent ran it: reconcile, bars, targets, drift gate, then paper orders
+# if config/execution.yaml allows them. Started by dv02-runner.timer; also
+# `systemctl start dv02-runner` by hand. --skip-if-ran-today makes a second
+# start that day (or a catch-up after downtime) a no-op once one succeeded.
+[Unit]
+Description=DV02 daily run (paper)
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=dv02-alert@%n.service
+
+[Service]
+Type=oneshot
+User=dv02
+Group=dv02
+WorkingDirectory=/opt/dv02/trading-engine
+EnvironmentFile=/etc/dv02/dv02.env
+Environment=CAPITALFUND_OPTIMIZER=momentum_tilted
+Environment=APP_ENV=vm
+# a gateway cut off from IBKR gets one restart first (deploy/bin/gateway-ready);
+# the leading "-" means it never stops the run, which reports anything still wrong
+ExecStartPre=-/opt/dv02/deploy/bin/gateway-ready
+ExecStart=/opt/dv02/.venv/bin/python -m src.production.daily_runner --profile paper --skip-if-ran-today
+# only after a run that exited 0: a missing ping is the alert
+ExecStartPost=/opt/dv02/deploy/bin/heartbeat runner
+TimeoutStartSec=45min
+NoNewPrivileges=true
+PrivateTmp=true

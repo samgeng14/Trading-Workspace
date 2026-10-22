@@ -1,0 +1,9 @@
+check,value
+panel,"2005-01-03 to 2026-10-16, 5482 sessions; holdout from 2023-10-12"
+sessions by clock.py's rules the panel lacks (unscheduled closures),2007-01-02; 2012-10-29; 2012-10-30; 2018-12-05; 2025-01-09
+panel days clock.py's rules don't call sessions,none
+R1 primary: SPY on the turn of the month: chosen sessions 2008-01-03 to 2023-10-11,758 of 3974 (19.1%)
+R1 V1: turn of the month + FOMC days: chosen sessions 2008-01-03 to 2023-10-11,860 of 3974 (21.6%)
+"R1 V2: turn of the month + FOMC, jobs and CPI days: chosen sessions 2008-01-03 to 2023-10-11",1162 of 3974 (29.2%)
+"S0 from 2008-01-02 with S1's costs: excess Sharpe here, and in R2's results","0.268481 here, 0.268481 in R2's, equal"
+S0 from 2008-01-02 with this study's costs (SPY and BIL at 1.0 bps),0.268623

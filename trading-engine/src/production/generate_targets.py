@@ -2,8 +2,10 @@
 generate_targets.py — Build monthly target weights for the paper portfolio.
 
 Supports multiple optimizers (selected via the ``optimizer`` arg or the
-``CAPITALFUND_OPTIMIZER`` env var). All optimizers operate on the full
-universe of ETFs in the master price file:
+``CAPITALFUND_OPTIMIZER`` env var). All optimizers operate on the model
+universe, the ``etfs.core`` list in config/universes/etfs.yaml, and nothing
+else: the master price file also keeps series the model no longer holds
+(TQQQ, out since 2026-10-12), and those never get a target.
 
   * ``equal_weight``       — 1/N across every eligible ETF
   * ``inverse_vol``        — weight ∝ 1 / σ_i  (diversified, robust default)
@@ -21,9 +23,10 @@ ETFs, and produces the smallest drawdowns historically.
 from __future__ import annotations
 
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 import pandas as pd
@@ -32,6 +35,9 @@ import pandas as pd
 VOLATILITY_LOOKBACK = 63        # ~3 months of daily vol
 MOMENTUM_LOOKBACK_DEFAULT = 126  # ~6 months
 MIN_HISTORY_DEFAULT = 126        # ~6 months before an ETF can be held
+# How far behind a symbol's last bar may be and still count at a rebalance
+# (business days, as the price validator's staleness warning counts them).
+MAX_LAG_SESSIONS = 3
 
 OPTIMIZERS_AVAILABLE = (
     "equal_weight",
@@ -61,10 +67,58 @@ class TargetResult:
     csv_path: str
     parquet_path: str
     preview: list[dict[str, Any]]
+    universe: list[str] = field(default_factory=list)
+    # in the model universe but with no rows in the master: never eligible
+    universe_missing: list[str] = field(default_factory=list)
+    # the last session read; master rows after it (a session not yet over) are not
+    prices_through: str | None = None
+    # what momentum and volatility were computed on: "total_return" or "price"
+    signal_prices: str = "price"
+    # the symbols that stayed on price, and why (src/data/cleaning/total_return.py)
+    signal_prices_note: str | None = None
 
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+UNIVERSE_PATH = _project_root() / "config" / "universes" / "etfs.yaml"
+
+
+def model_universe(path: Path | None = None) -> tuple[str, ...]:
+    """The ETFs the model may hold: ``etfs.core`` in config/universes/etfs.yaml.
+
+    A missing file or an empty list is an error rather than "every symbol in
+    the master", which is what target generation used to trade.
+    """
+    import yaml
+
+    path = path or UNIVERSE_PATH
+    with open(path, encoding="utf-8") as f:
+        core = ((yaml.safe_load(f) or {}).get("etfs") or {}).get("core") or []
+    symbols = tuple(dict.fromkeys(str(s).strip().upper() for s in core if str(s).strip()))
+    if not symbols:
+        raise ValueError(f"No model universe: {path} has no etfs.core list")
+    return symbols
+
+
+SIGNAL_PRICES = ("total_return", "price")
+# The dividend-adjusted closes, beside the price master (src/production/pipeline/append_total_return.py)
+ADJUSTED_FILE = "etf_total_return_closes.parquet"
+
+
+def signal_prices_setting(path: Path | None = None) -> str:
+    """``etfs.signal_prices`` in config/universes/etfs.yaml: what momentum and
+    volatility are computed on. ``total_return`` (dividends counted) or
+    ``price``; a file without the key is ``price``, as before the setting existed."""
+    import yaml
+
+    path = path or UNIVERSE_PATH
+    with open(path, encoding="utf-8") as f:
+        value = ((yaml.safe_load(f) or {}).get("etfs") or {}).get("signal_prices", "price")
+    if value not in SIGNAL_PRICES:
+        raise ValueError(f"{path}: etfs.signal_prices must be one of {', '.join(SIGNAL_PRICES)}, not {value!r}")
+    return value
 
 
 def _paths() -> dict[str, Path]:
@@ -77,7 +131,8 @@ def _paths() -> dict[str, Path]:
     }
 
 
-def _load_prices() -> pd.DataFrame:
+def _load_prices(universe: Iterable[str] | None = None) -> pd.DataFrame:
+    """The master's closes, limited to ``universe`` when given."""
     p = _paths()
     if p["prices_parquet"].exists():
         df = pd.read_parquet(p["prices_parquet"])
@@ -97,6 +152,8 @@ def _load_prices() -> pd.DataFrame:
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
 
     df = df.dropna(subset=["date", "symbol", "close"])
+    if universe is not None:
+        df = df[df["symbol"].isin(set(universe))]
     df = df.sort_values(["symbol", "date"]).reset_index(drop=True)
     return df
 
@@ -107,11 +164,14 @@ def _build_features(
     min_history: int,
 ) -> pd.DataFrame:
     df = df.copy()
+    # Signals use the total-return close when there is one (generate_targets
+    # adds it); ``close`` stays the price an order is sized at.
+    signal = "signal_close" if "signal_close" in df.columns else "close"
 
     df["obs_count"] = df.groupby("symbol").cumcount() + 1
-    df["mom"] = df.groupby("symbol")["close"].pct_change(momentum_lookback)
+    df["mom"] = df.groupby("symbol")[signal].pct_change(momentum_lookback)
     df["log_ret"] = (
-        df.groupby("symbol")["close"].apply(lambda s: np.log(s).diff()).reset_index(level=0, drop=True)
+        df.groupby("symbol")[signal].apply(lambda s: np.log(s).diff()).reset_index(level=0, drop=True)
     )
     # Trailing volatility (annualized, in % terms).
     df["vol"] = (
@@ -124,8 +184,6 @@ def _build_features(
     df["eligible"] = (df["obs_count"] >= min_history) & df["mom"].notna() & df["vol"].notna()
 
     df["month"] = df["date"].dt.to_period("M")
-    month_last = df.groupby(["symbol", "month"])["date"].transform("max")
-    df["is_rebalance_row"] = df["date"].eq(month_last)
 
     return df
 
@@ -256,7 +314,8 @@ def _ensemble_weights(snap: pd.DataFrame, prices_full: pd.DataFrame, ensemble: s
         raise ValueError(f"Unknown ensemble '{ensemble}'")
 
     ens = factory()
-    as_of = pd.to_datetime(snap["date"].iloc[0])
+    # the rebalance date: a symbol a session behind has an older row
+    as_of = pd.to_datetime(snap["date"]).max()
     scored = ens.compute(prices_full, as_of)
     score_map = (
         dict(zip(scored["symbol"].astype(str).str.upper(), scored["score"]))
@@ -311,14 +370,23 @@ def _build_targets(
     # Reconstitute a long-format prices DataFrame from the feature panel for
     # the signal ensembles. Keeps the contract clean: ensembles ingest the
     # same panel they'd see standalone.
-    prices_full = df[["date", "symbol", "close"]].copy()
+    signal = "signal_close" if "signal_close" in df.columns else "close"
+    prices_full = df[["date", "symbol", signal]].rename(columns={signal: "close"})
 
     rows: list[pd.DataFrame] = []
-    rebal_dates = sorted(df.loc[df["is_rebalance_row"], "date"].drop_duplicates().tolist())
+    # One rebalance a month, on the panel's last session that month. Each
+    # symbol enters at its last row on or before that date, up to
+    # MAX_LAG_SESSIONS sessions old, so one missing bar (a failed fetch) keeps
+    # a symbol in the targets at its last close. Dropped from the latest
+    # targets, it would be sold whole as a holding outside the model.
+    by_date = df.sort_values(["date", "symbol"])
+    rebal_dates = sorted(df.groupby("month")["date"].max().tolist())
 
     for rebal_date in rebal_dates:
-        snap = df[(df["date"] == rebal_date) & (df["is_rebalance_row"])].copy()
-        snap = snap[snap["eligible"]].copy()
+        recent = by_date[by_date["date"].between(rebal_date - pd.Timedelta(days=14), rebal_date)]
+        snap = recent.groupby("symbol").tail(1)
+        lag = np.busday_count(snap["date"].to_numpy().astype("datetime64[D]"), np.datetime64(rebal_date.date()))
+        snap = snap[(lag <= MAX_LAG_SESSIONS) & snap["eligible"]].copy()
         if snap.empty:
             continue
 
@@ -382,11 +450,17 @@ def generate_targets(
     top_k: int = 5,
     optimizer: str | None = None,
     momentum_tilt: float = 0.5,
+    universe: Iterable[str] | None = None,
+    through: date | None = None,
 ) -> dict[str, Any]:
-    """Build the monthly target file.
+    """Build the monthly target file from the model universe's prices.
 
     ``optimizer`` resolution order:  function arg → CAPITALFUND_OPTIMIZER env
-    → DEFAULT_OPTIMIZER.
+    → DEFAULT_OPTIMIZER. ``universe`` defaults to :func:`model_universe`.
+    Prices are read up to ``through``, by default the last session whose
+    daily bar is final (src/common/clock.py): a run before the close builds
+    targets from yesterday's close even if the master holds a partial bar
+    for today.
     """
     if optimizer is None:
         optimizer = os.environ.get("CAPITALFUND_OPTIMIZER", DEFAULT_OPTIMIZER)
@@ -398,7 +472,26 @@ def generate_targets(
     p = _paths()
     p["targets_csv"].parent.mkdir(parents=True, exist_ok=True)
 
-    prices = _load_prices()
+    universe = tuple(s.strip().upper() for s in (universe or model_universe()))
+    if through is None:
+        from src.common.clock import last_completed_session
+
+        through = last_completed_session()
+    prices = _load_prices(universe)
+    prices = prices[prices["date"] <= pd.Timestamp(through)]
+    if prices.empty:
+        raise ValueError(f"The master price file has no rows for the model universe: {', '.join(universe)}")
+    in_master = set(prices["symbol"])
+    if signal_prices_setting() == "total_return":
+        from src.data.cleaning.total_return import signal_closes
+        from src.production.pipeline.append_total_return import load_adjusted
+
+        # next to the master, wherever that is (tests point the master elsewhere)
+        tr = signal_closes(prices, load_adjusted(p["prices_parquet"].with_name(ADJUSTED_FILE)))
+        prices = prices.assign(signal_close=tr.closes)
+        signal_basis, signal_note = tr.basis, tr.note()
+    else:
+        signal_basis, signal_note = "price", "etfs.signal_prices is price (config/universes/etfs.yaml)"
     features = _build_features(
         prices,
         momentum_lookback=momentum_lookback,
@@ -432,6 +525,11 @@ def generate_targets(
         csv_path=str(p["targets_csv"]),
         parquet_path=str(p["targets_parquet"]),
         preview=preview,
+        universe=list(universe),
+        universe_missing=[s for s in universe if s not in in_master],
+        prices_through=str(prices["date"].max().date()),
+        signal_prices=signal_basis,
+        signal_prices_note=signal_note,
     )
     return asdict(result)
 

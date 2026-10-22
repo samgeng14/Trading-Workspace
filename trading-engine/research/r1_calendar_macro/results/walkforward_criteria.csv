@@ -1,0 +1,11 @@
+hypothesis,book,criterion,value,pass
+R1,R1 primary: SPY on the turn of the month,1. excess Sharpe >= 0.40,0.22064482719466338,False
+R1,R1 primary: SPY on the turn of the month,2. deflated Sharpe >= 0.90 (n 30),0.23640612641670333,False
+R1,R1 primary: SPY on the turn of the month,3. block bootstrap 5th percentile of the excess Sharpe > 0,-0.06688260717556686,False
+R1,R1 primary: SPY on the turn of the month,4. every variant's excess Sharpe > 0 (worst variant),0.38058630488755446,True
+R1,R1 primary: SPY on the turn of the month,5. max drawdown no worse than -20%,-0.1505432250854013,True
+R1,R1 primary: SPY on the turn of the month,6. cost drag <= 1% a year,0.007954311523598625,True
+R1,R1 primary: SPY on the turn of the month,7. no day outside the mandate,0.0,True
+R1,R1 primary: SPY on the turn of the month,8. worst calendar month no worse than -10%,-0.07275088614486769,True
+R1,R1 primary: SPY on the turn of the month,9. a return above SPY held's in each stress window (smallest margin),0.013632996794865293,True
+R1,R1 primary: SPY on the turn of the month,10. 50/50 S0 + R1's excess Sharpe > S0's (difference),0.031033841038564547,True

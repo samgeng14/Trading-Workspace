@@ -1,0 +1,15 @@
+hypothesis,book,criterion,value,pass
+H1,H1 W21 target 10%,1. max drawdown at most 60% of S0's,0.6425866378867424,False
+H1,H1 W21 target 10%,2. excess Sharpe >= S0's - 0.05,0.05454006513392884,True
+H1,H1 W21 target 10%,3. bootstrap P(drawdown shallower than S0's) >= 80%,0.977,True
+H1,H1 W21 target 10%,4. bootstrap P(excess Sharpe >= S0's - 0.05) >= 80%,0.877,True
+H1,H1 W21 target 10%,5. cost drag <= 0.5% a year,0.0018168036106160264,True
+H1,H1 W21 target 10%,"6. loses less than S0 in 2008, the 2020 crash and 2022",0.01260671576750727,True
+H1,H1 W21 target 10%,7. no day outside the mandate,0.0,True
+H2,H2 50/50 S0 + S1 long/flat,1. max drawdown at most 60% of S0's,0.5808426695703931,True
+H2,H2 50/50 S0 + S1 long/flat,2. excess Sharpe >= S0's - 0.05,0.04108039471520425,True
+H2,H2 50/50 S0 + S1 long/flat,3. bootstrap P(drawdown shallower than S0's) >= 80%,1.0,True
+H2,H2 50/50 S0 + S1 long/flat,4. bootstrap P(excess Sharpe >= S0's - 0.05) >= 80%,0.951,True
+H2,H2 50/50 S0 + S1 long/flat,5. cost drag <= 0.5% a year,0.000953616846446737,True
+H2,H2 50/50 S0 + S1 long/flat,"6. loses less than S0 in 2008, the 2020 crash and 2022",0.03622549616878401,True
+H2,H2 50/50 S0 + S1 long/flat,7. no day outside the mandate,0.0,True

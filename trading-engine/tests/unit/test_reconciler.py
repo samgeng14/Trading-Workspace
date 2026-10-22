@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -49,15 +50,30 @@ def test_month_end_window():
 # ── end_of_day_reconcile ───────────────────────────────────────────────────
 
 
-def test_reconcile_handles_unavailable_broker_gracefully(tmp_path, monkeypatch):
-    # Without a real IBKR connection the reconciler should return ok=True
-    # with an "unavailable" error string rather than raising.
-    monkeypatch.setattr(
-        "src.runtime.end_of_day_reconcile.RECON_DIR", tmp_path
-    )
+def test_reconcile_reports_unreachable_broker_as_failure(tmp_path, monkeypatch):
+    # An unreachable gateway proves nothing about the book, so it must not
+    # come back as a clean (ok, no-diff) reconcile.
+    import pandas as pd
+
+    from src.broker.ibkr import reconciler
+    from src.production.runtime.build_paper_basket import POSITION_COLUMNS
+    from src.runtime.end_of_day_reconcile import record_submission
+
+    class _DownClient:
+        config = SimpleNamespace(host="127.0.0.1", port=4002, account=None)
+
+        def connect(self):
+            raise ConnectionRefusedError("gateway down")
+
+    monkeypatch.setattr("src.runtime.end_of_day_reconcile.RECON_DIR", tmp_path)
+    monkeypatch.setattr(reconciler, "_make_readonly_client", lambda profile: _DownClient())
+    record_submission(  # something to reconcile, with its auction behind us
+        "paper", run_id="r", positions=pd.DataFrame(columns=POSITION_COLUMNS),
+        orders=pd.DataFrame([{"symbol": "SPY", "action": "BUY", "quantity": 1, "order_id": 1, "perm_id": 1,
+                              "status": "Submitted", "estimated_trade_dollars": 100.0}]),
+        execution={"fills_at": "2026-04-29T16:00:00-04:00"},
+    )  # fmt: skip
     res = reconcile_end_of_day(profile="paper", as_of=date(2026, 4, 30))
-    assert res.ok is True
+    assert res.ok is False
     assert res.material_mismatch is False
-    # diffs is either empty or a list (depending on whether the module
-    # is importable in this env).
-    assert isinstance(res.diffs, list)
+    assert "IBKR connect failed" in (res.error or "")

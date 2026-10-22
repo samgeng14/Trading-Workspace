@@ -1,0 +1,23 @@
+# After the close: the day's fills, every position and the closing NAV, from
+# IBKR into the store (trading-engine/src/storage/capture.py). IBKR's API shows
+# only the current day's executions, so the fills of the market-on-close orders
+# have to be read the same evening. Read-only on IBKR, on its own client ID.
+# Started by dv02-capture.timer; with the store off it does nothing.
+[Unit]
+Description=DV02 post-close capture to the store
+Wants=network-online.target
+After=network-online.target docker.service
+OnFailure=dv02-alert@%n.service
+
+[Service]
+Type=oneshot
+User=dv02
+Group=dv02
+WorkingDirectory=/opt/dv02/trading-engine
+EnvironmentFile=/etc/dv02/dv02.env
+Environment=APP_ENV=vm
+ExecStart=/opt/dv02/.venv/bin/python -m src.storage.capture
+ExecStartPost=/opt/dv02/deploy/bin/heartbeat capture
+TimeoutStartSec=10min
+NoNewPrivileges=true
+PrivateTmp=true

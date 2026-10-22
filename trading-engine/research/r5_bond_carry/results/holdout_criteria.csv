@@ -1,0 +1,2 @@
+hypothesis,book,rule,sharpe_excess,max_drawdown,tlt_held_max_drawdown,worst_day,killed
+R5,R5 primary: TLT while its carry is positive,"killed if its excess Sharpe is below -0.5, its drawdown deeper than TLT held's over the holdout, or a day worse than -12%",-0.2786187984312541,-0.12408966882419359,-0.16500321993456402,-0.030018198383818917,False

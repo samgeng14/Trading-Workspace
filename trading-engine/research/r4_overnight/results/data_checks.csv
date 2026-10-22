@@ -1,0 +1,17 @@
+check,value
+panel,"2005-01-03 to 2026-10-16, 5482 sessions; holdout from 2023-10-12"
+the master's SPY and QQQ sessions against the panel's,the same
+"S0 from 2008-01-02 with S1's costs: excess Sharpe here, and in R2's results","0.268481 here, 0.268481 in R2's, equal"
+"S0 from 2008-01-02 with R1's costs (this study's for S0): here, and in R1's results","0.268623 here, 0.268623 in R1's, equal"
+SPY held,"SPY_TR bought at 99.5% at the first trade, never rebalanced (R1's, R2's)"
+the intraday complement's allowance,"each auction's: 0.5 bps on the buy at the open, 0.1 bps on the sale at the close, with the SEC fee"
+walk-forward: sessions 2008-01-03 to 2023-10-11,3971
+walk-forward: nights held by the primary and V1 (every night but those after an early close),3939
+walk-forward: nights held by V2 (weeknights: the next session is the next calendar day),3114
+"walk-forward: nights after an early close, sat out by every rule",32: 2008-07-07; 2008-12-01; 2008-12-26; 2009-11-30; 2009-12-28; 2010-11-29; 2011-11-28; 2012-07-05; 2012-11-26; 2012-12-26; 2013-07-05; 2013-12-02; 2013-12-26; 2014-07-07; 2014-12-01; 2014-12-26; 2015-11-30; 2015-12-28; 2016-11-28; 2017-07-05; 2017-11-27; 2018-07-05; 2018-11-26; 2018-12-26; 2019-07-05; 2019-12-02; 2019-12-26; 2020-11-30; 2020-12-28; 2021-11-29; 2022-11-28; 2023-07-05
+"walk-forward: SPY ex-dates inside, and their cash a share","63, $66.8022"
+walk-forward: SPY ex-dates on a night the primary or V1 holds,63
+"walk-forward: QQQ ex-dates inside, and their cash a share","64, $18.0901"
+walk-forward: QQQ ex-dates on a night the primary or V1 holds,64
+the constructed levels start at each ETF's close on the panel's first date,SPY_ON 120.30; QQQ_ON 39.50; SPY_WN 120.30; SPY_ID 120.30; SPY_TR 120.30
+"SPY's gross night x gross day against its total return, largest gap on a session without a dividend, and on an ex-date",2.22e-16; 3.46e-04 on 2020-03-20

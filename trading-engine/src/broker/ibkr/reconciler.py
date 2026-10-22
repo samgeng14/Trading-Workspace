@@ -16,11 +16,10 @@ returns diffs as a list of dicts shaped like:
 Empty list = perfect match. The runtime EOD step decides which diffs
 are 'material' based on ``notional_diff_usd``.
 
-Failure handling: any IBKR connection or position-read failure is
-logged and converted to an empty list. The runtime caller already
-distinguishes "no diff" from "broker unavailable" via its own ``error``
-field, so a graceful return keeps the EOD job from hard-failing on a
-flaky gateway.
+Failure handling: an IBKR connection or position-read failure raises
+``BrokerUnavailableError``. It must not be turned into an empty list:
+"no diffs" means the book matches the broker, and an unreachable
+gateway proves nothing about that.
 """
 from __future__ import annotations
 
@@ -29,18 +28,17 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .client import IBKRClient, IBKRConnectionConfig
-from .executions import _broker_profile_config
+from .client import IBKRClient, IBKRClientError
+from .settings import make_client
 
 log = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _BLOTTER_DIR = _PROJECT_ROOT / "data" / "broker" / "orders"
 
-# Offset added to the configured paper client_id when opening a
-# read-only reconciler connection — avoids clashing with the
-# order-submitter and executions-reader clients on the same gateway.
-_RECON_CLIENT_ID_OFFSET = 60
+
+class BrokerUnavailableError(IBKRClientError):
+    """IBKR could not be reached or did not return positions."""
 
 
 def _read_paper_blotter_qty(profile: str) -> dict[str, int]:
@@ -108,14 +106,7 @@ def _read_paper_blotter_qty(profile: str) -> dict[str, int]:
 
 
 def _make_readonly_client(profile: str) -> IBKRClient:
-    cfg = _broker_profile_config(profile)
-    return IBKRClient(IBKRConnectionConfig(
-        host=cfg["host"],
-        port=cfg["port"],
-        client_id=int(cfg["client_id"]) + _RECON_CLIENT_ID_OFFSET,
-        readonly=True,
-        account=cfg["account"],
-    ))
+    return make_client(profile, "reconcile", readonly=True)
 
 
 def diff_book_vs_account(
@@ -141,19 +132,19 @@ def diff_book_vs_account(
 
     owns_client = client is None
     if client is None:
+        client = _make_readonly_client(profile)
         try:
-            client = _make_readonly_client(profile)
             client.connect()
-        except Exception as exc:  # noqa: BLE001 — graceful for EOD job
-            log.warning("reconciler: IBKR connect failed (%s); returning []", exc)
-            return []
+        except Exception as exc:  # noqa: BLE001
+            raise BrokerUnavailableError(
+                f"IBKR connect failed at {client.config.host}:{client.config.port}: {exc}"
+            ) from exc
 
     try:
         try:
             broker_positions = client.positions(account=client.config.account or None)
         except Exception as exc:  # noqa: BLE001
-            log.warning("reconciler: positions read failed: %s", exc)
-            return []
+            raise BrokerUnavailableError(f"IBKR positions read failed: {exc}") from exc
     finally:
         if owns_client:
             try:
@@ -199,4 +190,4 @@ def diff_book_vs_account(
     return diffs
 
 
-__all__ = ["diff_book_vs_account"]
+__all__ = ["BrokerUnavailableError", "diff_book_vs_account"]

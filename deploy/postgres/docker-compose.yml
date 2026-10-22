@@ -1,0 +1,23 @@
+# The store: Postgres for the trading record (runs, orders, fills, positions,
+# NAV; trading-engine/config/db.yaml and src/storage). deploy/bin/postgres-up
+# starts it and creates the tables. Local only.
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trading
+      POSTGRES_USER: dv02
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    secrets: [pg_password]
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+secrets:
+  pg_password:
+    file: /etc/dv02/pg_password
+
+volumes:
+  pgdata: {}

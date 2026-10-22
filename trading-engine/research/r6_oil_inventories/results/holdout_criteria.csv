@@ -1,0 +1,2 @@
+hypothesis,book,rule,sharpe_excess,max_drawdown,uso_held_max_drawdown,worst_day,killed
+R6,"R6 primary: USO while US stocks, as published, are below their norm","killed if its excess Sharpe is below -0.5, its drawdown deeper than USO held's over the holdout, or a day worse than -12%",0.5726866935011093,-0.10081454619495678,-0.1257816262079059,-0.040173427341055334,False

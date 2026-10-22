@@ -1,0 +1,11 @@
+# Daily at 18:30 New York time, after the close and the run's after-close work.
+[Unit]
+Description=DV02 backup daily at 18:30 America/New_York
+
+[Timer]
+OnCalendar=*-*-* 18:30:00 America/New_York
+Persistent=true
+Unit=dv02-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,2 @@
+hypothesis,criteria_passed,criteria,failed,holdout_killed,verdict
+R1,7,10,1. excess Sharpe >= 0.40; 2. deflated Sharpe >= 0.90 (n 30); 3. block bootstrap 5th percentile of the excess Sharpe > 0,False,fail

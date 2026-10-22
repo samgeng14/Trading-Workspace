@@ -1,0 +1,6 @@
+measure,value
+"daily return correlation, S1 vs S0",-0.08332731247237672
+"daily excess return correlation, S1 vs S0",-0.07881109169226136
+"monthly return correlation, S1 vs S0",-0.03719119557721772
+S1's mean monthly return in S0's worst 10% of months,0.0023079540626838153
+S0's mean monthly return in its worst 10% of months,-0.06705570897111279

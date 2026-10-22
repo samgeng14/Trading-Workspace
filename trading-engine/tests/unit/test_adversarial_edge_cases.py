@@ -877,14 +877,33 @@ def test_reconcile_rerun_does_not_double_arm(
 ):
     """Re-running EOD reconcile when the switch is already armed must
     not re-arm (which would overwrite the original armed_at + reason)."""
+    from datetime import datetime
+
+    import pandas as pd
+
+    from src.common import clock
+    from src.production.runtime.build_paper_basket import POSITION_COLUMNS
+    from src.runtime.end_of_day_reconcile import record_submission
+    from tests.unit.test_expected_book import FakeClient, FakeIB
+
     monkeypatch.setattr("src.runtime.end_of_day_reconcile.RECON_DIR", tmp_path)
     arm_kill_switch("first arm reason", by="initial")
     state_before = read_kill_switch_state()
 
-    # Reconcile (no broker available → returns ok=True with empty diffs,
-    # so it shouldn't re-arm; this also exercises the idempotent check).
-    res = reconcile_end_of_day(profile="paper", as_of=date(2026, 4, 30))
+    # A material mismatch on the rerun must hit the idempotent check: the book
+    # expects 500 SPY (one buy from all cash), IBKR holds none.
+    record_submission(
+        "paper", run_id="r", positions=pd.DataFrame(columns=POSITION_COLUMNS),
+        orders=pd.DataFrame([{"symbol": "SPY", "action": "BUY", "quantity": 500, "order_id": 1, "perm_id": 11,
+                              "status": "Submitted", "estimated_trade_dollars": 50_000.0}]),
+        execution={"fills_at": "2026-04-30T16:00:00-04:00"},
+    )  # fmt: skip
+    res = reconcile_end_of_day(
+        profile="paper", as_of=date(2026, 4, 30), client=FakeClient(FakeIB({})),
+        now=datetime(2026, 4, 30, 16, 45, tzinfo=clock.NYSE_TZ),
+    )  # fmt: skip
     assert res.ok is True
+    assert res.material_mismatch is True
 
     state_after = read_kill_switch_state()
     # Original arm metadata preserved.

@@ -3,15 +3,15 @@
 #
 # What this does:
 #   1. Verifies the venv Python and required packages
-#   2. Installs / reloads the LaunchAgent (Mon-Fri 16:32 ET)
-#   3. Schedules a weekday wake at 16:30 via pmset (needs sudo)
+#   2. Installs / reloads the LaunchAgent through `bin/tradeit schedule install`
+#      (Mon-Fri 15:35 ET, written in this Mac's zone: 14:35 in Central time)
+#   3. Schedules a weekday wake five minutes before it via pmset (needs sudo)
 #   4. Disables system sleep when on AC power
 #   5. Prints checklist for the bits that need manual user action
-#      (TWS / IB Gateway, Auto-login)
+#      (IB Gateway, Auto-login)
 #
-# Usage:
-#   cd /Users/tradingworkspace/TradingWorkspace/trading-engine
-#   bash scripts/setup_automation.sh
+# Usage, from the repo root:
+#   bash trading-engine/scripts/setup_automation.sh
 #
 # Re-running is safe — every step is idempotent.
 
@@ -19,19 +19,10 @@ set -euo pipefail
 
 # ── Paths ──────────────────────────────────────────────────────────────
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VENV_PYTHON="${VENV_PYTHON:-/Users/tradingworkspace/TradingWorkspace/.venv/bin/python}"
+REPO_ROOT="$(cd "$PROJECT_ROOT/.." && pwd)"
+VENV_PYTHON="${VENV_PYTHON:-$REPO_ROOT/.venv/bin/python}"
 LAUNCHAGENT_LABEL="com.capitalfund.daily-runner"
 LAUNCHAGENT_PLIST="$HOME/Library/LaunchAgents/${LAUNCHAGENT_LABEL}.plist"
-
-# Default: TWS paper port. Override with IBKR_PORT_PAPER=4002 for IB Gateway.
-IBKR_PORT_PAPER="${IBKR_PORT_PAPER:-7497}"
-IBKR_PORT_LIVE="${IBKR_PORT_LIVE:-7496}"
-
-# Fire time in local time (24h)
-WAKE_HOUR=16
-WAKE_MINUTE=30
-RUN_HOUR=16
-RUN_MINUTE=32
 
 # ── Helpers ────────────────────────────────────────────────────────────
 green()  { printf '\033[1;32m%s\033[0m\n' "$1"; }
@@ -50,7 +41,7 @@ if [[ ! -x "$VENV_PYTHON" ]]; then
 fi
 green "  ✓ Found $VENV_PYTHON"
 
-required_pkgs=(pandas pyarrow streamlit ib_async plotly)
+required_pkgs=(pandas pyarrow ib_async yaml)
 missing=()
 for pkg in "${required_pkgs[@]}"; do
   if ! "$VENV_PYTHON" -c "import $pkg" 2>/dev/null; then
@@ -68,30 +59,36 @@ fi
 
 # ── 2. Install / reload LaunchAgent ────────────────────────────────────
 hr
-green "Step 2/5 · Install + load LaunchAgent"
+green "Step 2/5 · Install + load LaunchAgent (bin/tradeit schedule install)"
 
-cd "$PROJECT_ROOT"
-
-# Tear down any previous registration
-launchctl bootout "gui/$(id -u)/${LAUNCHAGENT_LABEL}" 2>/dev/null || true
-
-# Re-generate the plist with current ports
-IBKR_PORT_PAPER="$IBKR_PORT_PAPER" IBKR_PORT_LIVE="$IBKR_PORT_LIVE" \
-  "$VENV_PYTHON" -m src.production.scheduler --install-launchagent
+# tradeit writes the plist for this checkout: .venv's Python, the ports and
+# optimizer from .env, 15:35 ET in this Mac's zone. It asks before installing.
+"$REPO_ROOT/bin/tradeit" schedule install
 
 if [[ ! -f "$LAUNCHAGENT_PLIST" ]]; then
   red "✗ Plist was not created"
   exit 1
 fi
 green "  ✓ Plist installed at $LAUNCHAGENT_PLIST"
-green "  ✓ Configured for IBKR_PORT_PAPER=$IBKR_PORT_PAPER, IBKR_PORT_LIVE=$IBKR_PORT_LIVE"
-green "  ✓ Will fire Mon-Fri at ${RUN_HOUR}:$(printf '%02d' "$RUN_MINUTE") local"
+
+# The run's local time (15:35 ET in this Mac's zone, or DV02_RUNNER_TIME) and a
+# wake five minutes before it, read from the same code tradeit uses.
+read -r RUN_HOUR RUN_MINUTE WAKE_HOUR WAKE_MINUTE < <(
+  cd "$REPO_ROOT/services/api" && "$VENV_PYTHON" -c '
+from datetime import datetime, timedelta
+from dv02_api import runs
+at = runs.runner_time()
+wake = (datetime.combine(datetime.today(), at) - timedelta(minutes=5)).time()
+print(at.hour, at.minute, wake.hour, wake.minute)
+'
+)
+green "  ✓ Will fire Mon-Fri at ${RUN_HOUR}:$(printf '%02d' "$RUN_MINUTE") local (15:35 ET)"
 
 # ── 3. Schedule a weekday wake ─────────────────────────────────────────
 hr
 green "Step 3/5 · Schedule weekday wake at ${WAKE_HOUR}:$(printf '%02d' "$WAKE_MINUTE") (needs sudo)"
 echo "  This wakes the Mac on Mon-Fri at ${WAKE_HOUR}:$(printf '%02d' "$WAKE_MINUTE") so the"
-echo "  ${RUN_HOUR}:$(printf '%02d' "$RUN_MINUTE") LaunchAgent has 2 minutes of warmup."
+echo "  ${RUN_HOUR}:$(printf '%02d' "$RUN_MINUTE") LaunchAgent has 5 minutes of warmup."
 echo
 read -rp "  Run 'sudo pmset repeat wakeorpoweron MTWRF ${WAKE_HOUR}:$(printf '%02d' "$WAKE_MINUTE"):00'? [y/N] " yn
 if [[ "$yn" =~ ^[Yy]$ ]]; then
@@ -123,10 +120,11 @@ cat <<'EOF'
 
 The remaining pieces require user action — script can't do them safely:
 
-  [ ] TWS / IB Gateway running and logged in (paper account)
+  [ ] IB Gateway running and logged in (paper account): bin/tradeit login once,
+        then bin/tradeit gateway start. Or TWS / IB Gateway by hand:
         File → Global Configuration → API → Settings:
           ☑ Enable ActiveX and Socket Clients
-          Socket port: 7497 (TWS paper) or 4002 (IB Gateway paper)
+          Socket port: 4002 (IB Gateway paper) or 7497 (TWS paper)
           ☐ Read-Only API   (must be UNCHECKED)
         Save with File → Save Settings
 

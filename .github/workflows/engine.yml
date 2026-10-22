@@ -1,0 +1,51 @@
+name: engine
+
+on:
+  pull_request:
+    paths: ["engine/**", ".github/workflows/engine.yml"]
+  push:
+    branches: [main]
+    paths: ["engine/**", ".github/workflows/engine.yml"]
+
+jobs:
+  linux:
+    name: Linux GCC (Debug, sanitizers, warnings as errors)
+    runs-on: ubuntu-latest
+    env:
+      CXX: g++
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Debug -DDV02_WERROR=ON -DDV02_SANITIZE=ON
+      - run: cmake --build engine/build --parallel
+      - run: ctest --test-dir engine/build --output-on-failure
+
+  clang:
+    name: Linux Clang (Debug, warnings as errors)
+    runs-on: ubuntu-latest
+    env:
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Debug -DDV02_WERROR=ON
+      - run: cmake --build engine/build --parallel
+      - run: ctest --test-dir engine/build --output-on-failure
+
+  macos:
+    name: macOS (Release)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S engine -B engine/build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build engine/build --parallel
+      - run: ctest --test-dir engine/build --output-on-failure
+
+  python:
+    name: Python module (dv02_engine)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ./engine pytest pandas numpy polars==1.32.0
+      - run: python -m pytest engine/tests/python

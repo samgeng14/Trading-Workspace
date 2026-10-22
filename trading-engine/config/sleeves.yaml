@@ -1,0 +1,165 @@
+# The fund's sleeves and where each stands against the research gate
+# (docs/PLAN.md §9). The dashboard's Strategies page shows this list
+# (src/strategies/sleeves.py). sharpe, sharpe_se and max_drawdown are each study's
+# walk-forward to 2023-10 (from 2008-01, or from when its data starts), costs on,
+# in excess of T-bills; the report has the rest. Update an entry when a sleeve moves on (shadow, paper, live) or a
+# study finishes.
+#
+# status: live (trades the account), shadow (logged daily, nothing sent),
+#         paper (trades the paper account beside the live model),
+#         failed (didn't pass the gate), research (being tested)
+
+sleeves:
+  - id: s0
+    name: S0, the live model
+    status: live
+    since: 2026-10-16  # from the VM; from the Mac before
+    summary: >-
+      Long-only cross-sectional momentum on 21 ETFs, rebalanced on drift. A
+      plumbing test: its Sharpe is indistinguishable from zero.
+    sharpe: 0.27
+    sharpe_se: 0.26
+    max_drawdown: -0.380
+    report: trading-engine/research/s1_trend/REPORT.md
+
+  - id: h2
+    name: S0 with a trend overlay
+    status: shadow
+    since: 2026-10-22
+    summary: >-
+      Half S0, half the S1 trend sleeve long/flat. Passed the gate on drawdown at
+      S0's Sharpe; three months of shadow, then paper if it holds.
+    sharpe: 0.31
+    sharpe_se: 0.26
+    max_drawdown: -0.221
+    report: trading-engine/research/s3a_vol_overlay/REPORT.md
+
+  - id: r3
+    name: R3, the VIX futures premium
+    status: shadow
+    since: 2026-10-22
+    summary: >-
+      Short VIX futures at 10% of NAV while they trade above the VIX, else
+      T-bills. Passed all 12 criteria, but one day decided it: short on
+      2018-02-05 it would have failed, and its holdout Sharpe was -0.29. Three
+      months of shadow before anyone considers paper.
+    sharpe: 0.79
+    sharpe_se: 0.29
+    max_drawdown: -0.073
+    report: trading-engine/research/r3_vix_futures/REPORT.md
+
+  - id: s1
+    name: S1, cross-asset trend on ETFs
+    status: failed
+    since: 2026-10-21
+    summary: >-
+      Fails alone; hedges S0 well (+10% in 2008, when S0 lost 23%). The futures
+      version, with carry, waits for the curve archive.
+    sharpe: 0.15
+    sharpe_se: 0.25
+    max_drawdown: -0.103
+    report: trading-engine/research/s1_trend/REPORT.md
+
+  - id: s3a
+    name: S3a, a volatility overlay on S0
+    status: failed
+    since: 2026-10-21
+    summary: >-
+      Cut S0's drawdown to 64% of it against a 60% limit fixed beforehand; the
+      holdout would have killed it too.
+    sharpe: 0.32
+    sharpe_se: 0.26
+    max_drawdown: -0.244
+    report: trading-engine/research/s3a_vol_overlay/REPORT.md
+
+  - id: r2-vix
+    name: R2, VIX term-structure timing
+    status: failed
+    since: 2026-10-21
+    summary: >-
+      SPY while VIX is below VIX3M, else T-bills (from 2009-10, when VIX3M
+      starts). Trailed holding SPY (0.69) and lost 31% in 2022, whipsawed nine
+      times.
+    sharpe: 0.51
+    sharpe_se: 0.28
+    max_drawdown: -0.346
+    report: trading-engine/research/r2_vol_positioning/REPORT.md
+
+  - id: r2-vix-overlay
+    name: R2, S0 out while the VIX curve is inverted
+    status: failed
+    since: 2026-10-21
+    summary: >-
+      Lowered S0's Sharpe and lost more than S0 in 2018 and 2022; the holdout
+      killed it too (from 2009-10).
+    sharpe: 0.29
+    sharpe_se: 0.27
+    max_drawdown: -0.216
+    report: trading-engine/research/r2_vol_positioning/REPORT.md
+
+  - id: r2-cot
+    name: R2, COT hedging pressure
+    status: failed
+    since: 2026-10-21
+    summary: >-
+      Long the ETF proxies of ten futures markets while hedgers are more net
+      short than usual. Weak, negative in 2008 and 2022, and correlated 0.65
+      with S0.
+    sharpe: 0.27
+    sharpe_se: 0.26
+    max_drawdown: -0.108
+    report: trading-engine/research/r2_vol_positioning/REPORT.md
+
+  - id: r1
+    name: R1, calendar timing
+    status: failed
+    since: 2026-10-22
+    summary: >-
+      SPY on the turn of the month, else T-bills. Its days earned no more than
+      SPY's others (t = 0.48), and the FOMC days that helped a variant did so
+      only before 2016.
+    sharpe: 0.22
+    sharpe_se: 0.25
+    max_drawdown: -0.151
+    report: trading-engine/research/r1_calendar_macro/REPORT.md
+
+  - id: r4
+    name: R4, the overnight drift
+    status: failed
+    since: 2026-10-22
+    summary: >-
+      SPY from each closing auction to the next opening one. Before costs the
+      night earned 5.4% a year and the day 3.5%, so the night wasn't the whole
+      return; a round trip a night cost 3.5% a year on top.
+    sharpe: 0.15
+    sharpe_se: 0.25
+    max_drawdown: -0.295
+    report: trading-engine/research/r4_overnight/REPORT.md
+
+  - id: r5
+    name: R5, Treasury duration by the curve's carry
+    status: failed
+    since: 2026-10-22
+    summary: >-
+      TLT while its yield is above the 3-month bill's, else T-bills, on total
+      returns. It held TLT on 178 of 190 decisions, through 2022 (-27%). Half
+      S0, half the sleeve, lifted S0's Sharpe to 0.49 but lost 18% in 2022,
+      against S0's 10%.
+    sharpe: 0.28
+    sharpe_se: 0.26
+    max_drawdown: -0.440
+    report: trading-engine/research/r5_bond_carry/REPORT.md
+
+  - id: r6
+    name: R6, crude oil timed by US inventories
+    status: failed
+    since: 2026-10-22
+    summary: >-
+      USO at 37% of NAV while US crude stocks, as EIA published them, are
+      below their five-year norm, else T-bills. Stocks were still low when
+      demand collapsed in 2008 and 2020; it did worse than holding USO
+      (-0.16) and than 80% of random timings.
+    sharpe: -0.26
+    sharpe_se: 0.26
+    max_drawdown: -0.475
+    report: trading-engine/research/r6_oil_inventories/REPORT.md

@@ -1,0 +1,154 @@
+/*
+ * Journal theme (the default): what makes the dashboard read like a
+ * broadsheet's financial pages rather than an app. Colours come from
+ * tokens.css; this file only changes structure: black rules instead of boxed
+ * cards, a nameplate over a thick-and-thin rule, condensed capitals for
+ * section labels and table heads, columns aligned to their rules.
+ * Every rule is scoped to the Journal theme, so dark is untouched.
+ */
+
+/* ── nameplate ───────────────────────────────────────────────────────── */
+
+:root:not([data-theme="dark"]) .brand {
+  padding: 22px 20px 14px;
+  gap: 0;
+}
+
+:root:not([data-theme="dark"]) .wordmark {
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* thick-and-thin rule under the nameplate */
+:root:not([data-theme="dark"]) .brand::after {
+  content: "";
+  order: 1;
+  height: 6px;
+  margin-top: 10px;
+  border-top: 3px solid var(--rule-ink);
+  border-bottom: 1px solid var(--rule-ink);
+}
+
+:root:not([data-theme="dark"]) .brand-sub {
+  order: 2;
+  margin-top: 7px;
+}
+
+/* the nameplate carries the day's date, as a paper's does */
+.brand-date {
+  display: none;
+}
+
+:root:not([data-theme="dark"]) .brand-date {
+  display: inline;
+}
+
+:root:not([data-theme="dark"]) .brand-name {
+  display: none;
+}
+
+/* ── labels: condensed capitals, like a paper's section heads ───────── */
+
+:root:not([data-theme="dark"]) :is(.brand-sub, .side-label, .seg-label, .stat-label, .ticker-tag, .ticker-note) {
+  font-family: var(--font-label);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+}
+
+:root:not([data-theme="dark"]) .panel-title {
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+:root:not([data-theme="dark"]) .side-label {
+  color: var(--ink-1);
+}
+
+/* ── frame: a black line under the status strip and over the ticker ── */
+
+:root:not([data-theme="dark"]) .topbar {
+  border-bottom-color: var(--rule-ink);
+}
+
+:root:not([data-theme="dark"]) .ticker {
+  border-top-color: var(--rule-ink);
+}
+
+/* ── sections: no cards; a black rule over each, content aligned to it ─ */
+
+:root:not([data-theme="dark"]) .grid {
+  gap: var(--space-5);
+}
+
+:root:not([data-theme="dark"]) .page {
+  gap: var(--space-5);
+}
+
+:root:not([data-theme="dark"]) .panel {
+  background: transparent;
+  border: 0;
+  border-top: 2px solid var(--rule-ink);
+}
+
+:root:not([data-theme="dark"]) :is(.panel-head, .panel-body, .panel-foot) {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+:root:not([data-theme="dark"]) .panel-body.flush .table :is(th, td):first-child {
+  padding-left: 0;
+}
+
+:root:not([data-theme="dark"]) .panel-body.flush .table :is(th, td):last-child {
+  padding-right: 0;
+}
+
+:root:not([data-theme="dark"]) .page-head {
+  border-bottom: 1px solid var(--rule-ink);
+}
+
+:root:not([data-theme="dark"]) .page-title {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+/* ── tables: market-data style, a black rule under the heads ────────── */
+
+:root:not([data-theme="dark"]) .table thead th {
+  background: var(--bg-page);
+  border-bottom-color: var(--rule-ink);
+  color: var(--ink-1);
+  font-family: var(--font-label);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+:root:not([data-theme="dark"]) .table tfoot td {
+  border-top-color: var(--rule-ink);
+}
+
+/* ── charts: a black baseline, as printed charts have ───────────────── */
+
+:root:not([data-theme="dark"]) .chart .axis-base {
+  stroke: var(--rule-ink);
+}
+
+/* ── phone: the nameplate shrinks to fit beside the section tabs ────── */
+
+@media (max-width: 900px) {
+  :root:not([data-theme="dark"]) .brand {
+    padding: 8px 16px;
+  }
+  :root:not([data-theme="dark"]) .wordmark {
+    font-size: 24px;
+  }
+  :root:not([data-theme="dark"]) .brand::after {
+    margin-top: 5px;
+    height: 5px;
+    border-top-width: 2px;
+  }
+}

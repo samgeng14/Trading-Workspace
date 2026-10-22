@@ -1,0 +1,6 @@
+check,value
+panel,"2005-01-03 to 2026-10-16, 5482 sessions; holdout from 2023-10-12"
+VXCM on the panel,"from 2005-01-03, 0 sessions without a level"
+"sessions 2008-01-02 to 2023-10-11 without a same-day VX settlement (VXCM carried, the latest CM30 used)",0: 
+sessions 2008-01-02 to 2023-10-11 without a same-day VIX close (the latest before used),0: 
+"S0 from 2008-01-02: excess Sharpe here, and in R2's results","0.268481 here, 0.268481 in R2's, equal"

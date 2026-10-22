@@ -157,7 +157,7 @@ def check_data_files(profile: str = "paper") -> list[dict[str, Any]]:
 
 def check_basket_rows() -> dict[str, Any]:
     try:
-        from src.dashboard.services.order_service import load_latest_basket
+        from src.production.runtime.order_service import load_latest_basket
 
         basket = load_latest_basket()
     except Exception as exc:
@@ -224,7 +224,7 @@ def check_positions(profile: str = "paper") -> dict[str, Any]:
 
 def check_duplicate_guard(profile: str = "paper") -> dict[str, Any]:
     try:
-        from src.dashboard.services.order_service import duplicate_submission_guard
+        from src.production.runtime.order_service import duplicate_submission_guard
 
         guard = duplicate_submission_guard(profile=profile)
     except Exception as exc:

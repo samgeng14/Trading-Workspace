@@ -1,0 +1,2 @@
+hypothesis,criteria_passed,criteria,failed,holdout_killed,verdict
+R4,5,13,"1. excess Sharpe >= 0.40; 1b. excess Sharpe above SPY held's (SPY_TR), the limit; 2. deflated Sharpe >= 0.90 (n 33); 3. block bootstrap 5th percentile of the excess Sharpe > 0; 7. excess Sharpe >= 0.20 with every cost doubled; 9. worst calendar month no worse than SPY held's, the limit; 11a. 50/50 S0 + R4's excess Sharpe > S0's (difference); 11b. 50/50 S0 + R4 loses no more than S0 in each stress window (smallest margin)",False,fail

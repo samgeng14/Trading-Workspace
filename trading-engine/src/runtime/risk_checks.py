@@ -14,6 +14,7 @@ aborts on failure.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -54,12 +55,14 @@ def run_pre_trade_risk_checks(
     nav: float,
     prices_path: str | Path | None = None,
     limits: ExposureLimits | None = None,
+    as_of: date | None = None,
 ) -> PreTradeRiskResult:
     """Top-level pre-trade gate.
 
     ``basket_df`` is the reconciliation DataFrame (the workspace's standard
     output of build_paper_basket): one row per symbol with columns
-    ``target_weight``, ``estimated_trade_dollars``, ``side``.
+    ``target_weight``, ``estimated_trade_dollars``, ``side``. ``as_of`` is the
+    session the price file should reach (default: the last completed one now).
     """
     res = PreTradeRiskResult(ok=True)
     limits = limits or DEFAULT_EXPOSURE_LIMITS
@@ -104,23 +107,27 @@ def run_pre_trade_risk_checks(
     if prices_path is not None:
         try:
             from src.data.cleaning.validators import validate_master_prices_file
+            from src.production.generate_targets import model_universe
 
-            v = validate_master_prices_file(prices_path)
+            # a model ETF whose last bar lags the last completed session blocks
+            v = validate_master_prices_file(prices_path, model_symbols=model_universe(), as_of=as_of)
             res.details["price_validation"] = {
                 "ok": v.ok,
                 "errors": v.errors,
                 "warnings": v.warnings,
                 "summary": v.summary,
             }
-            if not v.ok:
+            if not v.ok or v.errors:
                 res.ok = False
                 res.blocking_reasons.extend(
-                    f"prices: {e}" for e in v.errors
+                    f"prices: {e}" for e in (v.errors or ["price validation failed"])
                 )
             res.warnings.extend(f"prices: {w}" for w in v.warnings)
         except Exception as exc:
-            res.warnings.append(
-                f"Price validation skipped (could not load): {type(exc).__name__}: {exc}"
+            # Fail closed: prices that couldn't be validated are not a pass.
+            res.ok = False
+            res.blocking_reasons.append(
+                f"prices: validation could not run: {type(exc).__name__}: {exc}"
             )
 
     # ── 5. Exposure limits ────────────────────────────────────────────────

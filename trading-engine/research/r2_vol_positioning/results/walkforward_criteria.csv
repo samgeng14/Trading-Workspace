@@ -1,0 +1,26 @@
+hypothesis,book,criterion,value,pass
+H1,H1 1.00 1d,1. excess Sharpe >= 0.40,0.5055560340174335,True
+H1,H1 1.00 1d,2. deflated Sharpe >= 0.90 (n 23),0.7910958476555494,False
+H1,H1 1.00 1d,3. bootstrap P(excess Sharpe >= SPY's) >= 80%,0.0925,False
+H1,H1 1.00 1d,4. max drawdown at most 60% of SPY's,1.0277593034800026,False
+H1,H1 1.00 1d,5. every variant's excess Sharpe >= SPY's (worst variant less SPY),-0.3824803903614872,False
+H1,H1 1.00 1d,6. cost drag <= 1% a year,0.006267127952493895,True
+H1,H1 1.00 1d,7. loses less than SPY in each stress window (smallest margin),-0.12706940126803878,False
+H1,H1 1.00 1d,8. no day outside the mandate,0.0,True
+H1b,H1b S0 out while inverted,1. max drawdown at most 60% of S0's,0.7630663613972964,False
+H1b,H1b S0 out while inverted,2. excess Sharpe >= S0's - 0.05,-0.10483489549804764,False
+H1b,H1b S0 out while inverted,3. bootstrap P(drawdown shallower than S0's) >= 80%,0.586,False
+H1b,H1b S0 out while inverted,4. bootstrap P(excess Sharpe >= S0's - 0.05) >= 80%,0.332,False
+H1b,H1b S0 out while inverted,5. cost drag <= 0.5% a year,0.009135216087372748,False
+H1b,H1b S0 out while inverted,6. loses less than S0 in each of H1's stress windows (smallest margin),-0.04184901734239599,False
+H1b,H1b S0 out while inverted,7. no day outside the mandate,0.0,True
+H2,H2 TS-156,1. excess Sharpe >= 0.40,0.2743497787740225,False
+H2,H2 TS-156,2. deflated Sharpe >= 0.90 (n 23),0.4794605835368205,False
+H2,H2 TS-156,3. block bootstrap 5th percentile of the excess Sharpe > 0,-0.14963508866018083,False
+H2,H2 TS-156,4. every variant's excess Sharpe > 0 (worst variant),0.07310540245264825,True
+H2,H2 TS-156,5. max drawdown no worse than -20%,-0.10779785004512221,True
+H2,H2 TS-156,6a. positive in 2008,-0.023020571312099558,False
+H2,H2 TS-156,6b. positive in 2022,-0.05887545055988097,False
+H2,H2 TS-156,7a. correlation with S0 <= 0.50,0.648748856032799,False
+H2,H2 TS-156,7b. 50/50 S0 + H2's excess Sharpe > S0's (difference),0.018871661080593904,True
+H2,H2 TS-156,8. cost drag <= 1% a year,0.0011442771313987788,True

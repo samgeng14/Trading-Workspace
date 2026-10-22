@@ -1,0 +1,3 @@
+book,first_session,last_session,sessions,rule_return,uso_held_return,uso_return,rule_max_drawdown_in_run
+"R6 primary: USO while US stocks, as published, are below their norm",2023-10-12,2026-04-01,619,0.3271099705324443,0.3278132445970561,0.6398837055636328,-0.09549047939356359
+"R6 primary: USO while US stocks, as published, are below their norm",2026-06-02,2026-09-01,64,0.03407979675989026,0.034770897120535826,0.040590405904060045,-0.0995487060408311

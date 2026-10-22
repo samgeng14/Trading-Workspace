@@ -1,0 +1,1011 @@
+#!/usr/bin/env bash
+# tradeit: run the DV02 Fund stack on this machine.
+#
+#   tradeit setup     one-time: Python env (.venv), the C++ engine, dashboard packages, .env
+#   tradeit engine    rebuild and reinstall the C++ engine after a pull (and its C++ tests, with cmake)
+#   tradeit login     save the IB Gateway login on this Mac (for automatic login)
+#   tradeit gateway   start | stop | status | logs  the auto-login IB Gateway (Docker)
+#   tradeit flex      connect IBKR Flex: daily NAV since the account opened
+#                     (flex --refetch: load the whole history again with the saved values)
+#   tradeit schedule  install | remove | status  the weekday 15:35 ET daily run (macOS LaunchAgent)
+#   tradeit switch    vm | mac | status  move the gateway, the daily run and the engine's state
+#                     between this Mac and the always-on VM (one IBKR login: one place at a time)
+#   tradeit refresh  fill price-history holes, update bars and targets (dry run: no orders)
+#   tradeit doctor    check the IBKR connection end to end
+#   tradeit kill      "why": stop the fund: arm the kill switch, cancel every working order
+#   tradeit resume    start it again, once the doctor and a reconcile pass
+#   tradeit status    the kill switch, IBKR's working orders, the last reconcile
+#   tradeit exit-test Phase 0's exit test: each session's doctor, run, reconcile and NAV,
+#                     and how many in a row passed (10 needed; --since DATE, --json)
+#   tradeit data      each dataset's watermark against what should exist by now
+#   tradeit catchup   fill the datasets that are behind, and record what was done
+#   tradeit shadow    the shadow books, H2 (S0 with a trend overlay) and R3 (short the VIX
+#                     futures premium): their record since they began, and what each would
+#                     do now (nothing is sent; R3 fetches Cboe's VX settlements first)
+#   tradeit engine-shadow  the C++ order manager beside the Python one: each session's
+#                     comparisons and the streak of matching sessions (10 needed)
+#   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
+#   tradeit api       just the API
+#   tradeit demo      dashboard on simulated data, no IBKR needed
+#   tradeit staging   dashboard on a staging API: the paper account's real data shapes, no IBKR
+#                     (staging [fresh|history] [--now ISO]; API :8099, dashboard :5174)
+#
+# Without `tradeit login`, start IB Gateway yourself (paper, port 4002, API enabled).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VENV="$ROOT/.venv"
+PY="$VENV/bin/python"
+API_PORT="${DV02_API_PORT:-8000}"
+WEB_PORT="${DV02_WEB_PORT:-5173}"
+
+say() { printf '\033[1m%s\033[0m\n' "$*"; }
+die() { printf 'tradeit: %s\n' "$*" >&2; exit 1; }
+
+# Ask until something is entered. Hidden prompts show nothing while you paste,
+# so an Enter pressed too early asks again instead of exiting (an early exit
+# leaves the next paste going to the shell, and into its history). With CHECK,
+# an answer CHECK rejects is asked again too; WHAT says what was expected.
+ask() { # ask VAR "Prompt" [hidden|visible] [CHECK "WHAT"]
+  local __v="" __i __ok=""
+  for __i in 1 2 3; do
+    if [ "${3:-}" = hidden ]; then
+      read -r -s -p "$2 (hidden: nothing shows while you paste, then press Enter): " __v || true
+      echo
+    else
+      read -r -p "$2: " __v || true
+    fi
+    if [ -z "$__v" ]; then
+      echo "  Nothing was entered; try again."
+    elif [ -n "${4:-}" ] && ! "$4" "$__v"; then
+      echo "  That isn't $5; try again."
+    else
+      __ok=1
+      break
+    fi
+  done
+  [ -n "$__ok" ] || die "no usable answer after three tries; nothing was saved"
+  printf -v "$1" '%s' "$__v"
+}
+
+# Flex Query IDs and Flex Web Service tokens are digits only, a token 15 to 40
+# of them. Checked before anything is fetched or saved, so text pasted into the
+# hidden prompt by mistake (a command, a URL) is asked again, not kept.
+is_flex_query_id() { [[ "$1" =~ ^[0-9]+$ ]]; }
+is_flex_token() { [[ "$1" =~ ^[0-9]{15,40}$ ]]; }
+
+# Yes or no; anything but y/yes (or no answer at all) is no.
+confirm() { # confirm "Question"
+  local __a=""
+  read -r -p "$1 [y/N]: " __a || true
+  case "$__a" in y|Y|yes|Yes|YES) return 0 ;; *) return 1 ;; esac
+}
+
+pick_python() {
+  for c in python3.12 python3.11 python3.13 python3; do
+    if command -v "$c" >/dev/null 2>&1; then
+      v="$("$c" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+      case "$v" in 3.11|3.12|3.13) echo "$c"; return 0 ;; esac
+    fi
+  done
+  return 1
+}
+
+need_venv() {
+  [ -x "$PY" ] || die "no Python environment yet; run: bin/tradeit setup"
+}
+
+# The C++ engine (engine/) builds into the Python module dv02_engine. The API and
+# the daily runner import it for the no-leverage check, and block every order
+# without it.
+need_cxx() {
+  local cxx="${CXX:-c++}"
+  if command -v "$cxx" >/dev/null 2>&1 &&
+    printf '#include <concepts>\nint main() {}\n' | "$cxx" -std=c++20 -fsyntax-only -x c++ - 2>/dev/null; then
+    return 0
+  fi
+  if [ "$(uname)" = Darwin ]; then
+    die "the C++ engine needs a C++20 compiler. Install Apple's Command Line Tools with: xcode-select --install
+  (a dialog opens; it takes a few minutes), then run this again"
+  fi
+  die "the C++ engine needs a C++20 compiler (GCC 11+ or Clang 14+); install one, then run this again"
+}
+
+install_engine() { # install_engine PYTHON [pip options]
+  local py="$1" arch
+  shift
+  say "Building the C++ engine for $py (a few minutes the first time)"
+  # Build for this Mac's CPU. An Intel cmake under /usr/local/bin (left by an
+  # older install) otherwise builds an x86_64 module an arm64 Python can't load,
+  # and the runner then blocks every order because it can't check leverage.
+  arch="$(uname -m)"
+  CMAKE_ARGS="-DCMAKE_OSX_ARCHITECTURES=$arch" ARCHFLAGS="-arch $arch" \
+    "$py" -m pip install --quiet "$@" "$ROOT/engine" || die "the engine didn't build (reason above)"
+  "$py" -c 'import dv02_engine.risk' || die "the engine installed, but $py can't import it"
+}
+
+# The Python the daily runner uses: DV02_ENGINE_PYTHON, else the LaunchAgent's
+# (as runner_command in services/api/dv02_api/runs.py picks it). Empty if neither.
+runner_python() {
+  (cd "$ROOT/services/api" && "$PY" -c '
+import os
+from dv02_api import runs
+args = (runs.launch_agent() or {}).get("ProgramArguments") or []
+print(os.environ.get("DV02_ENGINE_PYTHON") or (args[0] if args else ""))
+') 2>/dev/null || true
+}
+
+prefix_of() { "$1" -c 'import sys; print(sys.prefix)' 2>/dev/null; }
+
+# The runner needs the engine too. When it runs under another Python than .venv's,
+# ask before building into that one; otherwise print the command to run later.
+engine_for_runner() { # engine_for_runner [pip options]
+  local rp
+  rp="$(runner_python)"
+  [ -n "$rp" ] || return 0
+  [ -x "$rp" ] && [ "$(prefix_of "$rp")" = "$(prefix_of "$PY")" ] && return 0
+  echo "The daily runner runs under another Python: $rp"
+  echo "Without the engine there, the runner blocks every order (it can't check leverage)."
+  if [ -x "$rp" ] && confirm "Build and install the engine into that Python too?"; then
+    install_engine "$rp" "$@"
+  else
+    echo "Not installed there. To do it yourself:"
+    printf '  %q -m pip install %q\n' "$rp" "$ROOT/engine"
+  fi
+}
+
+GW_ENV="$ROOT/ibgw/.env"
+GW_PORT="${IBKR_PORT_PAPER:-4002}"
+
+port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+compose() { docker compose -f "$ROOT/ibgw/docker-compose.yml" "$@"; }
+gateway_running() { [ -n "$(compose ps --status running -q 2>/dev/null)" ]; }
+
+# Single-quote a value for a compose env file; fall back to double quotes
+# (escaping \, " and $) when the value itself contains a single quote.
+env_quote() {
+  case "$1" in
+    *"'"*) printf '"%s"' "$(printf '%s' "$1" | sed -e 's/[\\"]/\\&/g' -e 's/\$/$$/g')" ;;
+    *) printf "'%s'" "$1" ;;
+  esac
+}
+
+cmd_setup() {
+  local py
+  py="$(pick_python)" || die "needs Python 3.11 or 3.12 (brew install python@3.12)"
+  if [ ! -x "$PY" ]; then
+    say "Creating $VENV with $py ($("$py" --version))"
+    "$py" -m venv "$VENV"
+  fi
+  say "Installing Python packages"
+  "$PY" -m pip install --quiet --upgrade pip
+  "$PY" -m pip install --quiet -r "$ROOT/services/api/requirements.txt"
+  need_cxx
+  install_engine "$PY"
+  engine_for_runner
+  if [ ! -f "$ROOT/.env" ]; then
+    cp "$ROOT/.env.example" "$ROOT/.env"
+    say "Created .env from .env.example (IBKR ports, optional Flex token)"
+  fi
+  command -v npm >/dev/null 2>&1 || die "needs Node.js 20.19+ for the dashboard (brew install node)"
+  say "Installing dashboard packages"
+  (cd "$ROOT/apps/web" && npm install --no-fund --no-audit --loglevel=error)
+  say "Done. Next: start IB Gateway (paper, 4002), then bin/tradeit doctor and bin/tradeit up"
+}
+
+cmd_engine() {
+  need_venv
+  need_cxx
+  # a fresh install, also when the version number hasn't changed
+  install_engine "$PY" --force-reinstall --no-deps
+  engine_for_runner --force-reinstall --no-deps
+  if command -v cmake >/dev/null 2>&1; then
+    local build="$ROOT/engine/build/tests"
+    say "Building and running the C++ tests"
+    cmake -S "$ROOT/engine" -B "$build" -DCMAKE_BUILD_TYPE=Debug >/dev/null || die "cmake couldn't configure the tests (reason above)"
+    cmake --build "$build" --parallel >/dev/null || die "the C++ tests didn't build (reason above)"
+    ctest --test-dir "$build" --output-on-failure || die "the C++ tests failed (output above)"
+  else
+    echo "cmake isn't installed, so the C++ tests were skipped (brew install cmake to run them)."
+  fi
+  say "Done. Restart the API (bin/tradeit up) so it loads the new engine."
+}
+
+cmd_login() {
+  local user pass
+  say "IB Gateway automatic login"
+  echo "Use your PAPER trading username (Client Portal: Settings > Paper Trading Account),"
+  echo "not your live one. It is saved only in ibgw/.env on this Mac: gitignored and"
+  echo "readable only by your user. Never paste it into a chat."
+  echo
+  ask user "Paper username"
+  ask pass "Password" hidden
+  (
+    umask 077
+    {
+      echo "TWS_USERID=$(env_quote "$user")"
+      echo "TWS_PASSWORD=$(env_quote "$pass")"
+      echo "TRADING_MODE=paper"
+      echo "READ_ONLY_API=no"
+      echo "TIME_ZONE=America/New_York"
+      echo "AUTO_RESTART_TIME='11:45 PM'"
+      echo "TWOFA_TIMEOUT_ACTION=restart"
+      echo "RELOGIN_AFTER_TWOFA_TIMEOUT=yes"
+      echo "EXISTING_SESSION_DETECTED_ACTION=primary"
+    } > "$GW_ENV"
+  )
+  chmod 600 "$GW_ENV"
+  unset pass
+  say "Saved. Start it with: bin/tradeit gateway   (bin/tradeit up also starts it)"
+}
+
+# Stop this machine's IB Gateway wherever it was started from. A container
+# brought up from another checkout (~/TradingWorkstation, say) has its own
+# compose files, so `compose down` here can miss it; its service label finds it.
+gateway_stop() {
+  local ids
+  compose down 2>/dev/null || true
+  ids="$(docker ps -q --filter label=com.docker.compose.service=ib-gateway)"
+  # shellcheck disable=SC2086 # one id per word
+  [ -z "$ids" ] || docker stop $ids >/dev/null
+  for _ in $(seq 1 15); do
+    port_open "$GW_PORT" || return 0
+    sleep 1
+  done
+  die "port $GW_PORT is still open with the gateway's container stopped (the IB Gateway app?); quit it"
+}
+
+# Wait for a gateway container's IBKR login; LOGS prints its recent log.
+await_login() { # await_login LOGS...
+  say "Logging in (about a minute)"
+  for _ in $(seq 1 60); do
+    if "$@" 2>/dev/null | grep -q "Login has completed"; then
+      say "IB Gateway is logged in on 127.0.0.1:$GW_PORT"
+      return 0
+    fi
+    if "$@" 2>/dev/null | grep -qi "login failed"; then
+      "$@" 2>&1 | tail -30
+      die "login failed; check the saved login with: bin/tradeit login"
+    fi
+    sleep 2
+  done
+  echo "Still logging in; follow along with: bin/tradeit gateway logs"
+}
+
+cmd_gateway() {
+  command -v docker >/dev/null 2>&1 || die "automatic login runs IB Gateway in Docker; install Docker Desktop or OrbStack"
+  docker info >/dev/null 2>&1 || die "Docker isn't running; open Docker Desktop (or OrbStack) first"
+  case "${1:-start}" in
+    start)
+      [ -f "$GW_ENV" ] || die "no login saved yet; run: bin/tradeit login"
+      if ! gateway_running && port_open "$GW_PORT"; then
+        die "something else is already on port $GW_PORT (the IB Gateway app?); quit it or use that one"
+      fi
+      compose up -d
+      await_login compose logs --tail 200
+      ;;
+    stop) gateway_stop ;;
+    status) compose ps ;;
+    logs) compose logs -f --tail 100 ;;
+    *) die "usage: tradeit gateway start|stop|status|logs" ;;
+  esac
+}
+
+# The Flex Query ID and token the API would use (.env, unless the environment
+# sets them), one per line; empty lines where none is saved.
+flex_saved() {
+  (cd "$ROOT/trading-engine" && "$PY" -c '
+import os
+from src.broker.ibkr import settings
+settings.load_dotenv()
+print(os.environ.get("IBKR_FLEX_QUERY_ID") or os.environ.get("IBKR_FLEX_NAV_QUERY_ID") or "")
+print(os.environ.get("IBKR_FLEX_TOKEN", ""))
+')
+}
+
+# Load the whole NAV history with this Query ID and token through the API's own
+# Flex code: python -m dv02_api.flex paper --full asks IBKR for a year at a time,
+# back to the account's first NAV, so the query's own period doesn't matter. It
+# caches the history and prints one line, "Flex NAV: N days, FIRST to LAST",
+# with "; "-separated notes after it when something needs saying; or IBKR's
+# one-line reason on stderr when it fails. Nothing is written to .env here.
+flex_fetch() { # flex_fetch QUERY_ID TOKEN
+  (cd "$ROOT/services/api" && IBKR_FLEX_QUERY_ID="$1" IBKR_FLEX_TOKEN="$2" "$PY" -m dv02_api.flex paper --full)
+}
+
+# Flex's notes: the whole history is under 30 days (the account is that new, or
+# the token's user doesn't own it); IBKR refused date ranges (only the query's
+# own period loaded); older years didn't load this time.
+flex_loaded() { # flex_loaded LINE (what flex_fetch printed)
+  local head="${1%%; *}" rest note
+  say "Loaded your NAV history from IBKR: ${head#Flex NAV: }"
+  [ "$head" != "$1" ] || return 0
+  rest="${1#*; }"
+  while :; do
+    note="${rest%%; *}"
+    echo "  Note: $note"
+    [ "$note" != "$rest" ] || break
+    rest="${rest#*; }"
+  done
+}
+
+cmd_flex() {
+  need_venv
+  local qid="" token="" got
+  case "${1:-}" in
+    --refetch)
+      { IFS= read -r qid || true; IFS= read -r token || true; } < <(flex_saved)
+      [ -n "$qid$token" ] || die "no Flex Query ID and token saved yet; run: bin/tradeit flex"
+      is_flex_query_id "$qid" || die "the saved Flex Query ID is missing or not digits only; enter it again with: bin/tradeit flex"
+      is_flex_token "$token" || die "the saved Flex token isn't 15 to 40 digits; enter it again with: bin/tradeit flex"
+      say "Fetching your whole history from IBKR, a year per request, with the saved Query ID and token (can take a minute or two)"
+      got="$(flex_fetch "$qid" "$token")" \
+        || die "not loaded (reason above); the saved values are unchanged. To enter new ones, run: bin/tradeit flex"
+      unset token
+      flex_loaded "$got"
+      echo "A running dashboard shows it on its next refresh."
+      return 0
+      ;;
+    "") ;;
+    *) die "usage: tradeit flex [--refetch]" ;;
+  esac
+  say "IBKR Flex: your daily NAV since the account opened"
+  cat <<'TXT'
+One time, in Client Portal, logged in with your PAPER username:
+  1. Performance & Reports > Flex Queries > Activity Flex Query > "+".
+     Name it DV02 NAV. Section: "Net Asset Value (NAV) in Base", select all fields.
+     Format XML; any period (DV02 asks for each year itself). Save and note its Query ID.
+  2. On the same Flex Queries page: Flex Web Service Configuration (gear icon).
+     Turn it on and generate a token.
+Paste both below. They are checked with IBKR first, then saved only in .env on this Mac
+(gitignored, readable only by you).
+
+TXT
+  ask qid "Query ID" visible is_flex_query_id "a Query ID (digits only)"
+  ask token "Token" hidden is_flex_token "a Flex token (15 to 40 digits, no spaces or other text)"
+  say "Fetching your whole history from IBKR, a year per request, to check them (can take a minute or two)"
+  if ! got="$(flex_fetch "$qid" "$token")"; then
+    unset token
+    die "not loaded (reason above), so nothing was saved: .env keeps its previous Flex values.
+  Check the Query ID and token, then run bin/tradeit flex again"
+  fi
+  touch "$ROOT/.env"
+  chmod 600 "$ROOT/.env"
+  DV02_QID="$qid" DV02_TOKEN="$token" "$PY" - "$ROOT/.env" <<'PY'
+import os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+pairs = {"IBKR_FLEX_QUERY_ID": os.environ["DV02_QID"].strip(), "IBKR_FLEX_TOKEN": os.environ["DV02_TOKEN"].strip()}
+out, seen = [], set()
+for line in path.read_text().splitlines():
+    key = line.split("=", 1)[0].strip()
+    if key in pairs:
+        out.append(f"{key}={pairs[key]}")
+        seen.add(key)
+    else:
+        out.append(line)
+out += [f"{k}={v}" for k, v in pairs.items() if k not in seen]
+path.write_text("\n".join(out) + "\n")
+PY
+  unset token
+  flex_loaded "$got"
+  say "Saved the Query ID and token to .env"
+  echo "A running dashboard shows it on its next refresh. Restart the API (bin/tradeit up) so its"
+  echo "own re-fetch, every 6 hours, uses the new values too."
+}
+
+# ── tradeit schedule: the daily run as a macOS LaunchAgent ──────────────
+# launchd starts the engine's daily runner Mon-Fri at 15:35 ET, before its
+# market-on-close deadline (15:45 ET). launchd takes this Mac's wall time, so
+# install converts it with this Mac's time zone (runner_time in
+# services/api/dv02_api/runs.py: 14:35 in Central time; DV02_RUNNER_TIME in .env,
+# local HH:MM, overrides it). It runs from this checkout's trading-engine with
+# this checkout's .venv. The API reads the plist
+# back: its Python and environment for runs started from the dashboard, and
+# whether launchd has it loaded for the Scheduler light.
+
+AGENT_LABEL=com.capitalfund.daily-runner # LAUNCH_AGENT in services/api/dv02_api/runs.py
+AGENT_PLIST="$HOME/Library/LaunchAgents/$AGENT_LABEL.plist"
+AGENT_TMP=""
+
+need_macos() {
+  [ "$(uname)" = Darwin ] ||
+    die "tradeit schedule needs macOS: it installs a launchd LaunchAgent, and this machine runs $(uname)"
+}
+
+agent_print() { launchctl print "gui/$UID/$AGENT_LABEL" 2>/dev/null || launchctl list "$AGENT_LABEL" 2>/dev/null; }
+agent_loaded() { agent_print >/dev/null; }
+agent_running() {
+  local out
+  out="$(agent_print)" || return 1
+  case "$out" in *"state = running"* | *'"PID" = '*) return 0 ;; esac
+  return 1
+}
+
+agent_unload() {
+  local _
+  launchctl bootout "gui/$UID/$AGENT_LABEL" 2>/dev/null || launchctl unload "$AGENT_PLIST" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    agent_loaded || return 0
+    sleep 0.5
+  done
+  die "launchd still has $AGENT_LABEL loaded; try: launchctl bootout gui/$UID/$AGENT_LABEL"
+}
+
+# bootstrap on current macOS; load on releases older than 10.10, which lack it
+agent_load() {
+  local err=""
+  launchctl enable "gui/$UID/$AGENT_LABEL" 2>/dev/null || true
+  if ! err="$(launchctl bootstrap "gui/$UID" "$AGENT_PLIST" 2>&1)"; then
+    launchctl load -w "$AGENT_PLIST" 2>/dev/null || true
+  fi
+  agent_loaded || die "launchd didn't load $AGENT_PLIST${err:+ ($err)}"
+}
+
+# The daily runner blocks every order without the C++ engine. The same check as
+# the API's Engine light (engine_health in services/api/dv02_api/app.py): it
+# imports, and its gross and cash limits still block a levered book. The book
+# also breaks the 25% single-name limit, so "blocked" alone would pass an engine
+# whose leverage limits don't work.
+engine_check() { # engine_check PYTHON
+  (cd "$ROOT/trading-engine" && "$1" - <<'PY'
+import sys
+
+try:
+    from dv02_engine import risk
+except ImportError as exc:
+    sys.exit(f"dv02_engine isn't installed for {sys.executable}: {exc}")
+etf = risk.AssetClass.ETF
+# fully invested in five names at 20% each, then one more share bought on margin: 110% gross, cash -$100
+book = risk.Book(1000.0, 0.0, [risk.Position(s, 2.0, 100.0, asset_class=etf) for s in "ABCDE"])
+fits = risk.check(book, [], risk.Policy())
+levered = risk.check(book, [risk.Order("A", 1.0, 100.0, asset_class=etf)], risk.Policy())
+if not fits.ok or levered.ok or not {"gross", "cash"} <= {b.rule for b in levered.breaches if b.blocking}:
+    sys.exit("dv02_engine is installed but its no-leverage check let a levered test book through")
+PY
+  )
+}
+
+# Write the LaunchAgent for this checkout to FILE. The arguments are the ones
+# services/api/dv02_api/runs.py expects of the scheduled run: this .venv's
+# Python first, --profile paper on the resolved host and port, client ID 101
+# (the runner's own default; dashboard-started runs use 310 to stay clear of
+# it) and --skip-if-ran-today, so a day that already has a successful run,
+# started from the dashboard say, isn't traded twice. No RunAtLoad: installing
+# or logging in never starts a run by itself.
+agent_plist() { # agent_plist FILE
+  (cd "$ROOT/services/api" && "$PY" - "$1" "$AGENT_LABEL" "$PY" "$ROOT/trading-engine" <<'PY'
+import os
+import plistlib
+import sys
+from pathlib import Path
+
+from dv02_api import runs
+from src.broker.ibkr import settings
+from src.production.generate_targets import OPTIMIZERS_AVAILABLE
+
+out, label, python, engine_dir = sys.argv[1:5]
+settings.load_dotenv()  # .env: ports, IBKR_CLIENT_ID, CAPITALFUND_OPTIMIZER, DV02_RUNNER_TIME
+paper, live = settings.resolve_endpoint("paper"), settings.resolve_endpoint("live")
+client_id = os.environ.get("IBKR_CLIENT_ID", "101")  # as daily_runner reads it
+optimizer = os.environ.get("CAPITALFUND_OPTIMIZER", "momentum_tilted")  # the old plist's default
+if optimizer not in OPTIMIZERS_AVAILABLE:
+    sys.exit(f"CAPITALFUND_OPTIMIZER={optimizer} isn't one the engine has: {', '.join(OPTIMIZERS_AVAILABLE)}")
+if not client_id.isdigit():
+    sys.exit(f"IBKR_CLIENT_ID={client_id} isn't a number")
+at = runs.runner_time()
+logs = Path(engine_dir) / "data" / "logs" / "runtime"
+agent = {
+    "Label": label,
+    "ProgramArguments": [
+        python, "-m", "src.production.daily_runner",
+        "--profile", "paper", "--host", paper.host, "--port", str(paper.port),
+        "--client-id", client_id, "--skip-if-ran-today",
+    ],
+    "WorkingDirectory": engine_dir,
+    "StartCalendarInterval": [{"Weekday": day, "Hour": at.hour, "Minute": at.minute} for day in range(1, 6)],
+    "StandardOutPath": str(logs / "launchagent_stdout.log"),
+    "StandardErrorPath": str(logs / "launchagent_stderr.log"),
+    "EnvironmentVariables": {
+        "IBKR_PORT_PAPER": str(paper.port),
+        "IBKR_PORT_LIVE": str(live.port),
+        "CAPITALFUND_OPTIMIZER": optimizer,
+        "APP_ENV": "local",
+    },
+}
+Path(out).write_bytes(plistlib.dumps(agent))
+PY
+  )
+}
+
+# Describe the LaunchAgent in FILE; with "next", print only its next run, and
+# with "unloaded", say it has none because launchd doesn't have it loaded.
+agent_describe() { # agent_describe FILE [next|unloaded]
+  (cd "$ROOT/services/api" && "$PY" - "$1" "$ROOT/trading-engine" "${2:-}" <<'PY'
+import plistlib
+import sys
+from datetime import datetime, time, timedelta
+from pathlib import Path
+
+from dv02_api import nyse, runs
+
+path, here, mode = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+try:
+    agent = plistlib.loads(path.read_bytes())
+except (OSError, plistlib.InvalidFileException, ValueError) as exc:
+    sys.exit(f"  can't read {path}: {exc}")
+args = agent.get("ProgramArguments") or ["?"]
+folder = agent.get("WorkingDirectory") or "?"
+env = agent.get("EnvironmentVariables") or {}
+times = agent.get("StartCalendarInterval") or []
+times = [times] if isinstance(times, dict) else times
+
+# launchd's Weekday: 0 and 7 are Sunday, 1 is Monday; no Weekday is every day
+now = datetime.now().replace(second=0, microsecond=0)
+fires = [
+    datetime.combine(now.date() + timedelta(days=n), time(t.get("Hour", 0), t.get("Minute", 0)))
+    for n in range(8)
+    for t in times
+    if t.get("Weekday") is None or (t["Weekday"] - 1) % 7 == (now + timedelta(days=n)).weekday()
+]
+upcoming = min((f for f in fires if f > now), default=None)
+if upcoming is None:
+    next_run = "none (no StartCalendarInterval)"
+else:
+    next_run = f"{upcoming:%a %Y-%m-%d %H:%M}" + ("" if nyse.is_trading_day(upcoming.date()) else " (an NYSE holiday)")
+if mode == "unloaded":
+    next_run = f"none while it isn't loaded (it would be {next_run})"
+if mode == "next":
+    print(next_run)
+    raise SystemExit
+days = sorted({(t["Weekday"] - 1) % 7 for t in times if "Weekday" in t})  # 0 is Monday, as in Python
+names = ", ".join(f"{datetime(2024, 1, 1 + d):%a}" for d in days) or "Every day"  # 2024-01-01 was a Monday
+names = "Mon-Fri" if days == [0, 1, 2, 3, 4] else names
+hours = ", ".join(sorted({f"{t.get('Hour', 0):02d}:{t.get('Minute', 0):02d}" for t in times}))
+mine = Path(folder).resolve() == here.resolve()
+print(f"  runs from   {folder}" + ("" if mine else f"  (NOT this checkout, which is {here.parent})"))
+print(f"  python      {args[0]}")
+print(f"  arguments   {' '.join(args[1:])}")
+on = (upcoming or now).date()
+in_et = ", ".join(
+    sorted({f"{datetime.combine(on, time(t.get('Hour', 0), t.get('Minute', 0))).astimezone(nyse.ET):%H:%M}" for t in times})
+)
+print(f"  when        {names} at {hours}, this Mac's time ({in_et} ET)")
+print(f"  next run    {next_run}")
+if upcoming is not None:
+    print(f"  its orders  {runs.orders_at(upcoming.astimezone()).summary()}")
+print(f"  optimizer   {env.get('CAPITALFUND_OPTIMIZER', 'not set (the engine default)')}")
+print(f"  logs        {agent.get('StandardOutPath', 'none')}")
+PY
+  )
+}
+
+schedule_install() {
+  need_venv
+  say "Checking the C++ engine in $PY (the daily runner blocks every order without it)"
+  engine_check "$PY" || die "the engine isn't usable there (reason above). Run bin/tradeit engine, then try again"
+  AGENT_TMP="$(mktemp "${TMPDIR:-/tmp}/dv02-agent.XXXXXX")"
+  trap 'rm -f "$AGENT_TMP"' EXIT
+  agent_plist "$AGENT_TMP" || die "couldn't write the LaunchAgent (reason above)"
+  if [ -f "$AGENT_PLIST" ]; then
+    say "Installed now (this replaces it):"
+    agent_describe "$AGENT_PLIST" || echo "  (unreadable: $AGENT_PLIST)"
+  fi
+  say "The daily run to install:"
+  agent_describe "$AGENT_TMP"
+  cat <<'TXT'
+
+At that time every weekday it updates prices and targets from the last close and,
+when the model calls for a rebalance, sends paper orders to IBKR without asking you:
+market-on-close, filled at that day's close. Orders sent after the market-on-close
+deadline (15:45 ET; 12:45 ET on the three early-close days a year, which the 15:35 run
+misses) go market-on-open, filled at the next session's open. IB Gateway has to be
+running and logged in then. If the Mac is asleep, it runs when the Mac wakes; if the
+Mac is off, that day's run is skipped (start one from the dashboard). The ET time was
+converted with this Mac's time zone today: install again if the Mac changes zone.
+TXT
+  # DV02_YES: `switch mac` already asked
+  if [ -z "${DV02_YES:-}" ] && ! confirm "Install it?"; then
+    echo "Not installed; nothing changed."
+    return 0
+  fi
+  if agent_running; then
+    die "the daily run is running right now; install again once it finishes (bin/tradeit schedule status)"
+  fi
+  mkdir -p "$(dirname "$AGENT_PLIST")" "$ROOT/trading-engine/data/logs/runtime"
+  if agent_loaded; then agent_unload; fi
+  mv "$AGENT_TMP" "$AGENT_PLIST"
+  chmod 644 "$AGENT_PLIST"
+  agent_load
+  say "Scheduled. Next run: $(agent_describe "$AGENT_PLIST" next)"
+  echo "Installed $AGENT_PLIST and loaded it in launchd. Check it with: bin/tradeit schedule status"
+}
+
+schedule_remove() {
+  if agent_running; then
+    die "the daily run is running right now; remove it once it finishes (bin/tradeit schedule status)"
+  fi
+  if ! agent_loaded && [ ! -f "$AGENT_PLIST" ]; then
+    echo "No daily run is installed; nothing to remove."
+    return 0
+  fi
+  if agent_loaded; then agent_unload; fi
+  rm -f "$AGENT_PLIST"
+  say "Removed the daily run: nothing starts on its own now."
+  echo "Runs started from the dashboard still work. To schedule it again: bin/tradeit schedule install"
+}
+
+schedule_status() {
+  need_venv
+  local out last="" mode=""
+  if agent_running; then
+    say "Daily run: loaded in launchd, and running now"
+  elif agent_loaded; then
+    say "Daily run: loaded in launchd"
+  else
+    mode=unloaded
+    say "Daily run: not loaded in launchd, so nothing starts on its own"
+  fi
+  if [ ! -f "$AGENT_PLIST" ]; then
+    echo "No LaunchAgent at $AGENT_PLIST."
+    echo "Install it with: bin/tradeit schedule install"
+    return 0
+  fi
+  agent_describe "$AGENT_PLIST" "$mode" || true
+  if out="$(launchctl print "gui/$UID/$AGENT_LABEL" 2>/dev/null)"; then
+    last="$(printf '%s\n' "$out" | sed -n 's/^[[:space:]]*last exit code = //p')"
+    [ -z "$last" ] || echo "  last exit   ${last%%$'\n'*}"
+  fi
+  [ -z "$mode" ] || echo "It is installed but not loaded. Load it with: bin/tradeit schedule install"
+}
+
+cmd_schedule() {
+  need_macos
+  case "${1:-status}" in
+    install) schedule_install ;;
+    remove) schedule_remove ;;
+    status) schedule_status ;;
+    *) die "usage: tradeit schedule install|remove|status" ;;
+  esac
+}
+
+cmd_refresh() {
+  need_venv
+  cd "$ROOT/trading-engine"
+  local cid port
+  cid="$("$PY" -c 'from src.broker.ibkr import settings; print(settings.client_id_for("backfill", "paper"))')"
+  port="$("$PY" -c 'from src.broker.ibkr import settings; print(settings.resolve_endpoint("paper").port)')"
+  say "Checking the price history for mixed price bases (splits) and refetching any bad symbol from IBKR"
+  "$PY" -m src.production.backfill_gaps --repair-basis --profile paper --port "$port" --client-id "$cid" \
+    || die "price basis repair failed (reason above); is IB Gateway running?"
+  say "Filling any holes in the price history (the engine's backfill_gaps --auto)"
+  "$PY" -m src.production.backfill_gaps --auto --profile paper --port "$port" --client-id "$cid" \
+    || die "backfill failed (reason above); is IB Gateway running?"
+  say "Fetching the model ETFs' dividend-adjusted closes from IBKR (the signals' total-return prices)"
+  "$PY" -m src.production.pipeline.append_total_return --port "$port" --client-id "$cid" \
+    || say "Some ETFs' dividend-adjusted closes didn't refresh (above); their previous ones are used"
+  say "Refreshing daily bars and targets through the engine's daily runner (dry run: no orders are sent)"
+  exec "$PY" -m src.production.daily_runner --profile paper --dry-run --client-id "$cid" "$@"
+}
+
+cmd_doctor() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.broker.ibkr.doctor "$@"
+}
+
+cmd_exit_test() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.runtime.exit_test "$@"
+}
+
+cmd_data() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.data.datasets "$@"
+}
+
+cmd_catchup() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.data.datasets --catchup "$@"
+}
+
+cmd_shadow() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.production.shadows "$@"
+}
+
+cmd_engine_shadow() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.production.engine_shadow "$@"
+}
+
+# The fund's stop button (src/execution/kill.py). kill arms the switch before it
+# touches IBKR, so nothing new goes out even if the cancels fail; resume refuses
+# while the doctor fails or the book doesn't match IBKR.
+cmd_kill() {
+  need_venv
+  [ -n "${1:-}" ] || die 'usage: tradeit kill "why trading stops"'
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.execution.kill kill "$@"
+}
+
+cmd_resume() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.execution.kill resume "$@"
+}
+
+cmd_status() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.execution.kill status "$@"
+}
+
+cmd_api() {
+  need_venv
+  cd "$ROOT/services/api" && exec "$PY" -m dv02_api --port "$API_PORT" "$@"
+}
+
+cmd_up() {
+  need_venv
+  [ -d "$ROOT/apps/web/node_modules" ] || die "dashboard packages missing; run: bin/tradeit setup"
+  local api_pid web_pid
+  if [ -f "$GW_ENV" ] && ! port_open "$GW_PORT"; then
+    cmd_gateway start
+  elif ! port_open "$GW_PORT"; then
+    echo "Note: nothing on port $GW_PORT yet. Start IB Gateway, or save a login once with: bin/tradeit login"
+  fi
+  (cd "$ROOT/services/api" && exec "$PY" -m dv02_api --port "$API_PORT" "$@") &
+  api_pid=$!
+  trap 'kill $api_pid ${web_pid:-} 2>/dev/null; wait 2>/dev/null; exit 0' INT TERM
+  for _ in $(seq 1 40); do
+    curl -fsS "http://127.0.0.1:$API_PORT/api/v1/status" >/dev/null 2>&1 && break
+    kill -0 "$api_pid" 2>/dev/null || die "the API exited during startup (see above)"
+    sleep 0.5
+  done
+  (cd "$ROOT/apps/web" && API_URL="http://127.0.0.1:$API_PORT" exec npx vite --port "$WEB_PORT" --strictPort) &
+  web_pid=$!
+  sleep 2
+  say "DV02 Fund: http://localhost:$WEB_PORT  (API http://127.0.0.1:$API_PORT/docs)  Ctrl-C stops both"
+  command -v open >/dev/null 2>&1 && open "http://localhost:$WEB_PORT" || true
+  wait
+}
+
+cmd_demo() {
+  [ -d "$ROOT/apps/web/node_modules" ] || die "dashboard packages missing; run: bin/tradeit setup"
+  cd "$ROOT/apps/web" && exec npx vite --mode demo --port "$WEB_PORT"
+}
+
+# The dashboard in paper mode on the staging API (services/api/dv02_api/staging.py): the real
+# app over a made-up copy of the paper account, so pages meet real labels and histories without
+# IB Gateway. fresh: one day of NAV, stale targets, a missed daily run; history: months of Flex
+# NAV and runs. Its own ports, so it runs beside `tradeit up`; its files are deleted on exit.
+cmd_staging() { # cmd_staging [fresh|history] [--now ISO]
+  need_venv
+  [ -d "$ROOT/apps/web/node_modules" ] || die "dashboard packages missing; run: bin/tradeit setup"
+  local scenario=fresh api_pid web_pid
+  local api_port="${DV02_STAGING_API_PORT:-8099}" web_port="${DV02_STAGING_WEB_PORT:-5174}"
+  case "${1:-}" in
+    fresh | history) scenario="$1"; shift ;;
+    "" | --*) ;;
+    *) die "usage: tradeit staging [fresh|history] [--now ISO]" ;;
+  esac
+  ! port_open "$api_port" || die "something is already on port $api_port; stop it or set DV02_STAGING_API_PORT"
+  (cd "$ROOT/services/api" && exec "$PY" -m dv02_api.staging --scenario "$scenario" --port "$api_port" "$@") &
+  api_pid=$!
+  trap 'kill $api_pid ${web_pid:-} 2>/dev/null; wait 2>/dev/null; exit 0' INT TERM
+  for _ in $(seq 1 60); do
+    curl -fsS "http://127.0.0.1:$api_port/api/v1/status" >/dev/null 2>&1 && break
+    kill -0 "$api_pid" 2>/dev/null || die "the staging API exited during startup (see above)"
+    sleep 0.5
+  done
+  (cd "$ROOT/apps/web" && API_URL="http://127.0.0.1:$api_port" exec npx vite --port "$web_port" --strictPort) &
+  web_pid=$!
+  sleep 2
+  say "DV02 staging, $scenario: http://localhost:$web_port  (API http://127.0.0.1:$api_port/docs)  Ctrl-C stops both"
+  command -v open >/dev/null 2>&1 && open "http://localhost:$web_port" || true
+  wait
+}
+
+# ── switch: which machine trades, this Mac or the always-on VM (deploy/) ──
+# IBKR allows one gateway login per username, so one machine at a time holds
+# the gateway and the daily run. `switch` moves both in one step, with the
+# engine's state (run logs, the expected book, the drift state, the kill
+# switch), so the two never trade at once and the new one carries on where the
+# old one stopped. It runs on the Mac and reaches the VM over Tailscale.
+VM_SSH="${DV02_VM_SSH:-ubuntu@dv02}"
+VM_ROOT=/opt/dv02
+STATE_DIRS=(trading-engine/artifacts trading-engine/data/broker trading-engine/data/market/cleaned)
+
+vm() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$VM_SSH" "$@" </dev/null; }
+vm_dv02() { vm "sudo -u dv02 -H bash -c 'cd $VM_ROOT && $1'"; }
+vm_reachable() { vm true 2>/dev/null; }
+
+mac_gateway_on() { port_open "$GW_PORT"; }
+mac_schedule_on() { [ "$(uname)" = Darwin ] && agent_loaded; }
+vm_gateway_on() { vm "sudo docker ps -q --filter label=com.docker.compose.service=ib-gateway | grep -q ."; }
+vm_timer_on() { vm "systemctl is-enabled --quiet dv02-runner.timer"; }
+
+# Prints where a daily run is running now, if anywhere. The [d] keeps pgrep
+# from matching the shell that runs it.
+runner_busy_on() {
+  if pgrep -f 'src.production.[d]aily_runner' >/dev/null 2>&1; then
+    echo "this Mac"
+  elif vm "pgrep -f 'src.production.[d]aily_runner' >/dev/null || systemctl is-active --quiet dv02-runner.service"; then
+    echo "the VM"
+  fi
+}
+
+# Weekdays 15:20-16:00 New York time: the daily run starts 15:35 and its
+# market-on-close orders go by 15:45. A switch then could skip or split the run.
+in_run_window() {
+  local d t
+  d="$(TZ=America/New_York date +%u)"
+  t="$(TZ=America/New_York date +%H%M)"
+  ((d <= 5 && 10#$t >= 1520 && 10#$t < 1600))
+}
+
+switch_guard() {
+  local busy
+  busy="$(runner_busy_on)"
+  [ -z "$busy" ] || die "a daily run is running on $busy; switch once it finishes"
+  if in_run_window; then
+    die "it's the daily run's window (15:20-16:00 ET on a weekday); switch before or after it"
+  fi
+}
+
+sync_state_to_vm() {
+  local d
+  for d in "${STATE_DIRS[@]}"; do
+    [ -d "$ROOT/$d" ] || continue
+    echo "  $d"
+    vm "sudo -u dv02 mkdir -p $VM_ROOT/$d" || die "couldn't create $d on the VM"
+    rsync -rlpt -e "ssh -o BatchMode=yes" --rsync-path="sudo -u dv02 rsync" \
+      "$ROOT/$d/" "$VM_SSH:$VM_ROOT/$d/" || die "copying $d to the VM failed"
+  done
+}
+
+sync_state_from_vm() {
+  local d
+  for d in "${STATE_DIRS[@]}"; do
+    vm "sudo test -d $VM_ROOT/$d" || continue
+    echo "  $d"
+    mkdir -p "$ROOT/$d"
+    rsync -rlpt -e "ssh -o BatchMode=yes" --rsync-path="sudo rsync" \
+      "$VM_SSH:$VM_ROOT/$d/" "$ROOT/$d/" || die "copying $d from the VM failed"
+  done
+}
+
+# The Mac's gateway: this checkout's saved login, else the stopped container a
+# switch to the VM left behind (started from another checkout, with its login).
+mac_gateway_start() {
+  local id
+  if [ -f "$GW_ENV" ]; then
+    cmd_gateway start
+    return
+  fi
+  id="$(docker ps -aq --filter label=com.docker.compose.service=ib-gateway | head -1)"
+  [ -n "$id" ] || die "no IB Gateway login saved on this Mac; run: bin/tradeit login, then switch again"
+  docker start "$id" >/dev/null
+  await_login docker logs --tail 200 "$id"
+}
+
+switch_status() {
+  local mg=off ms=off vg=off vt=off reach="" where
+  mac_gateway_on && mg=on
+  mac_schedule_on && ms=on
+  if vm_reachable; then
+    reach=1
+    vm_gateway_on && vg=on
+    vm_timer_on && vt=on
+  fi
+  say "Where the fund trades"
+  printf '  this Mac   gateway %-4s daily run %s\n' "$mg" "$ms"
+  if [ -n "$reach" ]; then
+    printf '  the VM     gateway %-4s daily run %s\n' "$vg" "$vt"
+  else
+    printf '  the VM     not reachable over SSH (%s): is Tailscale on?\n' "$VM_SSH"
+  fi
+  if [ -z "$reach" ]; then
+    where="unknown: the VM didn't answer"
+  elif [ "$vg$vt" = onon ] && [ "$mg$ms" = offoff ]; then
+    where="the VM, $(vm "tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//; s|^|https://|'")"
+  elif [ "$mg$ms" = onon ] && [ "$vg$vt" = offoff ]; then
+    where="this Mac"
+  else
+    where="split between the two: run bin/tradeit switch vm (or mac) to put it on one"
+  fi
+  say "Trading runs on: $where"
+}
+
+switch_to_vm() { # switch_to_vm [yes]
+  vm_reachable || die "can't reach the VM over SSH ($VM_SSH). Is Tailscale on? DV02_VM_SSH sets another address"
+  vm "sudo test -f $VM_ROOT/ibgw/.env" ||
+    die "no IBKR login saved on the VM; there: sudo -u dv02 -H bash -c 'cd $VM_ROOT && bin/tradeit login'"
+  switch_guard
+  if [ "${1:-}" != yes ]; then
+    echo "This stops this Mac's IB Gateway and daily run, copies the engine's state to the VM,"
+    echo "then starts the VM's gateway and its daily run (15:35 ET, Monday to Friday)."
+    confirm "Move trading to the VM?" || { echo "Nothing changed."; return 0; }
+  fi
+  say "1/5 This Mac: daily run off"
+  if mac_schedule_on; then schedule_remove; else echo "  (it was off)"; fi
+  say "2/5 This Mac: IB Gateway off"
+  gateway_stop
+  say "3/5 Copying the engine's state to the VM"
+  sync_state_to_vm
+  say "4/5 The VM: IB Gateway on (the first start downloads it: a few minutes)"
+  vm_dv02 "bin/tradeit gateway start" ||
+    die "the VM's gateway didn't start (above). Nothing trades now: fix it, or go back with: bin/tradeit switch mac"
+  say "5/5 The VM: daily run on"
+  vm "sudo systemctl enable --now dv02-runner.timer && systemctl list-timers dv02-runner.timer --no-pager | sed -n 2p" ||
+    die "the VM's timer didn't start; there: sudo systemctl enable --now dv02-runner.timer"
+  say "Checking the VM's IBKR connection"
+  vm_dv02 "bin/tradeit doctor" || echo "The doctor found a problem (above)."
+  switch_status
+}
+
+switch_to_mac() { # switch_to_mac [yes]
+  need_macos
+  local reach=""
+  vm_reachable && reach=1
+  if [ -n "$reach" ]; then
+    switch_guard
+  else
+    echo "The VM doesn't answer over SSH ($VM_SSH), so its state can't be copied back: this Mac"
+    echo "carries on from its own copy, as it was when trading moved to the VM. Make sure the"
+    echo "VM is really off (Oracle Cloud console), or both may trade."
+  fi
+  if [ "${1:-}" != yes ]; then
+    echo "This stops the VM's IB Gateway and daily run, copies the engine's state back here,"
+    echo "then starts this Mac's gateway and daily run (14:35 here, 15:35 ET)."
+    confirm "Move trading to this Mac?" || { echo "Nothing changed."; return 0; }
+  fi
+  if [ -n "$reach" ]; then
+    say "1/4 The VM: daily run and IB Gateway off"
+    vm "sudo systemctl disable --now dv02-runner.timer" || die "couldn't stop the VM's timer"
+    vm_dv02 "bin/tradeit gateway stop" || die "couldn't stop the VM's gateway"
+    say "2/4 Copying the engine's state from the VM"
+    sync_state_from_vm
+  fi
+  say "3/4 This Mac: IB Gateway on"
+  mac_gateway_start
+  say "4/4 This Mac: daily run on"
+  DV02_YES=1 schedule_install
+  say "Checking this Mac's IBKR connection"
+  (cd "$ROOT/trading-engine" && "$PY" -m src.broker.ibkr.doctor) || echo "The doctor found a problem (above)."
+  switch_status
+}
+
+cmd_switch() { # cmd_switch vm|mac|status [--yes]
+  local yes=""
+  [ "${2:-}" = --yes ] && yes=yes
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 ||
+    die "Docker isn't running here; open Docker Desktop (or OrbStack) first"
+  case "${1:-status}" in
+    vm) switch_to_vm "$yes" ;;
+    mac) switch_to_mac "$yes" ;;
+    status) switch_status ;;
+    *) die "usage: tradeit switch vm|mac|status [--yes]" ;;
+  esac
+}
+
+case "${1:-help}" in
+  setup) shift; cmd_setup "$@" ;;
+  engine) shift; cmd_engine "$@" ;;
+  login) shift; cmd_login "$@" ;;
+  flex) shift; cmd_flex "$@" ;;
+  schedule) shift; cmd_schedule "$@" ;;
+  refresh) shift; cmd_refresh "$@" ;;
+  gateway) shift; cmd_gateway "$@" ;;
+  doctor) shift; cmd_doctor "$@" ;;
+  exit-test) shift; cmd_exit_test "$@" ;;
+  data) shift; cmd_data "$@" ;;
+  catchup) shift; cmd_catchup "$@" ;;
+  shadow) shift; cmd_shadow "$@" ;;
+  engine-shadow) shift; cmd_engine_shadow "$@" ;;
+  kill) shift; cmd_kill "$@" ;;
+  resume) shift; cmd_resume "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  up) shift; cmd_up "$@" ;;
+  api) shift; cmd_api "$@" ;;
+  demo) shift; cmd_demo "$@" ;;
+  staging) shift; cmd_staging "$@" ;;
+  switch) shift; cmd_switch "$@" ;;
+  *) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac

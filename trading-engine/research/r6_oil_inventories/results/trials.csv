@@ -1,0 +1,40 @@
+study,trial,sharpe_excess
+S1,3m_long_short,0.1289868889390562
+S1,3m_long_flat,0.3288940045328711
+S1,6m_long_short,0.2156582218566126
+S1,6m_long_flat,0.3659371054377939
+S1,12m_long_short,-0.017418493768121
+S1,12m_long_flat,0.2172372413430741
+S1,blend_long_short,0.1516578042209115
+S1,blend_long_flat,0.3313958570334202
+S3a,H1 W21 target 10%,0.3230213322427563
+S3a,H1 W63 target 10%,0.2909720588524083
+S3a,H1 W21 target 8%,0.3017118957410494
+S3a,H1 W63 target 8%,0.2879851756845207
+S3a,H2 50/50 S0 + S1 long/flat,0.3095616618240317
+S3a,H2 S0 trend filter,0.3208804689588893
+R2,H1 1.00 1d,0.5055560340174335
+R2,H1 0.95 1d,0.559047615842488
+R2,H1 1.00 5d,0.6572025905406088
+R2,H1 0.95 5d,0.3099539815884143
+R2,H1b S0 out while inverted,0.2922107317756413
+R2,H2 TS-156,0.2743497787740225
+R2,H2 TS-52,0.0731054024526482
+R2,H2 XS-level,0.3154169122683077
+R2,H2 Change-4w,0.1981345534326776
+R3,R3 primary: short 10% in contango,0.7914351254656082
+R3,R3 V1: short 10% while CM30/VIX >= 1.05,0.8050310389268676
+R3,R3 V2: volatility-scaled size,0.707224853817504
+R3,R3 V3: equity-hedged with SPY,0.3442839826206793
+R1,R1 primary: SPY on the turn of the month,0.2206448271946633
+R1,R1 V1: turn of the month + FOMC days,0.4058023480100318
+R1,"R1 V2: turn of the month + FOMC, jobs and CPI days",0.3805863048875544
+R4,R4 primary: SPY every night,0.1518606952757389
+R4,R4 V1: QQQ every night,0.2341777625031649
+R4,R4 V2: SPY on weeknights,0.2558370811038993
+R5,R5 primary: TLT while its carry is positive,0.280735301125886
+R5,R5 V1: IEI while its carry is positive,0.3297331388095841
+R5,R5 V2: SHY while its carry is positive,0.1884898962849096
+R6,"R6 primary: USO while US stocks, as published, are below their norm",-0.2636148046022139
+R6,R6 V1: USO while Cushing's stocks are below their norm,-0.3760301239901854
+R6,"R6 V2: USO while days of supply, as published, are below their norm",-0.3751419398844573

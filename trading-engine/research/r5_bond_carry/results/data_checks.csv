@@ -1,0 +1,16 @@
+check,value
+panel,"2005-01-03 to 2026-10-16, 5482 sessions; holdout from 2023-10-12"
+walk-forward days measured (every book's common days),"2008-01-03 to 2023-10-11, 3971"
+"S0 on the usual basis with R1's costs, from its first trade: excess Sharpe here, and in R4's results","0.268623 here, 0.268623 in R4's, equal"
+"on total-return closes (data.tr_closes), volumes rescaled by close / level","BIL, IEI, INDA, QQQ, SHY, SPY, TLT, VEA, VFH, VHT, VIS, VNQ, VPU, VWO"
+on S1's panel's closes (no distributions),"ETHA, GLD, IBIT, SLV, UNG, USO, VIXY"
+the total-return closes start at each ETF's close on its first date from 2005-01-03,TLT 88.74 = 88.74; IEI 99.92 = 99.92; SHY 81.44 = 81.44; BIL 91.62 = 91.62
+the total-return level over the close on the walk-forward's last day,TLT 1.798; IEI 1.350; SHY 1.361; BIL 1.152
+"BIL_TR's return less the usual basis's BIL, each year (points)",2008 +1.93; 2009 +0.09; 2017 -0.01
+decision days from 2008-01-02 by the NYSE calendar (clock.py) against data.decision_dates() (the master's sessions),the same
+walk-forward decisions each carry rule made,"R5 primary: TLT while its carry is positive: 190, 2008-01-02 to 2023-09-29; R5 V1: IEI while its carry is positive: 190, 2008-01-02 to 2023-09-29; R5 V2: SHY while its carry is positive: 190, 2008-01-02 to 2023-09-29"
+costs: half-spreads (bps) for the R5 books and S0_TR,"default 2.0; {'TLT': 1.0, 'IEI': 2.0, 'SHY': 1.0, 'BIL': 1.0}"
+"costs: half-spreads (bps) for S0 on the usual basis (R1's, as R4's S0)","default 2.0; {'SPY': 1.0, 'BIL': 1.0}"
+S0's target weights below 0 (a short would pay borrow),0
+the bond sell-offs data.sell_offs finds (FRED's 10-year from 2007-06-01),HYPOTHESIS.md's nine and the holdout's
+each window's return,"from the close before its first date to the close of its last (or the walk-forward's end), as in R3's and R4's tables"

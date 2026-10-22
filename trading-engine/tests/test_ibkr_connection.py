@@ -11,9 +11,12 @@ except ImportError:  # pragma: no cover
 
 
 RUN_IBKR_TESTS = os.getenv("RUN_IBKR_TESTS") == "1"
-IBKR_HOST = os.getenv("IBKR_HOST", "127.0.0.1")
-IBKR_PORT = int(os.getenv("IBKR_PORT_PAPER", "4004"))
-IBKR_CLIENT_ID = int(os.getenv("IBKR_CLIENT_ID_PAPER", "991"))
+from src.broker.ibkr.settings import resolve_endpoint
+
+_ENDPOINT = resolve_endpoint("paper")
+IBKR_HOST = _ENDPOINT.host
+IBKR_PORT = _ENDPOINT.port
+IBKR_CLIENT_ID = _ENDPOINT.client_id("doctor")
 IBKR_TIMEOUT = float(os.getenv("IBKR_TIMEOUT", "10"))
 
 

@@ -1,3 +1,9 @@
+# Not read by anything: a record of the research model's settings. The old
+# research pipeline that read a profile like this was removed. The daily
+# runner trades the model in config/universes/etfs.yaml, and the IBKR
+# connection comes from config/broker.yaml and .env, not the ib_gateway
+# block below.
+
 start_date: 2024-01-01
 end_date: 2026-12-31
 

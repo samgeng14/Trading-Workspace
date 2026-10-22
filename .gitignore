@@ -10,12 +10,21 @@ __pycache__/
 .env
 *.env
 ibgw/.env
+# solver licenses (MOSEK reads MOSEKLM_LICENSE_FILE or ~/mosek/mosek.lic)
+*.lic
 
 # runtime/local data
 trading-engine/artifacts/
 trading-engine/data/broker/
+trading-engine/data/lake/
+# free data the research downloads (FRED, Cboe, CFTC, the Fed): fetched again by its scripts, never committed
+trading-engine/research/_data/
+# Cboe's VX settlements and VIX history for R3's shadow book: fetched each evening (src/data/ingest/cboe_vx.py)
+trading-engine/data/market/raw/cboe/
 trading-engine/data/logs/
-trading-engine/src/storage/
 
 # Office temp files
 ~$*.docx
+
+# refetched from IBKR after every daily run (src/production/pipeline/append_total_return.py)
+trading-engine/data/market/cleaned/prices/etf_total_return_closes.parquet

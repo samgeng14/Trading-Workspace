@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,9 +30,10 @@ class AppendResult:
     preview: list[dict[str, Any]]
 
 
-MASTER_CSV = Path("/Users/tradingworkspace/TradingWorkspace/trading-engine/data/market/cleaned/prices/indices_prices_master.csv")
-MASTER_PARQUET = Path("/Users/tradingworkspace/TradingWorkspace/trading-engine/data/market/cleaned/prices/indices_prices_master.parquet")
-SNAPSHOTS_DIR = Path("/Users/tradingworkspace/TradingWorkspace/trading-engine/data/market/snapshots")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+MASTER_CSV = PROJECT_ROOT / "data/market/cleaned/prices/indices_prices_master.csv"
+MASTER_PARQUET = PROJECT_ROOT / "data/market/cleaned/prices/indices_prices_master.parquet"
+SNAPSHOTS_DIR = PROJECT_ROOT / "data/market/snapshots"
 
 # Map our internal ticker → IBKR Index contract spec (symbol, exchange, currency).
 # IBKR sometimes uses different roots than Barchart (e.g. DXY → "DX" on NYBOT).
@@ -102,16 +103,27 @@ def append_indices_daily(
     port: int = 4002,
     client_id: int = 103,
     lookback: str = "15 D",
+    through: date | None = None,
 ) -> dict[str, Any]:
+    """Append the indices' daily bars to the master, through ``through`` (default
+    the last completed NYSE session). A session still trading has a partial bar
+    (VIX prints from 03:00 ET), so its bars are left out, and a master row of one
+    (from before this rule) is dropped: the next run fetches the finished bar."""
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     master = _load_master()
     # Always try every symbol we have a contract mapping for, even on a cold-start.
     symbols = sorted(set(INDEX_CONTRACTS.keys()) | set(master["symbol"].unique().tolist()))
 
-    ib = IB()
+    from src.broker.ibkr.client import connect_ib, fail_fast
+    from src.common.clock import last_completed_session
+    from src.production.pipeline.append_ibkr_daily import HISTORY_TIMEOUT_S, completed_sessions_only
+
+    through = through or last_completed_session()
+
     try:
-        ib.connect(host, port, clientId=client_id, timeout=5)
+        # fails on a gateway cut off from IBKR; caps each bars request (src/broker/ibkr/client.py)
+        ib = connect_ib(host, port, client_id, request_timeout=HISTORY_TIMEOUT_S, ib=IB())
     except Exception as exc:
         return {
             "ok": False,
@@ -124,11 +136,16 @@ def append_indices_daily(
 
     fetched_frames: list[pd.DataFrame] = []
     errors: list[str] = []
+    unfinished: list[str] = []
+    fetch = fail_fast(
+        completed_sessions_only(lambda sym, duration: _fetch_symbol_bars(ib, sym, duration), through, unfinished),
+        HISTORY_TIMEOUT_S,
+    )
 
     try:
         for symbol in symbols:
             try:
-                df_symbol = _fetch_symbol_bars(ib, symbol, lookback)
+                df_symbol = fetch(symbol, lookback)
                 if not df_symbol.empty:
                     fetched_frames.append(df_symbol)
                 else:
@@ -142,6 +159,7 @@ def append_indices_daily(
         columns=["date", "symbol", "open", "high", "low", "close", "volume"]
     )
 
+    master = master[master["date"] <= pd.Timestamp(through)]  # a session that wasn't over yet
     before_len = len(master)
     combined = pd.concat([master, fetched], ignore_index=True)
     combined["date"] = pd.to_datetime(combined["date"]).dt.normalize()

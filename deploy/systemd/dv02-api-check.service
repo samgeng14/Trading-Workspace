@@ -1,0 +1,11 @@
+# Is the API answering? On success, ping its heartbeat; a late ping is the alert.
+[Unit]
+Description=DV02: check the API answers
+After=dv02-api.service
+
+[Service]
+Type=oneshot
+User=dv02
+EnvironmentFile=/etc/dv02/dv02.env
+ExecStart=/usr/bin/curl -fsS -m 10 -o /dev/null http://127.0.0.1:8000/api/v1/status
+ExecStartPost=/opt/dv02/deploy/bin/heartbeat api

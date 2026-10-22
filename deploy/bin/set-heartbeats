@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# set-heartbeats: ask for each job's healthchecks.io ping URL, save it in
+# /etc/dv02/dv02.env (DV02_HEARTBEAT_<JOB>), and ping it once so its check shows
+# it arrived. An empty answer keeps what is there. Run as root:
+#   ssh -t ubuntu@<vm> 'sudo /opt/dv02/deploy/bin/set-heartbeats'
+set -euo pipefail
+ENV_FILE="${DV02_ENV_FILE:-/etc/dv02/dv02.env}"
+[ -w "$ENV_FILE" ] || { echo "can't write $ENV_FILE: run as root (sudo $0)" >&2; exit 1; }
+
+JOBS=(RUNNER API DOCTOR CAPTURE SHADOW ARCHIVE BACKUP)
+WHAT=(
+  "the daily run (15:35 ET, weekdays)"
+  "the API check (every 5 minutes)"
+  "the doctor (15:15 ET, weekdays)"
+  "the fills capture (16:30 ET, weekdays)"
+  "the shadow book (17:05 ET, weekdays)"
+  "the futures archive (17:20 ET, weekdays)"
+  "the backup (18:30 ET daily; leave empty until R2 is set up)"
+)
+
+save() {  # rewrite the file in place, so it keeps its owner and mode (root:dv02 640)
+  (umask 077; VAR="$1" URL="$2" awk '
+    $0 ~ "^"ENVIRON["VAR"]"=" || $0 ~ "^#"ENVIRON["VAR"]"=" {
+      if (!done) print ENVIRON["VAR"] "=" ENVIRON["URL"]; done = 1; next }
+    { print }
+    END { if (!done) print ENVIRON["VAR"] "=" ENVIRON["URL"] }' "$ENV_FILE" > "$ENV_FILE.new")
+  cat "$ENV_FILE.new" > "$ENV_FILE"
+  rm -f "$ENV_FILE.new"
+}
+
+echo "Paste each check's ping URL from healthchecks.io (https://hc-ping.com/...). Enter keeps the current one."
+for i in "${!JOBS[@]}"; do
+  var="DV02_HEARTBEAT_${JOBS[$i]}"
+  now="$(sed -n "s/^${var}=//p" "$ENV_FILE" | tail -n 1)"
+  read -r -p "${WHAT[$i]} [${now:-not set}]: " url || url=""
+  url="$(printf '%s' "$url" | tr -d '[:space:]')"
+  [ -n "$url" ] || continue
+  case "$url" in
+    https://*) ;;
+    *) echo "  that isn't an https:// URL: not saved"; continue ;;
+  esac
+  save "$var" "$url"
+  if curl -fsS -m 10 --retry 2 -o /dev/null "$url"; then
+    echo "  saved, and pinged: the check should turn green"
+  else
+    echo "  saved, but the ping failed: check the URL"
+  fi
+done
+echo "Done. Each job reads $ENV_FILE when it starts, so nothing needs restarting."

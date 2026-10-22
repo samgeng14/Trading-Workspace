@@ -1,0 +1,614 @@
+.overview-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+@media (max-width: 1180px) {
+  .overview-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── command center ──────────────────────────────────────────────────── */
+
+.action-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.action-line > span:first-child {
+  font-weight: 600;
+}
+
+.action-dot {
+  font-size: 9px;
+  vertical-align: 1px;
+}
+
+.readiness-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.checklist,
+.issues {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.check-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  height: 36px;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-1);
+  font-size: var(--fs-md);
+}
+
+.checklist li:last-child .check-row {
+  border-bottom: 0;
+}
+
+.check-row:hover {
+  background: var(--bg-hover);
+  text-decoration: none;
+}
+
+.check-value {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.check-row[data-state="warn"] .check-value {
+  color: var(--tone-warn);
+}
+
+.check-row[data-state="block"] .check-value {
+  color: var(--tone-bad);
+}
+
+.check-row[data-state="unknown"] .check-value {
+  color: var(--ink-3);
+}
+
+.issue {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: 9px var(--space-4);
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-1);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.issues li:last-child .issue {
+  border-bottom: 0;
+}
+
+.issue:hover {
+  background: var(--bg-hover);
+  text-decoration: none;
+}
+
+.issue .tag {
+  justify-self: start;
+}
+
+.issue strong {
+  font-weight: 600;
+}
+
+.issue-detail {
+  color: var(--ink-2);
+}
+
+.issue-detail::before {
+  content: "— ";
+  color: var(--ink-3);
+}
+
+.issue-empty {
+  padding: 14px var(--space-4);
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+}
+
+@media (max-width: 1180px) {
+  .readiness-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── overview ────────────────────────────────────────────────────────── */
+
+.kpi-band {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(0, 2.7fr);
+  gap: var(--space-5);
+  align-items: stretch;
+  padding: var(--space-4);
+}
+
+.kpi-band .stat-sub {
+  white-space: normal;
+}
+
+.kpi-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding-right: var(--space-5);
+  border-right: 1px solid var(--rule);
+}
+
+.kpi-hero-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin: 2px 0;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px var(--space-5);
+}
+
+.kpi-grid > .stat:nth-child(n + 5) {
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+@media (max-width: 1180px) {
+  .kpi-band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kpi-hero {
+    padding-right: 0;
+    padding-bottom: var(--space-4);
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+}
+
+@media (max-width: 760px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kpi-grid > .stat:nth-child(n + 3) {
+    padding-top: 14px;
+    border-top: 1px solid var(--rule);
+  }
+}
+
+.next-job {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-3);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  background: var(--bg-sunken);
+}
+
+.next-job .kicker {
+  grid-row: span 2;
+  align-self: center;
+}
+
+.next-job-time {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.schedule {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Labels and details come from the API and can be long (a failed run says
+   why), so a row grows and wraps instead of squeezing its label. */
+.schedule-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: var(--row-h);
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-sm);
+}
+
+.schedule-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px var(--space-3);
+  min-width: 0;
+}
+
+.schedule-label {
+  flex: 1 1 16ch;
+  min-width: 0;
+}
+
+.schedule-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  text-align: right;
+}
+
+.schedule-status .badge {
+  align-items: flex-start;
+  white-space: normal;
+  text-align: left;
+}
+
+.schedule-status .badge-icon {
+  margin-top: 2px;
+}
+
+.schedule-row:last-child {
+  border-bottom: 0;
+}
+
+.schedule-time {
+  color: var(--ink-2);
+}
+
+.schedule-row[data-status="done"] .schedule-label,
+.schedule-row[data-status="skipped"] .schedule-label {
+  color: var(--ink-2);
+}
+
+/* ── shared page pieces ──────────────────────────────────────────────── */
+
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-4);
+}
+
+.summary-strip .stat-sub {
+  white-space: normal;
+}
+
+.drift-flag {
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--status-warning);
+}
+
+.side-buy,
+.side-sell {
+  display: inline-block;
+  min-width: 34px;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* Buy/sell use neither P&L colour, so a sell never reads as a loss. */
+.side-buy {
+  color: var(--series-2);
+}
+
+.side-sell {
+  color: var(--accent-ink);
+}
+
+/* ── trading ─────────────────────────────────────────────────────────── */
+
+.preview-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: var(--space-4);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--rule);
+}
+
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+
+.checks li {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: var(--space-2);
+}
+
+.checks .badge {
+  font-size: var(--fs-sm);
+  color: var(--ink-1);
+}
+
+.preview-totals {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-content: start;
+}
+
+.preview-totals .stat-value {
+  font-size: var(--fs-lg);
+}
+
+.preview-submit {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--rule);
+}
+
+@media (max-width: 1180px) {
+  .preview-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── performance ─────────────────────────────────────────────────────── */
+
+.table.monthly td.heat {
+  font-variant-numeric: tabular-nums;
+}
+
+.table.monthly .year-total {
+  border-left: 1px solid var(--rule-strong);
+  font-weight: 600;
+}
+
+/* ── operations ──────────────────────────────────────────────────────── */
+
+.health-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.health-list li {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 34px;
+  padding: 4px var(--space-3);
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--fs-sm);
+}
+
+.health-list li:last-child {
+  border-bottom: 0;
+}
+
+.health-list .badge {
+  font-size: var(--fs-sm);
+  color: var(--ink-1);
+}
+
+.killswitch {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  font-size: var(--fs-sm);
+}
+
+.killswitch .badge {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+/* a sleeve's mandate is a sentence: it wraps, so the table fits its panel at any width */
+.table td.mandate {
+  min-width: 14rem;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.table.doctor td {
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  vertical-align: top;
+  white-space: normal;
+}
+
+.doctor-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.doctor-fix {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+}
+
+.table tr[data-status="FAIL"] td {
+  background: var(--down-wash);
+}
+
+.run-step td {
+  background: var(--bg-sunken);
+  font-size: var(--fs-xs);
+}
+
+/* Strategies: a sleeve's name, then what it is and where it stands */
+.table td.sleeve-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 16rem;
+  white-space: normal;
+}
+
+.sleeve-summary {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+.table.sleeves td {
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  vertical-align: top;
+}
+
+.sleeve-weights,
+.panel-note {
+  padding: 8px 12px;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+
+/* Strategies: one shadow book, its chart and what it would do, spaced as the page spaces panels */
+.shadow-book {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Data: a dataset's name, then where it comes from and when it is filled */
+.table td.dataset-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 14rem;
+  white-space: normal;
+}
+
+.dataset-source,
+.dataset-detail,
+.dataset-finding {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+/* what a check of the dataset's content found: set off by a rule, as a note */
+.dataset-finding {
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--rule);
+}
+
+.table.datasets td {
+  height: auto;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  vertical-align: top;
+}
+
+/* Phase 0 exit test and the engine shadow: why a session failed, under its row */
+.exit-why td {
+  height: auto;
+  padding-top: 0;
+  padding-bottom: 6px;
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  white-space: normal;
+}
+
+/* Narrow screens: let long stat labels wrap rather than push the page sideways. */
+.summary-strip .stat-label,
+.kpi-grid .stat-label,
+.preview-totals .stat-label {
+  white-space: normal;
+}
+
+@media (max-width: 760px) {
+  .preview-totals {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .checks li {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.history-note {
+  color: var(--tone-warn);
+}
+
+/* ── no NAV history yet ──────────────────────────────────────────────── */
+
+.history-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 62ch;
+  padding: var(--space-5) var(--space-4);
+}
+
+.history-empty-title {
+  font-family: var(--font-serif);
+  font-size: var(--fs-xl);
+  line-height: 1.2;
+  color: var(--ink-1);
+}
+
+.history-empty-body {
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+.history-empty-cmd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-1);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.history-empty-cmd code {
+  padding: 3px 8px;
+  border: 1px solid var(--rule-strong);
+  background: var(--bg-sunken);
+  font-family: var(--font-mono);
+  font-size: var(--fs-md);
+  color: var(--ink-1);
+}

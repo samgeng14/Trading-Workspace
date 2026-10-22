@@ -1,7 +1,0 @@
-profiles:
-  paper:
-    start_date: 2004-01-01
-    end_date: 2026-12-31
-  live:
-    start_date: 2004-01-01
-    end_date: 2026-12-31

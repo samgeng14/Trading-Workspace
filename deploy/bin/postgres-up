@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# postgres-up: start the store (deploy/postgres), bring its tables up to date and
+# load the engine's files into it (bin/migrate --backfill). The first time, it
+# makes the database password: random, written only to /etc/dv02/dv02.env
+# (DV02_DB_PASSWORD) and /etc/dv02/pg_password, which Postgres reads when it
+# first creates the database. Nobody needs to know it, so it is never shown.
+# Run as root; running it again changes nothing.
+set -euo pipefail
+here="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_FILE="${DV02_ENV_FILE:-/etc/dv02/dv02.env}"
+PW_FILE="${DV02_PG_PASSWORD_FILE:-/etc/dv02/pg_password}"
+POLLS="${DV02_PG_WAIT_POLLS:-45}"
+POLL_S="${DV02_PG_POLL_S:-2}"
+COMPOSE=(docker compose -f "$here/postgres/docker-compose.yml")
+[ -w "$ENV_FILE" ] || { echo "can't write $ENV_FILE: run as root (sudo $0)" >&2; exit 1; }
+
+password() {  # the last DV02_DB_PASSWORD= line wins, as in systemd
+  local pw
+  pw="$(sed -n 's/^DV02_DB_PASSWORD=//p' "$ENV_FILE" | tail -n 1)"
+  pw="${pw%\"}"; pw="${pw#\"}"
+  printf '%s' "$pw"
+}
+
+if [ -z "$(password)" ]; then
+  # rewrite the file in place, so it keeps its owner and mode (root:dv02 640)
+  (umask 077; PW="$(openssl rand -hex 24)" awk '
+    /^DV02_DB_PASSWORD=/ { if (!done) print "DV02_DB_PASSWORD=" ENVIRON["PW"]; done = 1; next }
+    { print }
+    END { if (!done) print "DV02_DB_PASSWORD=" ENVIRON["PW"] }' "$ENV_FILE" > "$ENV_FILE.new")
+  cat "$ENV_FILE.new" > "$ENV_FILE"
+  rm -f "$ENV_FILE.new"
+  echo "made the database password (DV02_DB_PASSWORD in $ENV_FILE)"
+fi
+(umask 077; password > "$PW_FILE")
+
+"${COMPOSE[@]}" up -d
+ready=""
+for _ in $(seq 1 "$POLLS"); do
+  # over TCP: while it first creates the database, Postgres listens on its socket only
+  if "${COMPOSE[@]}" exec -T postgres pg_isready -q -h 127.0.0.1 -U dv02 -d trading 2>/dev/null; then
+    ready=1
+    break
+  fi
+  sleep "$POLL_S"
+done
+[ -n "$ready" ] || { echo "Postgres didn't come up; see: ${COMPOSE[*]} logs postgres" >&2; exit 1; }
+
+if [ "$(id -u)" = 0 ]; then
+  runuser -u dv02 -- "$here/bin/migrate" --backfill
+else
+  "$here/bin/migrate" --backfill
+fi

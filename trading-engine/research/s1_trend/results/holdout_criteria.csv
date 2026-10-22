@@ -1,0 +1,4 @@
+criterion,value,pass
+holdout excess Sharpe >= -0.5,0.5714412760428318,True
+holdout max drawdown no worse than -15%,-0.05747072113313123,True
+holdout kills it,0.0,True

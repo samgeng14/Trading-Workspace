@@ -1,0 +1,2 @@
+hypothesis,book,rule,sharpe_excess,max_drawdown,killed
+R1,R1 primary: SPY on the turn of the month,killed if its excess Sharpe is below -0.5 or its drawdown worse than -15%,0.48403643026178017,-0.0914624439830114,False

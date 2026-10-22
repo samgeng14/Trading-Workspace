@@ -1,0 +1,12 @@
+# 17:20 New York time on weekdays: after every futures market's regular session
+# and the store's 16:30 capture, whatever the VM's zone.
+[Unit]
+Description=DV02 futures curve archive, 17:20 America/New_York on weekdays
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 17:20:00 America/New_York
+Persistent=true
+Unit=dv02-archive.service
+
+[Install]
+WantedBy=timers.target

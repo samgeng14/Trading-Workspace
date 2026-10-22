@@ -1,0 +1,6 @@
+check,value
+sessions by clock.py's rules the panel lacks (unscheduled closures),2007-01-02; 2012-10-29; 2012-10-30; 2018-12-05; 2025-01-09
+panel days clock.py's rules don't call sessions,none
+R1 primary: SPY on the turn of the month: chosen sessions 2023-10-12 to 2026-10-16,144 of 757 (19.0%)
+R1 V1: turn of the month + FOMC days: chosen sessions 2023-10-12 to 2026-10-16,164 of 757 (21.7%)
+"R1 V2: turn of the month + FOMC, jobs and CPI days: chosen sessions 2023-10-12 to 2026-10-16",218 of 757 (28.8%)

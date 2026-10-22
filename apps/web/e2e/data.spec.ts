@@ -1,0 +1,16 @@
+import { expect, test } from "@playwright/test";
+import { open } from "./helpers";
+
+test("the Data page lists every dataset with its watermark and state", async ({ page }) => {
+  await open(page, "/data");
+  const panel = page.locator("section[aria-label='Datasets']");
+  await expect(panel.locator(".panel-meta")).toContainText("11 of 11 current");
+  await expect(panel.locator("tbody tr")).toHaveCount(11);
+  await expect(panel.locator("tr[data-state='ok']").first()).toContainText("Current");
+  await expect(panel.locator("tr[data-state='off']")).toContainText("Not kept here");
+  await expect(panel).toContainText("bin/tradeit catchup");
+  // what the check of IBKR's adjusted closes found, under that dataset whatever its state
+  await expect(panel.locator("tr", { hasText: "Dividend-adjusted closes" }).locator(".dataset-finding")).toContainText(
+    "repaired in the signals",
+  );
+});

@@ -1,0 +1,2 @@
+hypothesis,criteria_passed,criteria,failed,holdout_killed,verdict
+R5,9,14,"1. excess Sharpe >= 0.40; 2. deflated Sharpe >= 0.90 (n 36); 3. block bootstrap 5th percentile of the excess Sharpe > 0; 5. max drawdown no deeper than 60% of TLT held's, the limit; 11b. 50/50 S0_TR + R5 loses no more than S0_TR in each of R3's windows (smallest margin)",False,fail

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# gateway-ready: just before the daily run, make sure IB Gateway is logged in to
+# IBKR, restarting its container once if it isn't. A gateway can lose IBKR's
+# servers and stay down: on 2026-10-21 a reconnect after IBKR's nightly reset
+# (00:16 ET) got "Unrecognized Username or Password" and sat on that dialog,
+# cut off, until a restart logged it straight back in. The run would have
+# failed safely and the fund missed the day.
+#
+# dv02-runner.service runs this as ExecStartPre=-, so it never stops the run:
+# whatever is still wrong, the run reports it in its own log. Takes under a
+# minute when a restart is needed, well inside the 15:45 ET market-on-close
+# deadline for a 15:35 run.
+set -uo pipefail
+root="${DV02_ROOT:-/opt/dv02}"
+py="${DV02_PYTHON:-$root/.venv/bin/python}"
+settle="${DV02_GATEWAY_SETTLE_S:-15}"   # after the login, before the API answers fully
+poll="${DV02_GATEWAY_POLL_S:-4}"        # between looks at the container's log (45 looks)
+
+ready() {
+  (cd "$root/trading-engine" && "$py" -m src.broker.ibkr.gateway_check)
+}
+
+if ready; then
+  exit 0
+fi
+
+# the container brought up for the ib-gateway service, from whatever checkout
+id="$(docker ps -aq --filter label=com.docker.compose.service=ib-gateway | head -1)"
+if [ -z "$id" ]; then
+  echo "gateway-ready: no IB Gateway container on this machine; start it with bin/tradeit gateway start" >&2
+  exit 0
+fi
+echo "gateway-ready: IB Gateway isn't logged in to IBKR; restarting its container" >&2
+# the Z matters: docker reads a timestamp without a zone in this machine's zone
+since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+docker restart "$id" >/dev/null || { echo "gateway-ready: docker restart failed" >&2; exit 0; }
+for _ in $(seq 1 45); do
+  sleep "$poll"
+  logs="$(docker logs --since "$since" "$id" 2>&1)"
+  if grep -q "Login has completed" <<<"$logs"; then
+    sleep "$settle"
+    ready && echo "gateway-ready: IB Gateway is logged in again" >&2
+    exit 0
+  fi
+  if grep -q -i -E "Unrecognized Username|login failed" <<<"$logs"; then
+    echo "gateway-ready: IBKR refused the saved login; the owner runs bin/tradeit login on this machine" >&2
+    exit 0
+  fi
+done
+echo "gateway-ready: no login within 3 minutes of the restart; see docker logs $id" >&2
+exit 0

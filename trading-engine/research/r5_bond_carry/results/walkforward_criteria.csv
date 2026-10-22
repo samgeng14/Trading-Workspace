@@ -1,0 +1,15 @@
+hypothesis,book,criterion,value,limit,pass
+R5,R5 primary: TLT while its carry is positive,1. excess Sharpe >= 0.40,0.28073530112588607,0.4,False
+R5,R5 primary: TLT while its carry is positive,"1b. excess Sharpe above TLT held's, the limit",0.28073530112588607,0.18731664559421643,True
+R5,R5 primary: TLT while its carry is positive,2. deflated Sharpe >= 0.90 (n 36),0.3274506325574011,0.9,False
+R5,R5 primary: TLT while its carry is positive,3. block bootstrap 5th percentile of the excess Sharpe > 0,-0.13666498161353247,0.0,False
+R5,R5 primary: TLT while its carry is positive,4. every variant's excess Sharpe > 0 (worst variant),0.18848989628490967,0.0,True
+R5,R5 primary: TLT while its carry is positive,"5. max drawdown no deeper than 60% of TLT held's, the limit",-0.4396723810637174,-0.28145345634371666,False
+R5,R5 primary: TLT while its carry is positive,6. cost drag <= 1% a year,0.00013757662457369337,0.01,True
+R5,R5 primary: TLT while its carry is positive,7. no day outside the mandate,0.0,0.0,True
+R5,R5 primary: TLT while its carry is positive,8. worst day no worse than -12%,-0.06636427711809878,-0.12,True
+R5,R5 primary: TLT while its carry is positive,"9. worst calendar month no worse than TLT held's, the limit",-0.1301010670190208,-0.1301010670190208,True
+R5,R5 primary: TLT while its carry is positive,10. in each stress window no more than 0.25 points below TLT held's (smallest margin),0.0,-0.0025,True
+R5,R5 primary: TLT while its carry is positive,11a. 50/50 S0_TR + R5's excess Sharpe > S0_TR's (difference),0.16439700652308115,0.0,True
+R5,R5 primary: TLT while its carry is positive,11b. 50/50 S0_TR + R5 loses no more than S0_TR in each of R3's windows (smallest margin),-0.08479257965475628,0.0,False
+R5,R5 primary: TLT while its carry is positive,12. daily return correlation with S0_TR <= 0.50,-0.25315656923035074,0.5,True

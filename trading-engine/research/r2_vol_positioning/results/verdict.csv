@@ -1,0 +1,4 @@
+hypothesis,criteria_passed,criteria,failed,holdout_killed,verdict
+H1,3,8,2. deflated Sharpe >= 0.90 (n 23); 3. bootstrap P(excess Sharpe >= SPY's) >= 80%; 4. max drawdown at most 60% of SPY's; 5. every variant's excess Sharpe >= SPY's (worst variant less SPY); 7. loses less than SPY in each stress window (smallest margin),False,fail
+H1b,1,7,1. max drawdown at most 60% of S0's; 2. excess Sharpe >= S0's - 0.05; 3. bootstrap P(drawdown shallower than S0's) >= 80%; 4. bootstrap P(excess Sharpe >= S0's - 0.05) >= 80%; 5. cost drag <= 0.5% a year; 6. loses less than S0 in each of H1's stress windows (smallest margin),True,fail
+H2,4,10,1. excess Sharpe >= 0.40; 2. deflated Sharpe >= 0.90 (n 23); 3. block bootstrap 5th percentile of the excess Sharpe > 0; 6a. positive in 2008; 6b. positive in 2022; 7a. correlation with S0 <= 0.50,False,fail

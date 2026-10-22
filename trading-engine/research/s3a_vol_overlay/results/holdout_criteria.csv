@@ -1,0 +1,3 @@
+hypothesis,book,drawdown_vs_s0,sharpe_vs_s0,killed
+H1,H1 W21 target 10%,-0.0018008493944314807,-0.07417335193091767,True
+H2,H2 50/50 S0 + S1 long/flat,0.03496994331574599,0.17629267523108005,False

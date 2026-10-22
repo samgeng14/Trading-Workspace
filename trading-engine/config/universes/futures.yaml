@@ -18,6 +18,36 @@ futures:
     # QM (e-mini crude) deliberately excluded — Barchart export for QM was
     # mislabeled and contained duplicate QG data; re-download required.
 
+  # Every listed contract of these roots expiring within about 13 months,
+  # recorded each evening into the lake (src/data/ingest/futures_curves.py,
+  # dv02-archive.timer): the curves carry research needs, which IBKR can't give
+  # back once a contract expires. IBKR's symbols and exchanges; on 2026-10-21
+  # each listed contracts on the paper gateway (about 220 within 13 months).
+  archive:
+    - {symbol: ES, exchange: CME}       # S&P 500
+    - {symbol: NQ, exchange: CME}       # Nasdaq-100
+    - {symbol: RTY, exchange: CME}      # Russell 2000
+    - {symbol: YM, exchange: CBOT}      # Dow
+    - {symbol: ZT, exchange: CBOT}      # 2-year Treasury
+    - {symbol: ZF, exchange: CBOT}      # 5-year
+    - {symbol: ZN, exchange: CBOT}      # 10-year
+    - {symbol: ZB, exchange: CBOT}      # Treasury bond
+    - {symbol: EUR, exchange: CME}      # euro (6E)
+    - {symbol: JPY, exchange: CME}      # yen (6J)
+    - {symbol: GBP, exchange: CME}      # pound (6B)
+    - {symbol: AUD, exchange: CME}      # Australian dollar (6A)
+    - {symbol: CAD, exchange: CME}      # Canadian dollar (6C)
+    - {symbol: GC, exchange: COMEX}     # gold
+    - {symbol: SI, exchange: COMEX}     # silver
+    - {symbol: HG, exchange: COMEX}     # copper
+    - {symbol: CL, exchange: NYMEX}     # WTI crude
+    - {symbol: NG, exchange: NYMEX}     # natural gas
+    - {symbol: COIL, exchange: IPE}     # Brent
+    - {symbol: ZC, exchange: CBOT}      # corn
+    - {symbol: ZW, exchange: CBOT}      # wheat
+    - {symbol: ZS, exchange: CBOT}      # soybeans
+    - {symbol: VIX, exchange: CFE}      # VIX futures
+
   hedge_candidates:
     - ES
     - NQ

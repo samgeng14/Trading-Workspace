@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# The engine's git-ignored state, and the store (Postgres), to R2.
+# State: trading-engine/artifacts (NAV history, run logs, kill switch),
+# data/broker (the expected book, drift state, snapshots),
+# data/market/cleaned (the refreshed price master, targets, total-return
+# closes) and data/lake (the futures curve archive: history nobody can
+# pull again). Needs rclone with an R2 remote (rclone config) named in
+# DV02_BACKUP_REMOTE, e.g. r2:dv02-backups. Keeps 14 days locally.
+set -euo pipefail
+ROOT="${DV02_ROOT:-/opt/dv02}"
+OUT="${DV02_BACKUP_DIR:-/var/backups/dv02}"
+REMOTE="${DV02_BACKUP_REMOTE:?set DV02_BACKUP_REMOTE in /etc/dv02/dv02.env (e.g. r2:dv02-backups)}"
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$OUT"
+# the lake only where it exists (the futures curve archive makes it on its first evening)
+lake=""; [ -d "$ROOT/trading-engine/data/lake" ] && lake="data/lake"
+tar -C "$ROOT/trading-engine" -czf "$OUT/dv02-state-$stamp.tgz" artifacts data/broker data/market/cleaned $lake
+# the store, dumped inside its container (the VM has no pg_dump), when it runs
+pg=(docker compose -f "$ROOT/deploy/postgres/docker-compose.yml")
+if [ -n "$("${pg[@]}" ps -q --status running postgres 2>/dev/null)" ]; then
+  "${pg[@]}" exec -T postgres pg_dump -U dv02 -d trading -Fc > "$OUT/dv02-pg-$stamp.dump"
+fi
+rclone copy "$OUT" "$REMOTE" --include "*$stamp*"
+find "$OUT" -maxdepth 1 -type f -name 'dv02-*' -mtime +14 -delete
+echo "backup $stamp copied to $REMOTE"

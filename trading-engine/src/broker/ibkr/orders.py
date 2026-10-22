@@ -6,12 +6,52 @@ from typing import Any, Literal, Optional
 
 from ib_async import Contract, LimitOrder, MarketOrder, Order, Stock, StopOrder
 
-from .client import IBKRClient, IBKRConnectionConfig
+from .client import IBKRClient
 
 logger = logging.getLogger(__name__)
 
 OrderAction = Literal["BUY", "SELL"]
 OrderType = Literal["MKT", "LMT", "STP", "MOC"]
+
+# An order's status from placeOrder until IBKR says anything about it: sent, not
+# yet acknowledged. Not an error: on 2026-10-21 the VM's gateway acknowledged none
+# of 9 market-on-close orders within 30 s of sending them, and all 9 filled.
+UNACKNOWLEDGED = frozenset({"", "PendingSubmit", "ApiPending"})
+
+
+def trade_status(trade: Any) -> str:
+    return str(getattr(getattr(trade, "orderStatus", None), "status", None) or "")
+
+
+def trade_log(trade: Any) -> list[dict[str, Any]]:
+    """What IBKR said about an order, from ib_async's trade log: each status change and
+    each message IBKR attached (a warning, a rejection), in seconds after it was sent.
+    Kept with each order to find out why the gateway is slow to acknowledge."""
+    log = list(getattr(trade, "log", None) or [])
+    if not log:
+        return []
+    sent = log[0].time
+    return [
+        {
+            "s": round((e.time - sent).total_seconds(), 2),
+            "status": e.status or "",
+            "code": int(getattr(e, "errorCode", 0) or 0),
+            "message": e.message or "",
+        }
+        for e in log
+    ]
+
+
+def acknowledged_after(trade: Any) -> float | None:
+    """Seconds from sending an order to IBKR's first word on it, from ib_async's
+    trade log; None while IBKR has said nothing (or the trade keeps no log)."""
+    log = list(getattr(trade, "log", None) or [])
+    if not log:
+        return None
+    for entry in log[1:]:
+        if (entry.status or "") not in UNACKNOWLEDGED:
+            return round((entry.time - log[0].time).total_seconds(), 2)
+    return None
 
 
 class IBKROrderError(RuntimeError):
@@ -28,7 +68,7 @@ class OrderRequest:
     stop_price: float | None = None
     exchange: str = "SMART"
     currency: str = "USD"
-    tif: str = "DAY"
+    tif: str = "DAY"  # "OPG" with MKT is a market-on-open order
     outside_rth: bool = False
     account: str | None = None
     order_ref: str | None = None
@@ -47,6 +87,11 @@ class OrderRequest:
             raise IBKROrderError("Stop orders require a positive stop_price")
         if self.order_type == "MOC" and self.tif != "DAY":
             raise IBKROrderError("MOC orders must use tif='DAY'")
+        # OPG makes a market (or limit) order a market-on-open (limit-on-open) order
+        if self.tif == "OPG" and self.order_type not in {"MKT", "LMT"}:
+            raise IBKROrderError("tif='OPG' (on the open) is for MKT and LMT orders only")
+        if self.tif == "OPG" and self.outside_rth:
+            raise IBKROrderError("An on-open order (tif='OPG') can't also be outside regular hours")
 
 
 class IBKROrderManager:
@@ -111,11 +156,12 @@ class IBKROrderManager:
         order = self.build_order(request)
 
         logger.info(
-            "Placing order symbol=%s action=%s qty=%s type=%s account=%s",
+            "Placing order symbol=%s action=%s qty=%s type=%s tif=%s account=%s",
             request.normalized_symbol(),
             request.action,
             request.quantity,
             request.order_type,
+            order.tif,
             order.account,
         )
         trade = self.client.ib.placeOrder(contract, order)
@@ -215,6 +261,22 @@ class IBKROrderManager:
             f"Trade did not finish within {timeout:.1f}s; "
             f"last_status={trade.orderStatus.status}"
         )
+
+    def wait_for_acknowledgments(
+        self,
+        trades: list[Any],
+        *,
+        timeout: float = 30.0,
+        poll_interval: float = 0.5,
+    ) -> list[str]:
+        """Wait until IBKR has acknowledged every trade, or ``timeout`` seconds in all,
+        and return each one's status then. The orders are already sent: one still
+        pending is unconfirmed, not lost, and never raises."""
+        elapsed = 0.0
+        while any(trade_status(t) in UNACKNOWLEDGED for t in trades) and elapsed < timeout:
+            self.client.sleep(poll_interval)
+            elapsed += poll_interval
+        return [trade_status(t) for t in trades]
 
     def wait_for_trade_update(
         self,
@@ -317,18 +379,10 @@ def submit_one(
 
     owns_manager = manager is None
     if manager is None:
-        # Lazy import — avoids a circular if executions.py is loaded later.
-        from .executions import _broker_profile_config
+        from .settings import make_client
 
-        cfg = _broker_profile_config(profile)
         try:
-            client = IBKRClient(IBKRConnectionConfig(
-                host=cfg["host"],
-                port=cfg["port"],
-                client_id=int(cfg["client_id"]),
-                readonly=False,
-                account=cfg["account"],
-            ))
+            client = make_client(profile, "orders")
             client.connect()
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": f"connect failed: {exc}", "symbol": sym}

@@ -1,0 +1,9 @@
+check,value
+holdout: sessions 2023-10-12 to 2026-10-16,756
+holdout: nights held by the primary and V1 (every night but those after an early close),749
+holdout: nights held by V2 (weeknights: the next session is the next calendar day),588
+"holdout: nights after an early close, sat out by every rule",7: 2023-11-27; 2024-07-05; 2024-12-02; 2024-12-26; 2025-07-07; 2025-12-01; 2025-12-26
+"holdout: SPY ex-dates inside, and their cash a share","12, $21.8364"
+holdout: SPY ex-dates on a night the primary or V1 holds,12
+"holdout: QQQ ex-dates inside, and their cash a share","13, $8.9572"
+holdout: QQQ ex-dates on a night the primary or V1 holds,13

@@ -1,0 +1,156 @@
+/*
+ * Design tokens. Every colour, size and font in the app comes from here.
+ *
+ * The default is the Journal theme, a broadsheet financial page: warm white
+ * newsprint, black ink, sections set off by black rules instead of boxes,
+ * condensed capitals for section labels, a news serif for headlines and
+ * headline figures, a single ink blue for links and the portfolio line, and
+ * the paper's green and red for gains and losses. journal.css carries the
+ * layout differences (rules, square corners, condensed labels).
+ *
+ * Dark ("night edition") is one click away: near-black panels, beige ink, a
+ * sand accent. The viewer switches with the theme button and the pick is
+ * remembered (data-theme on <html>).
+ *
+ * Chart series were run through the dataviz palette validator on each
+ * theme's chart surface (lightness band, chroma, CVD and contrast all pass).
+ * Text colours clear WCAG 4.5:1 on the page; the benchmark line is a
+ * reference mark and clears 3:1.
+ */
+
+:root {
+  color-scheme: light;
+
+  --bg-page: #faf9f5;
+  --bg-nav: #faf9f5;
+  --bg-panel: #faf9f5;
+  --bg-sunken: #f2f0ea;
+  --bg-hover: #f1efe8;
+  --bg-selected: rgba(10, 106, 166, 0.08);
+
+  --ink-1: #111111;
+  --ink-2: #444444;
+  --ink-3: #5c5c5c;
+  --ink-inverse: #faf9f5;
+
+  --rule: #dcd9d1;
+  --rule-strong: #8d897f;
+  --rule-ink: #111111;
+  --border: transparent;
+  --panel-top: #111111;
+  --panel-top-w: 2px;
+
+  --accent: #0a6aa6;
+  --accent-ink: #0b5f94;
+  --accent-wash: rgba(10, 106, 166, 0.1);
+  --accent-fill: #111111;
+  --accent-fill-ink: #faf9f5;
+
+  --up: #0a7b34;
+  --down: #c4161c;
+  --up-wash: rgba(10, 123, 52, 0.09);
+  --down-wash: rgba(196, 22, 28, 0.08);
+
+  --series-1: #0f6aa8;
+  --series-2: #c4621a;
+  --bench: #86827a;
+
+  /* status fills (icons, meters) and status text; never reused as series colours */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-unknown: #898781;
+  --tone-good: #0a7b34;
+  --tone-warn: #835400;
+  --tone-bad: #c4161c;
+
+  --halt-bg: #b42318;
+  --halt-ink: #ffffff;
+  --overlay: rgba(17, 17, 17, 0.35);
+
+  /* Newsreader (a news serif) for the nameplate, titles and headline values;
+     IBM Plex Sans Condensed for section labels and table heads, the way a
+     financial page sets them; Public Sans for running text; IBM Plex Mono
+     for figures, tickers and timestamps so columns of numbers line up. */
+  --font-sans: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-label: "IBM Plex Sans Condensed", "Arial Narrow", "Public Sans", sans-serif;
+  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-2xs: 10.5px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 22px;
+  --fs-2xl: 26px;
+  --fs-hero: 40px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius: 0px;
+  --topbar-h: 34px;
+  --ticker-h: 28px;
+  --nav-w: 220px;
+  --row-h: 28px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-page: #0e0d0c;
+  --bg-nav: #121110;
+  --bg-panel: #161513;
+  --bg-sunken: #121110;
+  --bg-hover: #1f1d1a;
+  --bg-selected: rgba(214, 176, 122, 0.1);
+
+  --ink-1: #ece4d6;
+  --ink-2: #b8ae9e;
+  --ink-3: #8b8274;
+  --ink-inverse: #151410;
+
+  --rule: #262420;
+  --rule-strong: #3a362f;
+  --rule-ink: #ece4d6;
+  --border: #2a2723;
+  --panel-top: #4a3f2f;
+  --panel-top-w: 1px;
+
+  --accent: #d6b07a;
+  --accent-ink: #d6b07a;
+  --accent-wash: rgba(214, 176, 122, 0.12);
+  --accent-fill: #d6b07a;
+  --accent-fill-ink: #151410;
+
+  --up: #79c07d;
+  --down: #ea6b5f;
+  --up-wash: rgba(121, 192, 125, 0.12);
+  --down-wash: rgba(234, 107, 95, 0.12);
+
+  --series-1: #bd8a3c;
+  --series-2: #5c8bd2;
+  --bench: #7d7568;
+
+  --status-good: #79c07d;
+  --status-warning: #e0b04a;
+  --status-serious: #e08a5a;
+  --status-critical: #ea6b5f;
+  --status-unknown: #8b8274;
+  --tone-good: #79c07d;
+  --tone-warn: #e0b04a;
+  --tone-bad: #ea6b5f;
+
+  --halt-bg: #a8322a;
+  --halt-ink: #fff4ee;
+  --overlay: rgba(0, 0, 0, 0.55);
+
+  --font-label: var(--font-sans);
+  --radius: 2px;
+}

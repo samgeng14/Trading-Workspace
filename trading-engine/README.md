@@ -15,9 +15,9 @@ to without touching the runtime.
 
 ## What it does, in plain English
 
-1. **Every weekday at 4:32 PM ET**, your Mac wakes (if asleep), connects
-   to a running TWS or IB Gateway window, and pulls today's close prices
-   for ~22 ETFs.
+1. **Every weekday at 3:35 PM ET** (2:35 PM Central), your Mac wakes (if
+   asleep), connects to a running IB Gateway, and pulls the last completed
+   session's close prices for the model's 21 ETFs.
 2. It runs the **multi-model strategy** — 14 different signal generators
    (momentum, mean reversion, volatility-targeting, MACD, RSI, …) score
    every ETF, an aggregator combines those scores into target weights,
@@ -115,25 +115,25 @@ Open whichever you installed and **log into your paper account**. Then:
 **IB Gateway:** Configure → Settings → API → Settings — same options;
 ports are `4002` (paper) and `4001` (live).
 
-Verify the API is listening:
+Point the engine at it. Copy `.env.example` (repo root) to `.env` and set
+`IBKR_PORT_PAPER` to 4002 (IB Gateway) or 7497 (TWS). Then run the
+connection doctor, which checks the socket, API handshake, account type,
+balances, contracts, daily bars, live vs. delayed quotes and order
+permissions, and prints the fix for anything that fails:
 
 ```bash
-# In Terminal, with TWS or Gateway running:
-lsof -nP -iTCP -sTCP:LISTEN | grep -E '7497|7496|4001|4002'
-# You should see one line with `java` listening on whichever port you picked.
+python -m src.broker.ibkr.doctor
 ```
+
+Every IBKR connection in the repo reads its host, port and clientId from
+`src/broker/ibkr/settings.py` (env > `.env` > `config/broker.yaml`).
 
 ### Step 5 · Bootstrap the autonomous schedule
 
-```bash
-# This installs a macOS LaunchAgent that fires Mon-Fri 16:32 ET.
-# Replace 7497 with 4002 if you're running IB Gateway instead of TWS.
-IBKR_PORT_PAPER=7497 \
-  python -m src.production.scheduler --install-launchagent
-
-# Confirm it's loaded.
-launchctl print gui/$(id -u)/com.capitalfund.daily-runner | head -10
-```
+From the repo root, `bin/tradeit schedule install` installs a macOS
+LaunchAgent that runs the daily runner for this checkout Mon-Fri at 15:35
+ET, written in this Mac's zone; `bin/tradeit schedule status` shows whether it is loaded and
+where it runs from, and `bin/tradeit schedule remove` takes it out.
 
 Or run **all of the above + sleep settings + auto-login checklist** with
 the bundled bootstrap script:
@@ -160,11 +160,12 @@ Once installed, the system runs itself:
 
 | What | Where | When |
 |---|---|---|
-| Pull bars + rebalance + submit orders | LaunchAgent | Mon-Fri 16:32 ET |
+| Pull bars + rebalance + submit orders | LaunchAgent | Mon-Fri 15:35 ET |
 | Watch what's happening | Dashboard at `localhost:8501` | Whenever |
 | Force a refresh manually | Sidebar **Refresh ETF Data** button | Anytime |
-| Halt all trading | `python -m src.execution.kill_switch arm "reason"` | Emergency |
-| Resume trading | `python -m src.execution.kill_switch disarm` | After fix |
+| Halt all trading | `bin/tradeit kill "reason"` (arms the kill switch, then cancels every working order) | Emergency |
+| Resume trading | `bin/tradeit resume` (only after the doctor and a reconcile pass) | After fix |
+| Where things stand | `bin/tradeit status` (the switch, IBKR's working orders, the last reconcile) | Anytime |
 
 If you want to manually fire the runner without waiting for the LaunchAgent:
 
@@ -197,9 +198,9 @@ trading-engine/
 │   ├── runtime/               ← scheduling, health checks, risk gates
 │   ├── broker/                ← IBKR API wrappers
 │   ├── storage/               ← persistence repos (DB-backed, future)
-│   ├── backtest/              ← Rust hawk-backtester wiring (future)
+│   ├── backtest/              ← backtester wiring (future); the backtester is C++, in engine/
 │   ├── cli/                   ← command-line entry points
-│   ├── production/            ← daily runner, scheduler, generate_targets
+│   ├── production/            ← daily runner, generate_targets
 │   └── dashboard/             ← Streamlit UI
 ├── data/
 │   ├── market/cleaned/        ← master price file + monthly target weights
@@ -260,15 +261,16 @@ That's it — the rest of the pipeline picks it up.
 ## Universe (today)
 
 ```
-Equities         SPY  QQQ  TQQQ  VEA  VWO  INDA  VFH  VHT  VIS  VNQ  VPU
+Equities         SPY  QQQ  VEA  VWO  INDA  VFH  VHT  VIS  VNQ  VPU
 Commodities      GLD  SLV  USO  UNG
 Fixed Income     TLT  IEI  SHY  BIL
 Crypto           IBIT  ETHA
 Volatility       VIXY
 ```
 
-22 ETFs. Configurable in the production YAML configs under
-`src/production/pipeline/configs/`.
+21 ETFs, listed in `config/universes/etfs.yaml` (`core`); target generation
+trades only that list. TQQQ left the model on October 12, 2026: it is a 3x ETF,
+and the fund doesn't use leverage. The price master still keeps its bars.
 
 ---
 
@@ -299,7 +301,7 @@ Three layers of defense before any order leaves your laptop:
      [50%, 100%], min 5 holdings, max single trade 30% NAV)
    - basket non-empty + NAV > 0
 
-3. **Duplicate-submission guard** (`src/dashboard/services/order_service.py`)
+3. **Duplicate-submission guard** (`src/production/runtime/order_service.py`)
    — basket fingerprint persisted to disk; a second submit of the same
    basket fingerprint is refused.
 
@@ -318,17 +320,31 @@ holidays and weekends.
 Yes — except the macOS-specific LaunchAgent. Use `cron` or `systemd`
 instead. The `daily_runner` itself is platform-agnostic.
 
-**Do I need to keep the laptop awake at 16:32 ET?**
+**Do I need to keep the laptop awake at 15:35 ET?**
 Yes, unless you set up the truly-headless variant in
 `scripts/HEADLESS.md` (LaunchDaemon + IBC). The simpler path: enable
-auto-login + a 16:30 wake schedule (`pmset repeat wakeorpoweron MTWRF
-16:30:00`).
+auto-login + a wake schedule five minutes before the run, in the Mac's
+own time (`scripts/setup_automation.sh` offers it; in Central time that is
+`pmset repeat wakeorpoweron MTWRF 14:30:00`).
 
 **Will it sell my whole portfolio?**
 No — by default the optimizer is `momentum_tilted` which holds all 22
 ETFs with weights tilted toward winners (top weights ~10-12%, all
 holdings ≥ 1%). The legacy `momentum_top5` still exists if you want a
 concentrated 5-pick portfolio.
+
+**Do I need a MOSEK license?**
+No. The daily runner's target generation (`src/production/generate_targets.py`)
+uses no solver. The research optimizers and the MVO aggregator in
+`src/trading_engine/` get their cvxpy solver from `src/trading_engine/solvers.py`:
+MOSEK only when the `mosek` package is installed and a license checks out,
+otherwise CLARABEL, which comes with cvxpy. If you have a MOSEK license, keep
+it outside the repo: save it as `~/mosek/mosek.lic`, or point
+`MOSEKLM_LICENSE_FILE` at it (`*.lic` files are git-ignored). Set
+`DV02_SOLVER=CLARABEL` (or any installed cvxpy solver) to force one. The MIQP
+optimizer needs a mixed-integer solver (licensed MOSEK, or SCIP via
+`pip install pyscipopt`); without one it warns and solves without its minimum
+trade size rule.
 
 **How do I switch from paper to live?**
 You don't from this README. There's a deliberate friction step: the

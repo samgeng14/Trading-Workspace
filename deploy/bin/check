@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# check: the deploy files are well formed. Runs anywhere with bash (systemd
+# checks need systemd-analyze; skipped without it). CI-safe: touches nothing.
+set -euo pipefail
+here="$(cd "$(dirname "$0")/.." && pwd)"
+status=0
+for f in "$here"/bin/*; do bash -n "$f" || { echo "syntax error: $f"; status=1; }; done
+if command -v systemd-analyze >/dev/null 2>&1; then
+  for timer in "$here"/systemd/*.timer; do
+    while IFS= read -r spec; do
+      systemd-analyze calendar "$spec" >/dev/null || { echo "bad OnCalendar in $(basename "$timer"): $spec"; status=1; }
+    done < <(sed -n 's/^OnCalendar=//p' "$timer")
+  done
+  # verify against a scratch root that has the paths the units name
+  scratch="$(mktemp -d)"; trap 'rm -rf "$scratch"' EXIT
+  mkdir -p "$scratch/etc/systemd/system" "$scratch/opt/dv02/.venv/bin" "$scratch/opt/dv02/deploy/bin" "$scratch/usr/bin"
+  for exe in opt/dv02/.venv/bin/python opt/dv02/deploy/bin/heartbeat opt/dv02/deploy/bin/backup \
+    opt/dv02/deploy/bin/gateway-ready usr/bin/curl; do
+    printf '#!/bin/sh\n' > "$scratch/$exe"; chmod +x "$scratch/$exe"
+  done
+  cp "$here"/systemd/* "$scratch/etc/systemd/system/"
+  # and systemd's own units (sysinit.target and friends), which verify resolves against
+  for sysdir in /usr/lib/systemd/system /lib/systemd/system; do
+    if [ -d "$sysdir" ]; then mkdir -p "$scratch$sysdir"; cp -r "$sysdir/." "$scratch$sysdir/"; break; fi
+  done
+  out="$(cd "$scratch/etc/systemd/system" && systemd-analyze verify --root="$scratch" ./*.service ./*.timer 2>&1 || true)"
+  # a scratch root has no users, environment file or docker.service; everything else is a real problem
+  problems="$(printf '%s\n' "$out" | grep -v -e 'Failed to resolve user' -e 'EnvironmentFile' -e 'docker.service' \
+    -e 'network-online.target' -e 'Unit configured to use KillMode=none' -e '^$' || true)"
+  if [ -n "$problems" ]; then echo "$problems"; status=1; fi
+else
+  echo "systemd-analyze not found: skipped the unit checks"
+fi
+[ "$status" = 0 ] && echo "deploy files OK"
+exit "$status"

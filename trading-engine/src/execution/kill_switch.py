@@ -6,19 +6,17 @@ orders MUST call ``require_kill_switch_clear()`` first and abort if the
 switch is on.
 
 The state lives at ``artifacts/runs/kill_switch.json`` so it survives
-process restarts. The user (or an automated supervisor) can flip it any
-time:
+process restarts. Arming it here blocks new orders only: a basket already at
+IBKR still fills. To stop the fund, use ``bin/tradeit kill "why"``
+(src/execution/kill.py): it arms the switch, then cancels every working
+order; ``bin/tradeit resume`` disarms it after the doctor and a reconcile
+pass. The plain file operations stay here:
 
-    # Arm — block all order submission
     python -m src.execution.kill_switch arm "manual halt for review"
-
-    # Disarm — allow trading again
     python -m src.execution.kill_switch disarm
-
-    # Status
     python -m src.execution.kill_switch status
 
-The dashboard exposes the same ops via the System Audit page.
+The dashboard's kill switch toggle arms and disarms this same file.
 """
 from __future__ import annotations
 
