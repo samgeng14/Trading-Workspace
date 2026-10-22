@@ -20,7 +20,7 @@ def test_the_registry_over_the_apis_engine_tree(engine_tree, fake_broker, frozen
     with TestClient(app) as client:
         body = client.get("/api/v1/data/datasets").json()
     rows = {d["name"]: d for d in body["datasets"]}
-    assert len(rows) == 10 and body["last_catchup"] == record
+    assert len(rows) == 11 and body["last_catchup"] == record
     # the tree has the API's recorded closes through the day before the frozen Friday (14:12 ET)
     assert rows["close_nav"]["state"] == "ok" and rows["close_nav"]["expected"] == "2026-10-08"
     assert rows["futures_curves"]["state"] == "missing" and rows["store_close"]["state"] == "off"

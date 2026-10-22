@@ -1,3 +1,4 @@
+import type { Schemas } from "../api/client";
 import { useStrategies } from "../api/hooks";
 import { LineChart, monthTicks } from "../charts/LineChart";
 import { tickDecimals } from "../charts/axis";
@@ -14,22 +15,19 @@ const LABEL = {
   failed: "Failed the gate",
 } as const;
 
+type ShadowBook = Schemas["ShadowBook"];
+
 export function Strategies() {
   const { data, error } = useStrategies();
-  const shadow = data?.shadow;
-  const points = shadow?.points ?? [];
-  const dates = points.map((p) => p.date);
-  const growth = (v: number) => (v - 1) * 100;
-  const weights = Object.entries(shadow?.decision?.weights ?? {}).sort((a, b) => b[1] - a[1]);
   return (
     <div className="page">
       <PageHead
         title="Strategies"
-        sub="Each sleeve against the research gate, and the shadow book beside the live fund"
+        sub="Each sleeve against the research gate, and each shadow book beside the live fund"
       />
       <Panel
         title="Sleeves"
-        meta="walk-forward 2008–2023, costs on, Sharpe over T-bills"
+        meta="walk-forward to 2023, costs on, Sharpe over T-bills"
         flush
         foot={
           <>
@@ -75,26 +73,45 @@ export function Strategies() {
           </div>
         )}
       </Panel>
+      {(data?.shadows ?? []).map((book) => (
+        <ShadowSection key={book.id} book={book} />
+      ))}
+    </div>
+  );
+}
 
+/** One shadow book: its record beside the live fund, and what it would do now. */
+function ShadowSection({ book }: { book: ShadowBook }) {
+  const points = book.points;
+  const dates = points.map((p) => p.date);
+  const growth = (v: number) => (v - 1) * 100;
+  const weights = Object.entries(book.decision?.weights ?? {}).sort((a, b) => b[1] - a[1]);
+  const tag = book.id.toUpperCase();
+  const futures = book.holdings.length > 0;
+  return (
+    <section className="shadow-book" aria-label={`Shadow book ${tag}`}>
       <Figure
-        title="Shadow book"
+        title={book.name}
         meta={
-          shadow
-            ? points.length
-              ? `${shadow.name} · since ${dateShort(shadow.start)} · ${shadow.sessions} sessions`
-              : `${shadow.name} · from ${dateShort(shadow.start)}`
-            : undefined
+          points.length
+            ? `shadow book · since ${dateShort(book.start)} · ${book.sessions} sessions`
+            : `shadow book · from ${dateShort(book.start)}`
         }
-        control="strategies.shadow"
+        control={`strategies.shadow.${book.id}`}
         chart={
           points.length ? (
             <LineChart
               series={[
-                { id: "h2", label: "Shadow book", color: "var(--series-1)", values: points.map((p) => growth(p.h2)) },
+                {
+                  id: "book",
+                  label: "Shadow book",
+                  color: "var(--series-1)",
+                  values: points.map((p) => growth(p.book)),
+                },
                 { id: "live", label: "Live S0", color: "var(--series-2)", values: points.map((p) => growth(p.live)) },
                 {
                   id: "sleeve",
-                  label: "Trend sleeve",
+                  label: book.sleeve,
                   color: "var(--bench)", // a component of the book, drawn like a benchmark
                   values: points.map((p) => growth(p.sleeve)),
                 },
@@ -104,25 +121,25 @@ export function Strategies() {
               xLabel={(i) => dateLong(dates[i]!)}
               xTicks={monthTicks(dates)}
               height={220}
-              ariaLabel="The shadow book's return since its start, beside the live fund's and the trend sleeve's"
-              control="strategies.shadow.plot"
+              ariaLabel={`${tag}'s shadow book: its return since its start, beside the live fund's and the sleeve's`}
+              control={`strategies.shadow.${book.id}.plot`}
             />
           ) : (
             <div className="history-empty" role="status">
-              <p className="history-empty-title">The shadow book has no record yet.</p>
+              <p className="history-empty-title">This shadow book has no record yet.</p>
               <p className="history-empty-body">
-                It starts on {shadow ? dateLong(shadow.start) : "its start date"}, and its first numbers come once the
-                prices run past that day, the evening after. It runs at 17:05 ET each weekday and sends nothing.
+                It starts on {dateLong(book.start)}, and its first numbers come once the prices run past that day, the
+                evening after. It runs at 17:05 ET each weekday and sends nothing.
               </p>
             </div>
           )
         }
         table={{
-          head: ["Date", "Shadow book", "Live S0", "Trend sleeve"],
+          head: ["Date", "Shadow book", "Live S0", book.sleeve],
           numeric: [1, 2, 3],
           rows: points.map((p) => [
             p.date,
-            pct(p.h2 - 1, 2, true),
+            pct(p.book - 1, 2, true),
             pct(p.live - 1, 2, true),
             pct(p.sleeve - 1, 2, true),
           ]),
@@ -130,12 +147,45 @@ export function Strategies() {
       />
 
       <Panel
-        title="What the shadow book would do"
-        meta={shadow?.through ? `as of ${dateShort(shadow.through)}` : undefined}
+        title={`What ${tag} would do`}
+        meta={book.through ? `as of ${dateShort(book.through)}` : undefined}
         flush
-        foot={<>Nothing here is sent: these are the orders that would take the account from S0 to the shadow book.</>}
+        foot={
+          futures ? (
+            <>
+              Nothing here is sent: the short the sleeve would hold for the next session, at the live account&rsquo;s
+              NAV. The runner can&rsquo;t trade VIX futures yet.
+            </>
+          ) : (
+            <>Nothing here is sent: these are the orders that would take the account from S0 to the shadow book.</>
+          )
+        }
       >
-        {weights.length || shadow?.would_be_orders.length ? (
+        {book.signal && <p className="secondary panel-note shadow-signal">{book.signal}</p>}
+        {futures ? (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Future</th>
+                  <th className="r">Contracts</th>
+                  <th className="r">Notional</th>
+                </tr>
+              </thead>
+              <tbody>
+                {book.holdings.map((h) => (
+                  <tr key={h.instrument}>
+                    <td>
+                      <span className="sym">{h.instrument}</span>
+                    </td>
+                    <td className="num r">{num(h.quantity)}</td>
+                    <td className="num r">{money(h.notional)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : weights.length || book.would_be_orders.length ? (
           <div className="table-wrap">
             <table className="table">
               <thead>
@@ -146,7 +196,7 @@ export function Strategies() {
                 </tr>
               </thead>
               <tbody>
-                {shadow?.would_be_orders.slice(0, 12).map((o) => (
+                {book.would_be_orders.slice(0, 12).map((o) => (
                   <tr key={o.symbol}>
                     <td>
                       {o.action === "BUY" ? "Buy" : "Sell"} <span className="sym">{o.symbol}</span>
@@ -159,15 +209,17 @@ export function Strategies() {
             </table>
             {weights.length > 0 && (
               <p className="secondary sleeve-weights">
-                Trend sleeve, decided {dateShort(shadow!.decision!.decided)}:{" "}
+                {book.sleeve}, decided {dateShort(book.decision!.decided)}:{" "}
                 {weights.map(([s, w]) => `${s} ${pct(w, 0)}`).join(" · ")}
               </p>
             )}
           </div>
         ) : (
-          <p className="secondary panel-note">Nothing yet: the first decision comes with the first record.</p>
+          !book.signal && (
+            <p className="secondary panel-note">Nothing yet: the first decision comes with the first record.</p>
+          )
         )}
       </Panel>
-    </div>
+    </section>
   );
 }

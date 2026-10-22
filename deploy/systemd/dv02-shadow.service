@@ -1,10 +1,12 @@
-# Each evening: shadow mode for H2, S0 with a trend overlay
-# (trading-engine/src/production/shadow_h2.py). The trend sleeve runs forward
-# through the C++ walk-forward, mixed half and half with the live account,
-# with what H2 would hold and send, into artifacts/shadow/h2/. Nothing is sent
-# and it doesn't connect to IBKR. Started by dv02-shadow.timer.
+# Each evening: every shadow book (trading-engine/src/production/shadows.py).
+# H2, S0 with a trend overlay (shadow_h2.py), and R3, short the VIX futures
+# premium (shadow_r3.py, which first fetches Cboe's VX settlements and the VIX).
+# Each sleeve runs forward through the C++ walk-forward, mixed half and half
+# with the live account, into artifacts/shadow/<book>/. Nothing is sent and it
+# doesn't connect to IBKR. One book failing still runs the other, and fails the
+# unit. Started by dv02-shadow.timer.
 [Unit]
-Description=DV02 shadow mode: S0 with a trend overlay
+Description=DV02 shadow mode: the H2 and R3 shadow books
 OnFailure=dv02-alert@%n.service
 
 [Service]
@@ -13,7 +15,7 @@ User=dv02
 Group=dv02
 WorkingDirectory=/opt/dv02/trading-engine
 EnvironmentFile=/etc/dv02/dv02.env
-ExecStart=/opt/dv02/.venv/bin/python -m src.production.shadow_h2
+ExecStart=/opt/dv02/.venv/bin/python -m src.production.shadows
 ExecStartPost=/opt/dv02/deploy/bin/heartbeat shadow
 TimeoutStartSec=15min
 NoNewPrivileges=true

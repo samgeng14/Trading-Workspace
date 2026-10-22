@@ -328,13 +328,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The fund's sleeves against the research gate, and the shadow book's record.
+         * The fund's sleeves against the research gate, and each shadow book's record.
          * @description Sleeves come from trading-engine/config/sleeves.yaml: each one's status
          *     (live, paper, shadow, research, failed) and its walk-forward numbers.
-         *     The shadow book is H2, S0 with a trend overlay
-         *     (trading-engine/src/production/shadow_h2.py): its value since its start
-         *     beside the live account's and the trend sleeve's, its latest decision,
-         *     and the orders it would send to replace S0. Nothing from it is sent.
+         *     A shadow book is half the live account and half a sleeve in shadow
+         *     mode, as the research mixed them, each written each evening by
+         *     trading-engine/src/production/shadows.py: H2, S0 with a trend overlay
+         *     (shadow_h2.py, with the orders it would send to replace S0), and R3,
+         *     short the VIX futures premium (shadow_r3.py, with its signal and the
+         *     futures it would hold). Each has its value since its start beside the
+         *     live account's and the sleeve's. Nothing from them is sent.
          */
         get: operations["getStrategies"];
         put?: never;
@@ -841,10 +844,19 @@ export interface components {
         ShadowPoint: {
             /** Format: date */
             date: string;
-            /** @description growth of 1 since the start */
-            h2: number;
+            /** @description the shadow book: growth of 1 since the start */
+            book: number;
+            /** @description the live fund, S0 */
             live: number;
+            /** @description the sleeve on its own */
             sleeve: number;
+        };
+        ShadowHolding: {
+            /** @description for example "VXM 2026-11-18": a mini VIX future and its expiry */
+            instrument: string;
+            /** @description contracts; negative is short */
+            quantity: number;
+            notional: number;
         };
         WouldBeOrder: {
             symbol: string;
@@ -854,14 +866,18 @@ export interface components {
             dollars: number;
         };
         ShadowBook: {
+            /** @description the sleeve's id in config/sleeves.yaml */
+            id: string;
             name: string;
+            /** @description what the sleeve line is: "Trend sleeve", "VIX futures sleeve" */
+            sleeve: string;
             /** Format: date */
             start: string;
             sessions: number;
             /** Format: date */
             through: string | null;
             points: components["schemas"]["ShadowPoint"][];
-            /** @description The trend sleeve's latest decision, or null before its first. */
+            /** @description The sleeve's latest decision, or null before its first. */
             decision: {
                 /** Format: date */
                 decided: string;
@@ -871,13 +887,19 @@ export interface components {
                     [key: string]: number;
                 };
             } | null;
+            /** @description the sleeve's latest signal in a sentence, where it has one (R3's futures against the VIX) */
+            signal: string | null;
+            /** @description the orders that would take the account from S0 to the shadow book (H2's ETFs) */
             would_be_orders: components["schemas"]["WouldBeOrder"][];
+            /** @description what the sleeve would hold that the account can't trade yet (R3's VIX futures), at the live NAV */
+            holdings: components["schemas"]["ShadowHolding"][];
         };
         StrategiesResponse: {
             /** Format: date-time */
             as_of: string;
             sleeves: components["schemas"]["Sleeve"][];
-            shadow: components["schemas"]["ShadowBook"];
+            /** @description every sleeve in shadow mode, each beside the live fund */
+            shadows: components["schemas"]["ShadowBook"][];
         };
         Dataset: {
             name: string;

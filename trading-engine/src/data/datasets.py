@@ -37,6 +37,7 @@ NY = clock.NYSE_TZ
 RUN_AT = time(15, 35)  # the daily run (deploy/systemd/dv02-runner.timer)
 RUN_DONE = time(16, 0)  # by when it has written its bars
 DOCTOR_DONE = time(15, 25)  # dv02-doctor.timer, 15:15
+SHADOW_DONE = time(17, 20)  # dv02-shadow.timer, 17:05, which fetches Cboe's VX files
 CLOSE_RECORDED = time(16, 30)  # the API records the close 15 minutes after it
 CAPTURE_DONE = time(16, 45)  # dv02-capture.timer, 16:30
 ARCHIVE_DONE = time(17, 45)  # dv02-archive.timer, 17:20
@@ -124,6 +125,14 @@ def statement_due(now: datetime) -> date | None:
     return None
 
 
+def cboe_due(now: datetime) -> date | None:
+    """The latest session whose VX settlements the evening fetch has had: Cboe
+    publishes a session's overnight, so the fetch at 17:05 ET holds the session
+    before that day's."""
+    day = latest_session_at(now, SHADOW_DONE)
+    return clock.previous_business_day(day) if day else None
+
+
 def sessions_between(after: date | None, through: date, limit: int = 10) -> list[date]:
     """The sessions after ``after`` up to ``through``, the most recent ``limit``."""
     out, day = [], through
@@ -198,6 +207,18 @@ def _store(root: Path, profile: str) -> Watermark | None:  # noqa: ARG001
     return Watermark(through, int(rows), written)
 
 
+def _cboe_vx(root: Path, profile: str) -> Watermark | None:  # noqa: ARG001
+    from src.data.ingest import cboe_vx
+
+    paths = cboe_vx.contract_paths(root)
+    if not paths:
+        return None
+    cover = cboe_vx.coverage(root)
+    through = cover["settlements_through"]
+    return Watermark(date.fromisoformat(through) if through else None, cover["rows"],
+                     max(_written(p) for p in paths))  # fmt: skip
+
+
 def _store_off() -> str | None:
     from src.storage.db import load_config
 
@@ -225,6 +246,14 @@ def _curves(ctx: dict[str, Any]) -> dict[str, Any]:
     from src.data.ingest import futures_curves
 
     return futures_curves.archive(sessions=ctx["missing"].get("futures_curves") or None)
+
+
+def _cboe_now(ctx: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG001
+    from src.data.ingest import cboe_vx
+
+    out = cboe_vx.fetch()
+    return {"ok": True, "detail": f"settlements through {out['settlements_through']}, VIX through {out['vix_through']}",
+            **out}  # fmt: skip
 
 
 def _doctor_now(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -261,6 +290,9 @@ DATASETS: tuple[Dataset, ...] = (
     Dataset("futures_curves", "Futures curves", "IBKR: every listed contract of 23 roots, into the lake",
             "each session at 17:20 ET",
             lambda now: latest_session_at(now, ARCHIVE_DONE), _lake("futures_curves"), _curves),
+    Dataset("vx_futures", "VIX futures and the VIX", "Cboe: every listed VX contract's settlements, and the VIX close",
+            "each evening at 17:05 ET with the shadow books, through the session before (Cboe publishes overnight)",
+            cboe_due, _cboe_vx, _cboe_now),
     Dataset("close_nav", "NAV at the close", "the API: IBKR's net liquidation 15 minutes after the close",
             "each session, from 16:15 ET",
             lambda now: latest_session_at(now, CLOSE_RECORDED), _nav_csv("nav_{profile}.csv"),

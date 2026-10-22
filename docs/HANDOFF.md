@@ -229,7 +229,7 @@ different places.
 
 ## Datasets, catch-up and the Data page, since 2026-10-21
 
-`trading-engine/src/data/datasets.py` registers the fund's 10 datasets, as
+`trading-engine/src/data/datasets.py` registers the fund's 11 datasets, as
 PLAN §11 asks:
 - the price, total-return, futures and index masters, and the model targets
 - the curve archive
@@ -327,10 +327,44 @@ What R2 says about the next studies: equity timing gives up return over these
 years. The roadmap needs returns that aren't the equity premium: futures
 carry and the volatility risk premium in VIX futures.
 
+**R3, the VIX futures premium, 2026-10-22** (`research/r3_vix_futures/`,
+pre-registered and reviewed before it ran, 4 trials, 27 counted). Data: Cboe's
+VX settlements since 2004 and the VIX. **It passes all 12 criteria, the first
+sleeve to pass on its own.** The rule shorts the 30-day VIX futures roll at 10%
+of NAV while the futures trade above the VIX, else T-bills.
+- From 2008 to 2023: Sharpe 0.79 (deflated 0.926), worst drawdown −7.3%.
+- Half S0 and half this sleeve: 0.48 against S0's 0.27, with S0's loss cut in
+  every stress window.
+- **The pass is fragile, and REPORT.md says so first.** The curve was 1%
+  inverted at 2018-02-01's close, so the rule sat out the +96% day. Had it been
+  short, its deflated Sharpe would be 0.796 and it would fail.
+- **The holdout was poor:** Sharpe −0.29 from 2023-10 to 2026-10, where staying
+  short earned 0.35. No kill rule fired.
+
+**Shadow mode for R3 from 2026-10-22:**
+- The rule is ported to `src/strategies/vix_premium.py`, pinned to the research
+  code by `tests/unit/test_vix_premium.py`.
+- `src/data/ingest/cboe_vx.py` fetches Cboe's files into
+  `data/market/raw/cboe/` (git-ignored). It is the Data page's 11th dataset,
+  `vx_futures`.
+- `src/production/shadow_r3.py` runs the sleeve forward, mixes it half and
+  half with the live account, and keeps each evening's signal and the VX/VXM
+  short it would hold. Like H2's, its first numbers come on 2026-10-26's
+  evening.
+- `dv02-shadow.timer` (17:05 ET) now runs both books
+  (`src/production/shadows.py`), as does `bin/tradeit shadow`.
+- The Strategies page shows each book (GET /strategies `shadows`).
+
+Cboe publishes a session's settlement overnight, so the evening's shadow holds
+the session before. Trading it later needs a futures path in the runner (VX has
+no market-on-close order) and CFE permissions on the paper account, or a short
+VIXY position: the owner decides, after the shadow.
+
 **The Strategies page** (since 2026-10-21, GET /strategies, hotkey g y) lists
 every sleeve from `config/sleeves.yaml` against the gate (live, shadow, failed,
 with its walk-forward Sharpe and drawdown and a link to its report) and charts
-H2's shadow book beside the live fund, with the orders H2 would send now.
+each shadow book beside the live fund: H2's with the orders it would send now,
+R3's with its signal and the futures it would hold.
 Update `config/sleeves.yaml` when a study finishes or a sleeve moves on.
 
 ## Phase 0's exit test, tracked since 2026-10-21

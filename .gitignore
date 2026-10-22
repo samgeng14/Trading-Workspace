@@ -19,6 +19,8 @@ trading-engine/data/broker/
 trading-engine/data/lake/
 # free data the research downloads (FRED, Cboe, CFTC, the Fed): fetched again by its scripts, never committed
 trading-engine/research/_data/
+# Cboe's VX settlements and VIX history for R3's shadow book: fetched each evening (src/data/ingest/cboe_vx.py)
+trading-engine/data/market/raw/cboe/
 trading-engine/data/logs/
 
 # Office temp files

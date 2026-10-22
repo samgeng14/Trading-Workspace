@@ -503,6 +503,13 @@
   line-height: 1.4;
 }
 
+/* Strategies: one shadow book, its chart and what it would do, spaced as the page spaces panels */
+.shadow-book {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
 /* Data: a dataset's name, then where it comes from and when it is filled */
 .table td.dataset-name {
   display: flex;

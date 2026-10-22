@@ -19,8 +19,9 @@
 #                     and how many in a row passed (10 needed; --since DATE, --json)
 #   tradeit data      each dataset's watermark against what should exist by now
 #   tradeit catchup   fill the datasets that are behind, and record what was done
-#   tradeit shadow    H2's shadow book (S0 with a trend overlay): its record since it began,
-#                     and what it would send to replace S0 now (nothing is sent)
+#   tradeit shadow    the shadow books, H2 (S0 with a trend overlay) and R3 (short the VIX
+#                     futures premium): their record since they began, and what each would
+#                     do now (nothing is sent; R3 fetches Cboe's VX settlements first)
 #   tradeit engine-shadow  the C++ order manager beside the Python one: each session's
 #                     comparisons and the streak of matching sessions (10 needed)
 #   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
@@ -708,7 +709,7 @@ cmd_catchup() {
 
 cmd_shadow() {
   need_venv
-  cd "$ROOT/trading-engine" && exec "$PY" -m src.production.shadow_h2 "$@"
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.production.shadows "$@"
 }
 
 cmd_engine_shadow() {

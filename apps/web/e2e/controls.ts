@@ -56,7 +56,7 @@ export const CONTROLS = [
   "performance.growth.plot",
   "performance.growth.mode.*",
   "performance.drawdown.plot",
-  "strategies.shadow.plot",
+  "strategies.shadow.*",
   "performance.monthly.*",
   // risk
   "risk.exposure.plot",

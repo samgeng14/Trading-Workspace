@@ -43,7 +43,7 @@ Cloudflare Access in front (the manual setup below).
 | `systemd/dv02-doctor.service`, `.timer` | 15:15 ET, Mon–Fri: the IBKR doctor before the run; it keeps the day's report for `bin/tradeit exit-test`, and a FAIL alerts |
 | `systemd/dv02-capture.service`, `.timer` | 16:30 ET, Mon–Fri: the day's fills, every position and the closing NAV from IBKR into the store |
 | `systemd/dv02-archive.service`, `.timer` | 17:20 ET, Mon–Fri: every listed futures contract's daily bar into the lake (`data/lake/futures_curves`), the curve history carry research needs |
-| `systemd/dv02-shadow.service`, `.timer` | 17:05 ET, Mon–Fri: shadow mode for H2 (S0 with a trend overlay), into `artifacts/shadow/h2/`; nothing sent, no IBKR connection |
+| `systemd/dv02-shadow.service`, `.timer` | 17:05 ET, Mon–Fri: the shadow books, H2 (S0 with a trend overlay) and R3 (short the VIX futures premium, after fetching Cboe's VX settlements), into `artifacts/shadow/<book>/`; nothing sent, no IBKR connection |
 | `systemd/dv02-backup.service`, `.timer` | Daily 18:30 ET: the engine's state, the lake and the store to R2 |
 | `systemd/dv02-alert@.service` | Any DV02 unit that fails pings its heartbeat's `/fail` |
 | `bin/heartbeat`, `bin/backup` | What those units run |

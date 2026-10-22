@@ -169,17 +169,21 @@ describe.each(MOMENTS)("demo API at %s", (_label, at, session) => {
       "r2-vix-overlay",
       "r2-cot",
     ]);
-    const pts = strat.shadow.points;
-    expect(pts.length).toBeGreaterThan(20);
-    for (let i = 1; i < pts.length; i++) {
-      const r = (k: "h2" | "live" | "sleeve") => pts[i]![k] / pts[i - 1]![k] - 1;
-      expect(r("h2")).toBeCloseTo(0.5 * r("live") + 0.5 * r("sleeve"), 12);
+    expect(strat.shadows.map((b) => b.id)).toEqual(["h2", "r3"]);
+    for (const shadow of strat.shadows) {
+      const pts = shadow.points;
+      expect(pts.length).toBeGreaterThan(20);
+      for (let i = 1; i < pts.length; i++) {
+        const r = (k: "book" | "live" | "sleeve") => pts[i]![k] / pts[i - 1]![k] - 1;
+        expect(r("book")).toBeCloseTo(0.5 * r("live") + 0.5 * r("sleeve"), 12);
+      }
     }
+    expect(strat.shadows[1]!.holdings.reduce((n, h) => n + h.notional, 0)).toBeLessThan(0); // R3 is short
 
     // every dataset current but the store, which the demo doesn't keep
     const data = await get<S["DatasetsResponse"]>("/data/datasets");
-    expect(data.datasets.map((d) => d.state)).toEqual([...Array(9).fill("ok"), "off"]);
-    for (const d of data.datasets.slice(0, 9)) expect(d.through! <= data.as_of.slice(0, 10)).toBe(true);
+    expect(data.datasets.map((d) => d.state)).toEqual([...Array(10).fill("ok"), "off"]);
+    for (const d of data.datasets.slice(0, 10)) expect(d.through! <= data.as_of.slice(0, 10)).toBe(true);
 
     // the exit test agrees with the run history: a failed run fails its session
     const exit = await get<S["ExitTest"]>("/ops/exit-test");

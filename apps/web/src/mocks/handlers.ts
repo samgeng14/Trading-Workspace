@@ -1157,41 +1157,72 @@ function strategies(): S["StrategiesResponse"] {
   const book = snap.hist.book.slice(-41, snap.live ? -1 : undefined);
   const spy = snap.hist.close.get("SPY")!;
   const dates = snap.hist.dates;
-  let h2 = 1;
-  let live = 1;
-  let sleeve = 1;
-  const points: S["ShadowPoint"][] = [];
+  // the trend sleeve, a calmer mix of SPY and cash; the VIX futures sleeve, a small
+  // short-volatility return that leans the same way as SPY
+  const sleeves = { h2: [1, 1, 1], r3: [1, 1, 1] }; // [book, live, sleeve]
+  const points: Record<"h2" | "r3", S["ShadowPoint"][]> = { h2: [], r3: [] };
   for (let i = 1; i < book.length; i++) {
     const day = book[i]!.date;
     const k = dates.indexOf(day);
     const rLive = book[i]!.nav / book[i - 1]!.nav - 1;
-    const rSleeve = 0.3 * (spy[k]! / spy[k - 1]! - 1) + 0.7 * 0.00017;
-    live *= 1 + rLive;
-    sleeve *= 1 + rSleeve;
-    h2 *= 1 + 0.5 * rLive + 0.5 * rSleeve;
-    points.push({ date: day, h2, live, sleeve });
+    const rSpy = spy[k]! / spy[k - 1]! - 1;
+    const rSleeve = { h2: 0.3 * rSpy + 0.7 * 0.00017, r3: 0.25 * rSpy + 0.0002 };
+    for (const id of ["h2", "r3"] as const) {
+      const v = sleeves[id];
+      v[0]! *= 1 + 0.5 * rLive + 0.5 * rSleeve[id];
+      v[1]! *= 1 + rLive;
+      v[2]! *= 1 + rSleeve[id];
+      points[id].push({ date: day, book: v[0]!, live: v[1]!, sleeve: v[2]! });
+    }
   }
   const start = book[0]!.date;
+  const through = points.h2.at(-1)?.date ?? null;
   return {
     as_of: iso(at),
     sleeves: SLEEVES,
-    shadow: {
-      name: "S0 with a trend overlay (H2)",
-      start,
-      sessions: points.length,
-      through: points.at(-1)?.date ?? null,
-      points,
-      decision: {
-        decided: start,
-        executed: nextTradingDay(start),
-        weights: { BIL: 0.62, SPY: 0.11, VWO: 0.081, VNQ: 0.065, VEA: 0.052, GLD: 0.033, USO: 0.023, SLV: 0.01 },
+    shadows: [
+      {
+        id: "h2",
+        name: "S0 with a trend overlay (H2)",
+        sleeve: "Trend sleeve",
+        start,
+        sessions: points.h2.length,
+        through,
+        points: points.h2,
+        decision: {
+          decided: start,
+          executed: nextTradingDay(start),
+          weights: { BIL: 0.62, SPY: 0.11, VWO: 0.081, VNQ: 0.065, VEA: 0.052, GLD: 0.033, USO: 0.023, SLV: 0.01 },
+        },
+        signal: null,
+        would_be_orders: [
+          { symbol: "BIL", action: "BUY", quantity: 3298, dollars: 301865.38 },
+          { symbol: "GLD", action: "SELL", quantity: 158, dollars: 60206.01 },
+          { symbol: "VWO", action: "BUY", quantity: 906, dollars: 53144.06 },
+        ],
+        holdings: [],
       },
-      would_be_orders: [
-        { symbol: "BIL", action: "BUY", quantity: 3298, dollars: 301865.38 },
-        { symbol: "GLD", action: "SELL", quantity: 158, dollars: 60206.01 },
-        { symbol: "VWO", action: "BUY", quantity: 906, dollars: 53144.06 },
-      ],
-    },
+      {
+        id: "r3",
+        name: "S0 with the VIX futures premium (R3)",
+        sleeve: "VIX futures sleeve",
+        start,
+        sessions: points.r3.length,
+        through,
+        points: points.r3,
+        decision: through
+          ? { decided: through, executed: nextTradingDay(through), weights: { BIL: 0.895, VXCM: -0.1 } }
+          : null,
+        signal: through
+          ? `${through}: the 30-day VIX futures at 18.24 against the VIX at 17.35 (+5.1%), contango: short the next session`
+          : null,
+        would_be_orders: [],
+        holdings: [
+          { instrument: "VXM 2026-11-18", quantity: -39, notional: -71196.0 },
+          { instrument: "VXM 2026-12-16", quantity: -18, notional: -33503.4 },
+        ],
+      },
+    ],
   };
 }
 
@@ -1275,6 +1306,15 @@ function datasets(): S["DatasetsResponse"] {
         sessionAt("17:45"),
         4_060,
         etTime(sessionAt("17:45"), "17:26"),
+      ),
+      row(
+        "vx_futures",
+        "VIX futures and the VIX",
+        "Cboe: every listed VX contract's settlements, and the VIX close",
+        "each evening at 17:05 ET with the shadow books, through the session before (Cboe publishes overnight)",
+        prevTradingDay(sessionAt("17:20")),
+        2_310,
+        etTime(sessionAt("17:20"), "17:06"),
       ),
       row(
         "close_nav",
