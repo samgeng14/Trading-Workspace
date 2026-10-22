@@ -1,0 +1,14 @@
+hypothesis,book,criterion,value,limit,pass
+R4,R4 primary: SPY every night,1. excess Sharpe >= 0.40,0.15186069527573892,0.4,False
+R4,R4 primary: SPY every night,"1b. excess Sharpe above SPY held's (SPY_TR), the limit",0.15186069527573892,0.5087013299438602,False
+R4,R4 primary: SPY every night,2. deflated Sharpe >= 0.90 (n 33),0.16324213697780604,0.9,False
+R4,R4 primary: SPY every night,3. block bootstrap 5th percentile of the excess Sharpe > 0,-0.1478511988346989,0.0,False
+R4,R4 primary: SPY every night,4. every variant's excess Sharpe > 0 (worst variant),0.23417776250316497,0.0,True
+R4,R4 primary: SPY every night,"5. max drawdown no deeper than 60% of SPY held's, the limit",-0.2949689132792551,-0.3096195541998256,True
+R4,R4 primary: SPY every night,6. no day outside the mandate,0.0,0.0,True
+R4,R4 primary: SPY every night,7. excess Sharpe >= 0.20 with every cost doubled,-0.13997765681653054,0.2,False
+R4,R4 primary: SPY every night,8. worst night no worse than -12%,-0.10405801329695619,-0.12,True
+R4,R4 primary: SPY every night,"9. worst calendar month no worse than SPY held's, the limit",-0.1936206139454303,-0.16419884193423828,False
+R4,R4 primary: SPY every night,10. a return above SPY held's in each stress window (smallest margin),0.02263266315693313,0.0,True
+R4,R4 primary: SPY every night,11a. 50/50 S0 + R4's excess Sharpe > S0's (difference),-0.08258756044067445,0.0,False
+R4,R4 primary: SPY every night,11b. 50/50 S0 + R4 loses no more than S0 in each stress window (smallest margin),-0.024119108967720182,0.0,False

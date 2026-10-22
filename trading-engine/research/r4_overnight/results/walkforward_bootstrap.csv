@@ -1,0 +1,6 @@
+book,percentile,sharpe_excess
+R4 primary: SPY every night,5,-0.1478511988346989
+R4 primary: SPY every night,25,0.0668950147164212
+R4 primary: SPY every night,50,0.20987726927225334
+R4 primary: SPY every night,75,0.366063893511496
+R4 primary: SPY every night,95,0.6179025195850054

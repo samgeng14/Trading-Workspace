@@ -122,3 +122,16 @@ sleeves:
     sharpe_se: 0.25
     max_drawdown: -0.151
     report: trading-engine/research/r1_calendar_macro/REPORT.md
+
+  - id: r4
+    name: R4, the overnight drift
+    status: failed
+    since: 2026-10-22
+    summary: >-
+      SPY from each closing auction to the next opening one. Before costs the
+      night earned 5.4% a year and the day 3.5%, so the night wasn't the whole
+      return; a round trip a night cost 3.5% a year on top.
+    sharpe: 0.15
+    sharpe_se: 0.25
+    max_drawdown: -0.295
+    report: trading-engine/research/r4_overnight/REPORT.md

@@ -364,6 +364,15 @@ Turn-of-month days earned 5.6 bps a day over T-bills against 3.2 on the rest
 2016, as the literature on the fading pre-FOMC drift says. Data: the Fed's
 FOMC calendar and ALFRED's release dates, fetched by `fetch.py`.
 
+**R4, the overnight drift, 2026-10-22** (`research/r4_overnight/`,
+pre-registered, reviewed and amended before it ran, 3 trials, 33 counted):
+**fails.** SPY from each closing auction to the next opening one scored 0.15,
+against 0.51 for holding SPY. Before costs the night earned 5.4% a year and
+the day 3.5%, so the papers' "all of it overnight" didn't hold from 2008 to
+2023. A round trip a night costs about 3.5% of NAV a year on top. Strategies
+that trade every day need edges several times larger; the next candidates
+should hold for weeks.
+
 Cboe publishes a session's settlement overnight, so the evening's shadow holds
 the session before. Trading it later needs a futures path in the runner (VX has
 no market-on-close order) and CFE permissions on the paper account, or a short

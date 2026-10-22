@@ -1,0 +1,2 @@
+hypothesis,book,rule,sharpe_excess,max_drawdown,spy_held_max_drawdown,worst_night,killed
+R4,R4 primary: SPY every night,"killed if its excess Sharpe is below -0.5, its drawdown deeper than SPY held's over the holdout, or a night worse than -12%",0.9368356636522513,-0.16337667166000924,-0.18739910897000323,-0.03980166273314967,False
