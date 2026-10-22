@@ -27,6 +27,26 @@ std::string fixed4(double v) {
     return buf;
 }
 
+// Python's f"{v:.Nf}": correctly rounded, as printf is.
+std::string fixed(double v, int digits) {
+    char buf[64];
+    std::snprintf(buf, sizeof buf, "%.*f", digits, v);
+    return buf;
+}
+
+// Python's f"{v:,.0f}": whole dollars with thousands separators.
+std::string grouped(double v) {
+    std::string d = fixed(v, 0);
+    const bool negative = !d.empty() && d[0] == '-';
+    std::string digits = negative ? d.substr(1) : d;
+    std::string out;
+    for (std::size_t i = 0; i < digits.size(); ++i) {
+        if (i > 0 && (digits.size() - i) % 3 == 0) out.push_back(',');
+        out.push_back(digits[i]);
+    }
+    return negative ? "-" + out : out;
+}
+
 std::string join(const std::vector<std::string>& items) {
     std::string out;
     for (std::size_t i = 0; i < items.size(); ++i) {
@@ -504,6 +524,91 @@ OrderTimeline replay(const std::vector<StatusEvent>& log) {
     }
     t.status = log.back().status;
     return t;
+}
+
+// ── The pre-trade exposure limits ────────────────────────────────────────
+
+double cash_after(const Weighted& weights) {
+    std::vector<double> w;
+    for (const auto& [symbol, v] : weights) w.push_back(v);
+    return std::max(0.0, 1.0 - nansum(w));
+}
+
+LimitCheck check_limits(const Weighted& weights, double nav, const std::optional<Weighted>& trades,
+                        std::optional<double> cash, const ExposureLimits& limits) {
+    LimitCheck c;
+    Weighted w;
+    for (const auto& x : weights)
+        if (!std::isnan(x.second)) w.push_back(x);
+    if (w.empty()) {
+        c.ok = false;
+        c.empty = true;
+        c.breaches.push_back({"empty_basket", "No target weights supplied", true});
+        return c;
+    }
+    std::vector<double> all, abs_all, longs, shorts;
+    std::size_t largest = 0;
+    for (std::size_t i = 0; i < w.size(); ++i) {
+        const double v = w[i].second;
+        all.push_back(v);
+        abs_all.push_back(std::fabs(v));
+        if (v > 0.0) longs.push_back(v);
+        if (v < 0.0) shorts.push_back(v);
+        if (std::fabs(v) > 1e-6) ++c.holdings;
+        if (std::fabs(v) > std::fabs(w[largest].second)) largest = i;
+    }
+    c.gross = pairwise_sum(abs_all);
+    c.net = pairwise_sum(all);
+    c.long_exposure = longs.empty() ? 0.0 : pairwise_sum(longs);
+    c.short_exposure = shorts.empty() ? 0.0 : pairwise_sum(shorts);
+    c.max_single_position = std::fabs(w[largest].second);
+
+    if (c.max_single_position > limits.max_single_position + 1e-9)
+        c.breaches.push_back({"max_single_position", w[largest].first + " = " + fixed(c.max_single_position * 100, 1) +
+                                                         "% > limit " + fixed(limits.max_single_position * 100, 1) + "%"});
+    if (c.gross > limits.max_gross + 1e-6)
+        c.breaches.push_back({"max_gross_exposure",
+                              "gross " + fixed(c.gross * 100, 1) + "% > limit " + fixed(limits.max_gross * 100, 1) + "%"});
+    if (c.net < limits.min_net - 1e-6)
+        c.breaches.push_back({"min_net_exposure",
+                              "net " + fixed(c.net * 100, 1) + "% < floor " + fixed(limits.min_net * 100, 1) + "%"});
+    if (c.net > limits.max_net + 1e-6)
+        c.breaches.push_back({"max_net_exposure",
+                              "net " + fixed(c.net * 100, 1) + "% > cap " + fixed(limits.max_net * 100, 1) + "%"});
+    if (c.holdings < limits.min_holdings)
+        c.breaches.push_back({"min_holdings", "only " + std::to_string(c.holdings) + " holdings (min " +
+                                                  std::to_string(limits.min_holdings) + ")"});
+
+    if (trades && !trades->empty() && nav > 0.0) {
+        std::size_t top = trades->size();
+        for (std::size_t i = 0; i < trades->size(); ++i) {
+            const double v = std::fabs((*trades)[i].second);
+            if (std::isnan(v)) continue;  // pandas' max and idxmax skip NaN
+            if (top == trades->size() || v > std::fabs((*trades)[top].second)) top = i;
+        }
+        if (top == trades->size()) {
+            c.ok = false;
+            c.error = "every trade is unpriced";
+            return c;
+        }
+        const double dollars = std::fabs((*trades)[top].second);
+        c.max_single_trade = dollars / nav;
+        if (*c.max_single_trade > limits.max_single_trade_of_nav + 1e-9)
+            c.breaches.push_back({"max_single_trade",
+                                  (*trades)[top].first + " trade $" + grouped(dollars) + " = " +
+                                      fixed(*c.max_single_trade * 100, 1) + "% of NAV > limit " +
+                                      fixed(limits.max_single_trade_of_nav * 100, 1) + "%",
+                                  false});
+    }
+    if (cash) {
+        c.cash_after = *cash;
+        if (*cash < limits.min_cash_buffer - 1e-9)
+            c.breaches.push_back({"min_cash_buffer", "cash " + fixed(*cash * 100, 2) + "% < min " +
+                                                         fixed(limits.min_cash_buffer * 100, 2) + "%"});
+    }
+    for (const auto& b : c.breaches)
+        if (b.blocking) c.ok = false;
+    return c;
 }
 
 // ── The auction ──────────────────────────────────────────────────────────

@@ -416,3 +416,36 @@ def test_order_states_match_the_order_path_on_random_status_logs() -> None:
     out = engine_shadow.compare_orders(rows)
     assert out["differences"] == [], out["differences"][:5]
     assert out["same"] == "same 3001 order states" and 500 < acknowledged < 2900
+
+
+# ── the pre-trade exposure limits ────────────────────────────────────────
+
+
+def test_the_limits_match_check_exposure_limits_on_random_baskets(monkeypatch) -> None:
+    from src.portfolio.risk import exposure_limits as el
+
+    rng = random.Random(1022)
+    blocked = warned = 0
+    for case in range(2500):
+        n = rng.randint(1, 9)
+        names = rng.sample(MODEL + OUTSIDE, n)
+        weights = [rng.choice([0.0, 0.2, 0.25, rng.uniform(-0.3, 0.45), math.nan]) if rng.random() < 0.3
+                   else rng.uniform(0.0, 0.35) for _ in names]  # fmt: skip
+        trades = [rng.choice([math.nan, 0.0, rng.uniform(0, 500_000)]) for _ in names]
+        recon = pd.DataFrame({"symbol": names, "target_weight": weights, "estimated_trade_dollars": trades})
+        limits = el.ExposureLimits(rng.choice([0.2, 0.25]), rng.choice([0.9, 1.0]), rng.choice([0.0, 0.5]),
+                                   rng.choice([0.8, 1.0]), rng.randint(1, 6), rng.choice([0.1, 0.3]),
+                                   rng.choice([0.0, 0.005]))  # fmt: skip
+        monkeypatch.setattr(el, "DEFAULT_EXPOSURE_LIMITS", limits)
+        nav = rng.choice([0.0, rng.uniform(1e4, 5e6)])
+        diffs = engine_shadow.compare_limits(recon, nav)
+        assert diffs == [], (case, diffs[:3])
+        try:
+            res = el.check_exposure_limits(recon.set_index("symbol")["target_weight"], nav=nav,
+                                           trades_dollars=recon.set_index("symbol")["estimated_trade_dollars"].abs(),
+                                           cash_after_pct=0.0, limits=limits)  # fmt: skip
+        except ValueError:
+            continue
+        blocked += not res.ok
+        warned += any(b.severity == "warn" for b in res.breaches)
+    assert blocked > 500 and warned > 100, (blocked, warned)

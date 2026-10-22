@@ -16,6 +16,8 @@
 //                        IBKR's positions, the run's first step
 //   replay()             an order's status log as the order path reads it
 //                        (src/broker/ibkr/orders.py, submit_paper_orders)
+//   check_limits()       the pre-trade exposure limits on a basket's target
+//                        weights (src/portfolio/risk/exposure_limits.py)
 //
 // The ports keep Python's arithmetic step for step, down to the order of the
 // additions in a sum (numpy's pairwise summation), so the same inputs give the
@@ -29,6 +31,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "dv02/nyse.hpp"
@@ -317,6 +320,56 @@ struct OrderTimeline {
 };
 
 OrderTimeline replay(const std::vector<StatusEvent>& log);
+
+// ── The pre-trade exposure limits ────────────────────────────────────────
+//
+// The limits on a basket's target weights (config/risk_limits.yaml), which the
+// runner's gate checks before any order goes out, beside the no-leverage
+// check on the whole book (risk::check). Breach names and wording are
+// Python's, word for word.
+
+struct ExposureLimits {
+    double max_single_position = 0.25;
+    double max_gross = 1.0;
+    double min_net = 0.5;
+    double max_net = 1.0;
+    int min_holdings = 5;
+    double max_single_trade_of_nav = 0.30;
+    double min_cash_buffer = 0.0;
+};
+
+struct LimitBreach {
+    std::string name;      // "max_single_position", "max_gross_exposure", "min_net_exposure", ...
+    std::string detail;
+    bool blocking = true;  // false for a warning: the single-trade size
+};
+
+struct LimitCheck {
+    bool ok = true;
+    std::string error;  // why it couldn't be judged, where Python raises (every trade unpriced)
+    bool empty = false;  // no target weight at all
+    std::vector<LimitBreach> breaches;
+    double gross = 0.0;
+    double net = 0.0;
+    double long_exposure = 0.0;
+    double short_exposure = 0.0;
+    double max_single_position = 0.0;
+    int holdings = 0;  // names with |weight| above 1e-6
+    std::optional<double> max_single_trade;  // the largest trade, a fraction of NAV
+    std::optional<double> cash_after;
+};
+
+using Weighted = std::vector<std::pair<std::string, double>>;
+
+// `weights` and `trades` (dollars) are in the basket's order: sums run in it, and
+// a tie for the largest goes to the first. NaN weights are dropped; without
+// `trades` or `cash_after` those checks are skipped.
+LimitCheck check_limits(const Weighted& weights, double nav, const std::optional<Weighted>& trades,
+                        std::optional<double> cash_after, const ExposureLimits& limits = {});
+
+// The cash a basket leaves as the gate measures it: 1 less its target weights
+// (NaN counted as 0), and never below 0.
+double cash_after(const Weighted& weights);
 
 // ── Shared helpers ───────────────────────────────────────────────────────
 

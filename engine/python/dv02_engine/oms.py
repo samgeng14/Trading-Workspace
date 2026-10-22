@@ -30,6 +30,9 @@ PositionBreak = _core.PositionBreak
 Reconcile = _core.Reconcile
 StatusEvent = _core.StatusEvent
 OrderTimeline = _core.OrderTimeline
+ExposureLimits = _core.ExposureLimits
+LimitBreach = _core.LimitBreach
+LimitCheck = _core.LimitCheck
 Line = _core.Line
 PlannedOrder = _core.PlannedOrder
 Basket = _core.Basket
@@ -42,6 +45,8 @@ replay = _core.replay
 unacknowledged = _core.unacknowledged
 working = _core.working
 never_placed = _core.never_placed
+check_limits = _core.check_limits
+cash_after = _core.cash_after
 current_weights = _core.current_weights
 gate_targets = _core.gate_targets
 moc_cutoff = _core.moc_cutoff
@@ -53,8 +58,11 @@ __all__ = [
     "BookOrder",
     "CountedOrder",
     "DriftDecision",
+    "ExposureLimits",
     "Fill",
     "Holding",
+    "LimitBreach",
+    "LimitCheck",
     "Line",
     "OrderTimeline",
     "PlannedOrder",
@@ -63,6 +71,8 @@ __all__ = [
     "StatusEvent",
     "Target",
     "Weights",
+    "cash_after",
+    "check_limits",
     "clean_symbol",
     "current_weights",
     "execution_for",

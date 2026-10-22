@@ -19,7 +19,8 @@ Python runner decided on and records whether the engine decided the same:
             (unacknowledged, still working, never placed), on the days orders go
 
 The two baskets also compare the auction the batch would go to (market-on-close
-or market-on-open), at the same instant for both.
+or market-on-open), at the same instant for both, and the pre-trade exposure
+limits on the basket (risk_limits.yaml, as the runner's gate checks them).
 
 Each comparison is a line of artifacts/engine_shadow/record.csv, with its details
 in artifacts/engine_shadow/<session>/. The match is exact: the same orders, the
@@ -161,6 +162,59 @@ def compare_basket(recon: Any, orders_only: Any, basket: Any) -> dict[str, Any]:
     if py_orders != en_orders:
         diffs.add("orders, in sending order", _orders_text(py_orders), _orders_text(en_orders))
     return {"differences": diffs, "python_orders": py_orders, "engine_orders": en_orders}
+
+
+def compare_limits(recon: Any, nav: float) -> list[dict[str, Any]]:
+    """The pre-trade exposure limits on a basket, as the runner's gate builds them
+    (risk_checks.run_pre_trade_risk_checks: the reconciliation's target weights,
+    its trade dollars, the cash the weights leave) and checks them
+    (exposure_limits.check_exposure_limits, with risk_limits.yaml's limits),
+    against the engine's check of the same."""
+    from dv02_engine import oms
+
+    from src.portfolio.risk.exposure_limits import DEFAULT_EXPOSURE_LIMITS as limits
+    from src.portfolio.risk.exposure_limits import check_exposure_limits
+
+    diffs = Differences()
+    df = recon.copy()
+    df.columns = [str(c).lower() for c in df.columns]
+    weights = df.set_index("symbol")["target_weight"].astype(float).rename(None)
+    trades = df.set_index("symbol")["estimated_trade_dollars"].astype(float).abs() if "estimated_trade_dollars" in df else None
+    cash = max(0.0, 1.0 - float(weights.sum()))
+    pairs = [(str(k), float(v)) for k, v in weights.items()]
+    engine_cash = oms.cash_after(pairs)
+    if not _same(cash, engine_cash):
+        diffs.add("limits: cash after", cash, engine_cash)
+    c = oms.check_limits(
+        pairs, float(nav), None if trades is None else [(str(k), float(v)) for k, v in trades.items()], cash,
+        oms.ExposureLimits(limits.max_single_position_pct, limits.max_gross_exposure_pct, limits.min_net_exposure_pct,
+                           limits.max_net_exposure_pct, limits.min_holdings, limits.max_single_trade_pct_of_nav,
+                           limits.min_cash_buffer_pct),
+    )  # fmt: skip
+    try:
+        py = check_exposure_limits(weights, nav=float(nav), trades_dollars=trades, cash_after_pct=cash, limits=limits)
+    except Exception as exc:  # noqa: BLE001 — Python raising is an outcome to compare
+        if not c.error:
+            diffs.add("limits: Python raised, the engine didn't", f"{type(exc).__name__}: {exc}", None)
+        return diffs
+    if c.error:
+        diffs.add("limits: the engine couldn't judge them, Python did", None, c.error)
+        return diffs
+    if py.ok != c.ok:
+        diffs.add("limits: pass", py.ok, c.ok)
+    py_breaches = [(b.name, b.detail, b.severity) for b in py.breaches]
+    en_breaches = [(b.name, b.detail, "fail" if b.blocking else "warn") for b in c.breaches]
+    if py_breaches != en_breaches:
+        diffs.add("limits: breaches", py_breaches, en_breaches)
+    engine = {"gross_exposure": c.gross, "net_exposure": c.net, "long_exposure": c.long_exposure,
+              "short_exposure": c.short_exposure, "max_single_position": c.max_single_position,
+              "n_holdings": float(c.holdings), "max_single_trade_pct": c.max_single_trade, "cash_after_pct": c.cash_after}
+    if c.empty:
+        engine = {}
+    for key in sorted(set(py.summary) | {k for k, v in engine.items() if v is not None}):
+        if not _same(py.summary.get(key), engine.get(key)):
+            diffs.add(f"limits: {key}", py.summary.get(key), engine.get(key))  # fmt: skip
+    return diffs
 
 
 def compare_execution(symbols: Iterable[str], at: datetime) -> dict[str, Any]:
@@ -431,6 +485,7 @@ def basket(
         if not b.ok:
             return {"error": f"the engine refused a basket Python built: {b.error}"}
         out = compare_basket(recon, orders_only, b)
+        out["differences"] += compare_limits(recon, nav)
         if len(orders_only):
             ex = compare_execution(list(orders_only["symbol"]), at)
             out["differences"] += ex["differences"]
@@ -477,6 +532,7 @@ def whatif(positions: Any, nav: float | None, *, root: Path = PROJECT_ROOT, at: 
         if not b.ok:
             return {"error": f"the engine refused a basket Python built: {b.error}"}
         out = compare_basket(recon, orders_only, b)
+        out["differences"] += compare_limits(recon, nav)
         symbols = list(orders_only["symbol"]) if len(orders_only) else list(latest["symbol"])
         ex = compare_execution(symbols, at)
         out["differences"] += ex["differences"]

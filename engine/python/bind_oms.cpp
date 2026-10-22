@@ -5,6 +5,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/map.h>
 #include <nanobind/stl/optional.h>
+#include <nanobind/stl/pair.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/string_view.h>
 #include <nanobind/stl/vector.h>
@@ -279,6 +280,41 @@ void bind_orders(nb::module_& m) {
     o.def("unacknowledged", &om::unacknowledged, "status"_a);
     o.def("working", &om::working, "status"_a);
     o.def("never_placed", &om::never_placed, "status"_a);
+
+    nb::class_<om::ExposureLimits>(o, "ExposureLimits")
+        .def(
+            "__init__",
+            [](om::ExposureLimits* self, double max_single_position, double max_gross, double min_net, double max_net,
+               int min_holdings, double max_single_trade_of_nav, double min_cash_buffer) {
+                new (self) om::ExposureLimits{max_single_position, max_gross,    min_net,        max_net,
+                                              min_holdings,        max_single_trade_of_nav, min_cash_buffer};
+            },
+            "max_single_position"_a = 0.25, "max_gross"_a = 1.0, "min_net"_a = 0.5, "max_net"_a = 1.0,
+            "min_holdings"_a = 5, "max_single_trade_of_nav"_a = 0.30, "min_cash_buffer"_a = 0.0);
+
+    nb::class_<om::LimitBreach>(o, "LimitBreach")
+        .def_ro("name", &om::LimitBreach::name)
+        .def_ro("detail", &om::LimitBreach::detail)
+        .def_ro("blocking", &om::LimitBreach::blocking);
+
+    nb::class_<om::LimitCheck>(o, "LimitCheck")
+        .def_ro("ok", &om::LimitCheck::ok)
+        .def_ro("error", &om::LimitCheck::error)
+        .def_ro("empty", &om::LimitCheck::empty)
+        .def_ro("breaches", &om::LimitCheck::breaches)
+        .def_ro("gross", &om::LimitCheck::gross)
+        .def_ro("net", &om::LimitCheck::net)
+        .def_ro("long_exposure", &om::LimitCheck::long_exposure)
+        .def_ro("short_exposure", &om::LimitCheck::short_exposure)
+        .def_ro("max_single_position", &om::LimitCheck::max_single_position)
+        .def_ro("holdings", &om::LimitCheck::holdings)
+        .def_ro("max_single_trade", &om::LimitCheck::max_single_trade)
+        .def_ro("cash_after", &om::LimitCheck::cash_after);
+
+    o.def("check_limits", &om::check_limits, "weights"_a, "nav"_a, "trades"_a = nb::none(), "cash_after"_a = nb::none(),
+          "limits"_a = om::ExposureLimits{},
+          "The pre-trade exposure limits on a basket's (symbol, weight) pairs, in the basket's order.");
+    o.def("cash_after", &om::cash_after, "weights"_a);
 
     o.def("moc_cutoff", &om::moc_cutoff, "exchange"_a, "microseconds before the close");
     o.def("moc_deadline", &om::moc_deadline, "close"_a, "exchanges"_a);

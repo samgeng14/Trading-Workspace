@@ -165,6 +165,11 @@ decisions from the same inputs, and the runner records whether they agree.
   - `replay`, `unacknowledged`, `working`, `never_placed`: an order's status
     log as the order path reads it (`orders.acknowledged_after`, the WORKING
     and NOT_PLACED sets), so the engine can own order tracking later.
+  - `check_limits` and `cash_after`: the pre-trade exposure limits on a
+    basket's target weights (`exposure_limits.check_exposure_limits`, the
+    limits in `config/risk_limits.yaml`), breach names and wording
+    Python's own. With `risk.check`, the engine now holds every pre-trade
+    check that isn't a file lookup (the kill switch, stale prices).
 
 The match is meant to be exact, so the port keeps Python's arithmetic: sums in
 numpy's pairwise order (`pairwise_sum`), no fused multiply-adds in `oms.cpp`

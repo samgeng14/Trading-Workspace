@@ -82,3 +82,11 @@ def test_reconcile() -> None:
         ("XYZ", 3.0, None),
     ]
     assert not oms.reconcile({}, {}, [], [oms.Holding("SPY", math.nan)], []).ok
+
+
+def test_exposure_limits() -> None:
+    weights = [("SPY", 0.6), ("TLT", -0.3), ("QQQ", 0.6)]
+    c = oms.check_limits(weights, 100_000.0, [("SPY", 40_000.5)], 0.0, oms.ExposureLimits(max_net=0.8, min_cash_buffer=0.01))
+    assert not c.ok and [b.name for b in c.breaches][:2] == ["max_single_position", "max_gross_exposure"]
+    assert c.breaches[0].detail == "SPY = 60.0% > limit 25.0%" and c.holdings == 3
+    assert oms.cash_after([("SPY", 0.4), ("TLT", float("nan"))]) == 0.6

@@ -314,3 +314,38 @@ TEST(replay_reads_an_orders_status_log) {
     CHECK(t.anomalies.size() == 2);
     CHECK(replay({}).status.empty());
 }
+
+TEST(limits_pass_a_diversified_basket) {
+    const Weighted w{{"SPY", 0.2}, {"TLT", 0.2}, {"GLD", 0.2}, {"VEA", 0.2}, {"BIL", 0.195}, {"XLE", 0.0}};
+    const LimitCheck c = check_limits(w, 1'000'000.0, Weighted{{"SPY", 200'000.0}, {"XLE", kNaN}}, cash_after(w),
+                                      ExposureLimits{0.20, 1.0, 0.5, 1.0, 5, 0.30, 0.0});
+    CHECK(c.ok && c.breaches.empty());
+    CHECK(c.holdings == 5 && c.max_single_position == 0.2);
+    CHECK_NEAR(c.gross, 0.995, 1e-12);
+    CHECK(c.max_single_trade && *c.max_single_trade == 0.2);
+    CHECK(c.cash_after && std::fabs(*c.cash_after - 0.005) < 1e-12);
+}
+
+TEST(limits_name_each_breach_as_python_does) {
+    const Weighted w{{"SPY", 0.6}, {"TLT", -0.3}, {"QQQ", 0.6}};
+    const LimitCheck c = check_limits(w, 100'000.0, Weighted{{"SPY", 40'000.5}, {"QQQ", 40'000.5}}, 0.0,
+                                      ExposureLimits{0.25, 1.0, 0.5, 0.8, 5, 0.30, 0.01});
+    CHECK(!c.ok);
+    std::vector<std::string> names;
+    for (const auto& b : c.breaches) names.push_back(b.name);
+    CHECK((names == std::vector<std::string>{"max_single_position", "max_gross_exposure", "max_net_exposure",
+                                             "min_holdings", "max_single_trade", "min_cash_buffer"}));
+    CHECK(c.breaches[0].detail == "SPY = 60.0% > limit 25.0%");  // the first of a tie
+    CHECK(c.breaches[1].detail == "gross 150.0% > limit 100.0%");
+    CHECK(c.breaches[3].detail == "only 3 holdings (min 5)");
+    CHECK(c.breaches[4].detail == "SPY trade $40,000 = 40.0% of NAV > limit 30.0%" && !c.breaches[4].blocking);
+    CHECK(c.breaches[5].detail == "cash 0.00% < min 1.00%");
+}
+
+TEST(limits_on_an_empty_or_unpriced_basket) {
+    const LimitCheck empty = check_limits({{"SPY", kNaN}}, 1.0, std::nullopt, std::nullopt);
+    CHECK(!empty.ok && empty.empty && empty.breaches[0].name == "empty_basket");
+    const LimitCheck unpriced = check_limits({{"SPY", 0.5}}, 1.0, Weighted{{"XLE", kNaN}}, std::nullopt);
+    CHECK(!unpriced.ok && unpriced.error == "every trade is unpriced");
+    CHECK(cash_after({{"SPY", 0.7}, {"TLT", 0.5}}) == 0.0);
+}

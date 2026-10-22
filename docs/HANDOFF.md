@@ -164,7 +164,9 @@ decisions, ported from the Python runner step for step:
   material, which arms the kill switch), the drift gate
   (`auto_rebalance.decide_rebalance_with_drift` and the runner's
   `_current_weights`), the basket (`build_reconciliation`, the cash trim and
-  `sells_first`) and the auction choice (`auction.execution_for`). Sums use
+  `sells_first`), the pre-trade exposure limits (`check_exposure_limits` with
+  `risk_limits.yaml`), the order statuses, and the auction choice
+  (`auction.execution_for`). Sums use
   numpy's pairwise order and `oms.cpp` builds without fused multiply-adds, so
   the same inputs give the same dollars to the last bit.
 
@@ -174,7 +176,8 @@ and nothing the engine decides is sent:
   how each order counted, every break and its value, and the verdict.
 - `drift`, every run: the gate's weights and decision.
 - `whatif`, every run, rebalance or not: the basket the run would build now
-  from the gate's positions and NAV (no cash trim), and its auction.
+  from the gate's positions and NAV (no cash trim), its exposure limits and
+  its auction.
 - `basket`, on rebalance days: the basket the run built, with the cash, from
   the same inputs (`build_paper_basket`).
 - `orders`, on days orders go: each order's status log replayed (its last
@@ -195,8 +198,8 @@ Tested: 133 C++ tests (GCC 13 on the VM and Clang, sanitizers on), and
 input: every day 1990–2045, the auction at the minutes around each cutoff,
 4,000 random drift gates, 1,500 random baskets (trims, refusals, holdings
 outside the model), 2,000 random reconciles (partial, stray and missing
-fills, orders never placed, unpriced breaks) and 3,000 random status logs, all
-exact. A one-ulp difference shows as a miss.
+fills, orders never placed, unpriced breaks), 3,000 random status logs and
+2,500 random limit checks, all exact. A one-ulp difference shows as a miss.
 
 **Found while porting:** the order statuses mean different things in
 different places.
@@ -409,9 +412,10 @@ the store yet.
    know on the owner's Mac:
    - The API tests read the engine's committed data files through the engine's
      own default paths, so with the Mac's refreshed `etf_prices_master.*` and
-     `etf_targets_monthly.*` four of them fail. Stash those four files around
-     the API run (`git stash push -- <the four files>` … `git stash pop`); CI
-     has the committed data and passes.
+     `etf_targets_monthly.*` one of them fails
+     (`test_stale_targets_block_the_submit`, which expects May's targets).
+     Stash those four files around the API run (`git stash push -- <the four
+     files>` … `git stash pop`); CI has the committed data and passes.
    - The dashboard's e2e suites need Playwright's browser once:
      `cd apps/web && npx playwright install chromium`.
 
