@@ -17,6 +17,7 @@ Strategies page shows.
 | `r4_overnight/` | SPY (or QQQ) held only from the close to the next open, through the auctions | the ETF master's opens and closes, dividends | 3 | fails (Sharpe 0.15; the day earned too, and a round trip a night costs 3.5% a year) |
 | `r5_bond_carry/` | TLT (or IEI, SHY) while its yield is above the 3-month bill's, else T-bills | FRED's and Treasury's daily yields; the bond ETFs' coupons from two sources | 3 | fails (Sharpe 0.28, TLT held's 0.19; it held TLT through 2022) |
 | `r6_oil_inventories/` | USO while US crude stocks are below their five-year norm, else T-bills | EIA's weekly inventories as first published (its archive of 795 reports), WTI's spot and NYMEX curve | 3 | fails (Sharpe −0.26, below USO held's −0.16 and 80% of random timings; in oil for the 2008 and 2020 crashes) |
+| `r7_treasury_auctions/` | IEI (or SHY, TLT) for 5 sessions after each Treasury auction in its range, else T-bills | Treasury's auction records (Fiscal Data and TreasuryDirect, which agree on all 1,512 since 2005) | 0 | **not run**: at the published effects' full pre-2008 strength the best rule nets a Sharpe of 0.47 after costs, below the bar of about 0.89, and the effect faded after 2009 |
 
 **39 trials are counted so far.** The deflated Sharpe of every study counts all
 of them, and the newest study's `results/trials.csv` lists them with their
@@ -24,6 +25,12 @@ Sharpes. Their variance (0.0635 a year after R6, whose three trials were the
 first well below 0) sets the bar each new study must clear.
 
 ## The protocol, as these studies ran it
+
+**A study can end at phase 1, before it spends a trial.** Each failed trial
+raises the bar for the next study: after R6 a new primary needs a Sharpe of
+about 0.89 to reach a deflated Sharpe of 0.90. So phase 1 also asks whether the
+published evidence, after costs, could plausibly clear that. R7 couldn't, and
+wasn't run.
 
 1. **`HYPOTHESIS.md` first,** before any backtest or any look at a rule's
    returns: the mechanism and the literature, the data and its checks, one

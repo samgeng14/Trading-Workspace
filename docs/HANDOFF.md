@@ -417,6 +417,30 @@ it ran, 3 trials, 39 counted): **fails, on 7 of 14 criteria.**
   today's except before 2016-10, when they included lease stocks; the rules
   read them as published.
 
+**R7, the Treasury auction cycle, 2026-10-22** (`research/r7_treasury_auctions/`):
+**pre-registered and not run, so no trial is counted.**
+- The idea was IEI (or SHY, TLT) for 5 sessions after each Treasury auction,
+  as dealers who absorbed the supply sell it on.
+- At the published effects' full pre-2008 strength, the best rule nets a
+  Sharpe of 0.47 after costs, against the bar of about 0.89.
+- Fleming, Nguyen and Rosenberg (2024) find the effect insignificant from
+  2010.
+- Its data checks and the arithmetic stay as the record: Treasury's two
+  auction sources agree on all 1,512 auctions since 2005.
+
+**Where research stands, and what would help most.**
+- With 39 trials and their spread, a new study now needs a Sharpe of about
+  0.89 to pass the deflated test, and each failed trial raises it. So phase 1
+  now also asks whether a study could clear the bar before it spends trials.
+- The free-data ideas left (currency carry, country momentum, calendar
+  effects) are unlikely to.
+- The strongest candidates need data the fund lacks:
+  - futures curves for carry and trend across asset classes, which the
+    archive collects only from 2026-10-21;
+  - point-in-time equity data for S2's long/short sleeve, from WRDS, which
+    only the owner can download, by hand.
+  Whether to bring WRDS data in is the owner's decision.
+
 **Free data checked for the next studies** (2026-10-22):
 - **EIA** (no key): weekly crude inventories from 1982, Cushing's from 2004,
   natural gas storage from 2010, and the WTI spot daily. Its NYMEX futures
