@@ -47,3 +47,14 @@ def test_sessions_come_newest_first_and_a_difference_breaks_the_streak(engine_tr
     assert latest["match"] and latest["kinds"]["basket"]["summary"] == "same 1 orders"
     assert body["last_difference"]["session"] == "2026-10-06"
     assert body["last_difference"]["kinds"]["whatif"]["summary"].startswith("1 difference, the first: orders")
+
+
+def test_the_role_is_the_engine_yaml_s_and_anything_unreadable_is_cosign(engine_tree, fake_broker, frozen_now) -> None:
+    app = create_app("paper", broker=fake_broker, background=False)
+    with TestClient(app) as client:
+        body = client.get("/api/v1/ops/engine-shadow").json()
+        assert body["role"] == "shadow" and body["role_note"] is None  # the committed file
+
+        (engine.config_dir() / "engine.yaml").unlink()
+        body = client.get("/api/v1/ops/engine-shadow").json()
+        assert body["role"] == "cosign" and "could not be read" in body["role_note"]

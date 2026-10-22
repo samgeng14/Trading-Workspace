@@ -746,9 +746,12 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
 
     @app.get(f"{v1}/ops/engine-shadow")
     async def get_engine_shadow() -> dict[str, Any]:
-        from src.production import engine_shadow  # trading-engine
+        from src.production import engine_cosign, engine_shadow  # trading-engine
 
-        return await asyncio.to_thread(engine_shadow.status, engine.ENGINE_ROOT)
+        status = await asyncio.to_thread(engine_shadow.status, engine.ENGINE_ROOT)
+        # config/engine.yaml: whether a run's orders need the engine's agreement
+        role = engine_cosign.load(engine.config_dir() / "engine.yaml")
+        return {**status, "role": role["role"], "role_note": role.get("note")}
 
     @app.get(f"{v1}/ops/runs")
     async def get_runs() -> dict[str, Any]:

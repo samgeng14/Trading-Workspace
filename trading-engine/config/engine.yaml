@@ -1,0 +1,18 @@
+# The C++ engine's part in the daily run's orders (docs/PLAN.md §6, the
+# migration from the Python runner). Read on every run; the dashboard's Submit
+# starts a daily run, so it is covered too.
+engine:
+  # shadow  The engine decides beside Python on every run, and the record shows
+  #         whether the two matched (artifacts/engine_shadow/, `bin/tradeit
+  #         engine-shadow`, the dashboard's Operations page). Python's orders
+  #         go out either way.
+  # cosign  As shadow, and a run sends no order unless the engine decided this
+  #         run's reconcile, drift gate and basket (with its limits and its
+  #         auction) exactly as Python did. A difference, or a comparison that
+  #         couldn't run, blocks the run's orders like a failed pre-trade
+  #         check. One of the two implementations is then wrong, and neither
+  #         is trusted until someone looks.
+  # Any other value, or a file that can't be read, counts as cosign: when
+  # unsure, the stricter.
+  # The owner's call, once 10 sessions in a row match (PLAN §14).
+  role: shadow

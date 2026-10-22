@@ -685,10 +685,12 @@ def isolate(root: Path, clock: Callable[[], datetime], patch: Any) -> None:
 
     from . import app as app_mod
 
-    # the checkout's own submit switches, so the preview's "Orders switched on" check reads as on the Mac
+    # the checkout's own submit switches and engine role, so the preview's "Orders switched on" check
+    # and the Operations page's engine panel read as on the Mac
     config = root / "config"
     config.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(engine.config_dir() / "execution.yaml", config / "execution.yaml")
+    for name in ("execution.yaml", "engine.yaml"):
+        shutil.copy2(engine.config_dir() / name, config / name)
     patch.setattr(engine, "ENGINE_ROOT", root)
     patch.setattr(kill_switch, "KILL_SWITCH_PATH", root / "artifacts" / "runs" / "kill_switch.json")
     patch.setattr(build_paper_basket, "_project_root", lambda: root)  # the preview's targets and prices

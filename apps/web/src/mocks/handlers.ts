@@ -1497,6 +1497,8 @@ function engineShadow(): S["EngineShadow"] {
     comparisons: sessions.reduce((n, s) => n + s.comparisons, 0),
     sessions,
     last_difference: null,
+    role: "shadow",
+    role_note: null,
   };
 }
 

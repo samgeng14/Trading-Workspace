@@ -995,6 +995,13 @@ export interface components {
             };
         };
         EngineShadow: {
+            /**
+             * @description config/engine.yaml: shadow, the engine's decisions are recorded and Python's orders go out either way; cosign, a run sends no order unless the engine decided its reconcile, drift gate and basket the same
+             * @enum {string}
+             */
+            role: "shadow" | "cosign";
+            /** @description why the role is cosign when the file didn't say shadow or cosign */
+            role_note: string | null;
             /** @description sessions in a row, back from the latest, with every comparison matching */
             streak: number;
             /** @description sessions in a row before the engine may take over sending (10) */

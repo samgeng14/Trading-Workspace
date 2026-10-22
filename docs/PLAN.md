@@ -524,6 +524,9 @@ Build order from here:
    immediately useful.
 2. **Shadow OMS.** Python still submits. The engine receives the same targets
    and logs the orders *it would have* sent; compare them daily for two weeks.
+   **Then co-sign** (built 2026-10-22, off until the owner's call):
+   `config/engine.yaml`'s `role: cosign` makes a run send no order unless the
+   engine decided its reconcile, drift gate and basket the same, exactly.
 3. **Engine submits.** The Python submit path is deleted.
 4. **CRB and auto-hedger go live.**
 5. **Intraday sleeves** run inside the engine (Phase 5).

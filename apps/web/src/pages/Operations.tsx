@@ -278,9 +278,10 @@ function ExitTestPanel() {
 
 function EngineShadowPanel() {
   const { data, error } = useEngineShadow();
+  const cosign = data?.role === "cosign";
   return (
     <Panel
-      title="C++ engine, in shadow"
+      title={cosign ? "C++ engine, co-signing" : "C++ engine, in shadow"}
       meta={data ? `${data.streak} of ${data.needed} sessions in a row matching` : undefined}
       flush
       foot={
@@ -288,9 +289,21 @@ function EngineShadowPanel() {
           Each run gives the C++ order manager the inputs the Python runner decided on: the reconcile of earlier orders,
           the rebalance gate, the basket it would build now, and on rebalance days the basket it sent, with the auction
           for each, and each order&rsquo;s statuses from IBKR, replayed. Match means the same breaks, the same decision
-          and the same orders, to the share and the cent. Nothing the engine decides is sent. It can take over after{" "}
-          {data?.needed ?? 10} sessions in a row match, and that is your call. Same as{" "}
-          <code>bin/tradeit engine-shadow</code>.
+          and the same orders, to the share and the cent.{" "}
+          {cosign ? (
+            <>
+              The engine co-signs (<code>config/engine.yaml</code>): a run sends no order unless the engine decided its
+              reconcile, rebalance gate and basket the same.
+              {data?.role_note ? ` ${data.role_note}, so it co-signs.` : ""}
+            </>
+          ) : (
+            <>
+              Python&rsquo;s orders go out either way. Once {data?.needed ?? 10} sessions in a row match, the engine can
+              co-sign them, so that a difference blocks the run: <code>role: cosign</code> in{" "}
+              <code>config/engine.yaml</code>, your call.
+            </>
+          )}{" "}
+          Same as <code>bin/tradeit engine-shadow</code>.
         </>
       }
     >

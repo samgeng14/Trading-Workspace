@@ -39,7 +39,7 @@ import os
 import sys
 from datetime import datetime, date, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -542,6 +542,30 @@ def _needs_rebalance_drift(
     return decision.rebalance, diagnostics
 
 
+def _engine_cosign(comparisons: Mapping[str, Any] | None) -> dict[str, Any]:
+    """config/engine.yaml's role, and the engine's verdict on this run's
+    comparisons (src/production/engine_cosign.py). ``blocks`` is true at cosign
+    when the verdict isn't ok; at shadow the verdict is only logged. A check
+    that fails to run blocks, as the risk gate does."""
+    try:
+        from src.production import engine_cosign
+
+        out: dict[str, Any] = {**engine_cosign.load(), **engine_cosign.verdict(comparisons or {})}
+    except Exception as exc:  # noqa: BLE001
+        out = {"role": "cosign", "ok": False, "checked": {},
+               "reasons": [f"the engine's co-sign check failed: {type(exc).__name__}: {exc}"]}  # fmt: skip
+    out["blocks"] = out["role"] == "cosign" and not out["ok"]
+    if out.get("note"):
+        log.warning("%s, so the engine co-signs (the stricter role).", out["note"])
+    if out["ok"]:
+        log.info("Engine (%s): it decided this run as Python did: %s", out["role"],
+                 "; ".join(f"{k}, {v}" for k, v in out["checked"].items()))  # fmt: skip
+    else:
+        log.warning("Engine (%s): %s.%s", out["role"], "; ".join(out["reasons"]),
+                    "" if out["blocks"] else " Python's orders go out regardless.")  # fmt: skip
+    return out
+
+
 def _engine_shadow(kind: str, **inputs: Any) -> dict[str, Any]:
     """The C++ engine's decision beside this run's (src/production/engine_shadow.py):
     compared and recorded, never acted on. It never raises, so nothing it finds
@@ -707,6 +731,8 @@ def step_reconcile(host: str, port: int, profile: str) -> dict[str, Any]:
         "diffs": res.diffs,
         "report_path": res.report_path,
     }
+    if res.engine is not None:
+        out["engine"] = res.engine  # the C++ engine's reconcile beside this one, for the co-sign
     if res.skipped:
         out.update(skipped=True, reason=res.skipped)
         log.info("Reconcile skipped: %s", res.skipped)
@@ -955,10 +981,13 @@ def step_submit_orders(
     *,
     run_id: str | None = None,
     reconciled: bool = True,
+    engine: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """``reconciled`` is whether step_reconcile passed (or had nothing to do);
     a run whose reconcile failed sends nothing. ``run_id`` labels the
-    submission in the expected book."""
+    submission in the expected book. ``engine`` holds this run's engine
+    comparisons by kind (reconcile, drift, basket): with config/engine.yaml at
+    cosign, a run they don't all match sends nothing."""
     log.info("── Step 4: Submit paper orders ──────────────────────────────")
 
     # ── Pre-trade risk gate ──────────────────────────────────────────────
@@ -1014,6 +1043,8 @@ def step_submit_orders(
             "reasons": [f"Risk gate error: {type(exc).__name__}: {exc}"],
         }
 
+    cosign = _engine_cosign(engine)
+
     if dry_run:
         from src.broker.ibkr.auction import execution_for
 
@@ -1032,6 +1063,16 @@ def step_submit_orders(
             "reasons": ["the end-of-day reconcile did not pass (see the reconcile step): the book is unverified"],
         }
 
+    if cosign["blocks"]:
+        log.error("✗ The C++ engine doesn't co-sign this run's orders: %s", "; ".join(cosign["reasons"]))
+        return {
+            "ok": False,
+            "action": "submit_orders",
+            "blocked": True,
+            "reasons": cosign["reasons"],
+            "engine_cosign": cosign,
+        }
+
     try:
         from src.production.runtime.order_service import submit_paper_orders
         result = submit_paper_orders(
@@ -1042,6 +1083,7 @@ def step_submit_orders(
             force=False,
             dry_run=False,
         )
+        result["engine_cosign"] = cosign
         if result.get("ok"):
             log.info(
                 "✓ Orders submitted, %s. submitted=%s · path=%s",
@@ -1211,6 +1253,11 @@ def run(
         host=host, port=port, client_id=client_id_for("orders", profile),
         profile=profile, dry_run=dry_run,
         run_id=run_id, reconciled=bool(reconcile_result.get("ok")),
+        engine={
+            "reconcile": reconcile_result.get("engine"),
+            "drift": (rebalance_diag or {}).get("engine"),
+            "basket": basket_result.get("engine_shadow"),
+        },
     )
     run_result["steps"]["submit_orders"] = submit_result
 

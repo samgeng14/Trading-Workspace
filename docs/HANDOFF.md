@@ -224,8 +224,19 @@ different places.
    with Intel's decimal floating-point library. **The owner decides:** accept
    the license and allow the download, or have the engine send through the
    Python connection (ib_async) instead.
-3. After 10 sessions in a row match, the switch to the engine sending (step 3)
-   is the owner's call.
+3. **The co-sign switch is built, and off** (`config/engine.yaml`, `role:
+   shadow`; `src/production/engine_cosign.py`).
+   - At `role: cosign`, a run sends no order unless the engine decided its
+     reconcile, drift gate and basket (with its limits and auction) exactly
+     as Python did. A difference, or a comparison that couldn't run, blocks
+     the run's orders like a failed pre-trade check.
+   - Any other value, or a file that can't be read, counts as cosign.
+   - The Operations page and GET /ops/engine-shadow show the role.
+   - Moving to cosign after 10 sessions in a row match is the owner's call.
+     The engine's decisions then bind, while Python still builds and sends
+     the orders.
+4. Step 3, the engine sending and the Python decisions deleted, follows
+   cosign. Its transport is item 2's decision.
 
 ## Datasets, catch-up and the Data page, since 2026-10-21
 

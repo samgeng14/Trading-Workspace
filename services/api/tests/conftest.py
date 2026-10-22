@@ -43,9 +43,11 @@ def _write_bars(folder: Path, symbol: str, start: float, drift: float, wobble: f
 def engine_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the API's data paths (and the engine's kill switch) at a temp tree."""
     root = tmp_path / "engine"
-    # the committed submit switches (config/execution.yaml), as the API reads them on the Mac
+    # the committed submit switches and the engine's role (config/execution.yaml, engine.yaml),
+    # as the API reads them on the Mac
     (root / "config").mkdir(parents=True)
     shutil.copy2(engine.config_dir() / "execution.yaml", root / "config" / "execution.yaml")
+    shutil.copy2(engine.config_dir() / "engine.yaml", root / "config" / "engine.yaml")
     monkeypatch.setattr(engine, "ENGINE_ROOT", root)
     from src.execution import kill_switch
 

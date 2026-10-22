@@ -27,8 +27,8 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
 - No solver licenses in the repo (`*.lic` is ignored). The free solvers
   (CLARABEL, ECOS, SCS) are the default; see `trading-engine/src/trading_engine/solvers.py`.
 - Safety switches (`trading-engine/config/execution.yaml`'s `allow_submit` and
-  `dry_run`, the kill switch, `risk_limits.yaml`) change only when the owner
-  says so. To stop the fund, `bin/tradeit kill "why"` (arms the switch, then
+  `dry_run`, the kill switch, `risk_limits.yaml`, `config/engine.yaml`'s
+  `role`) change only when the owner says so. To stop the fund, `bin/tradeit kill "why"` (arms the switch, then
   cancels every working order); `bin/tradeit resume` only after the doctor and
   a reconcile pass.
 

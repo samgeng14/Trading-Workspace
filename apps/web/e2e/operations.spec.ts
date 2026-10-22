@@ -42,4 +42,7 @@ test("the engine shadow lists each session's comparisons with the Python runner"
   await expect(rows.first().locator("td").nth(1)).toContainText("Match");
   await expect(shadow.locator("tr[data-status='differs']")).toHaveCount(0);
   await expect(shadow).toContainText("bin/tradeit engine-shadow");
+  // shadow, the committed role: Python sends either way, and co-signing is the owner's switch
+  await expect(shadow).toContainText("Python’s orders go out either way");
+  await expect(shadow).toContainText("role: cosign");
 });
