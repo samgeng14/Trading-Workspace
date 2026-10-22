@@ -308,7 +308,13 @@ Next, by the report:
      Its first numbers come once prices run past its start, on 2026-10-26's
      evening. After three months, compare the record with the backtest and
      decide on paper (the owner).
-2. The futures version of S1, once the curve archive has history.
+2. The futures version of S1, once the curve archive has history. IBKR can't
+   supply a long one: asked on 2026-10-22 for 30 years of daily bars,
+   continuous futures (`ContFuture`, read-only, the research client) came back
+   short and already back-adjusted. ES started in 2021-06, ZN 2024-04, GC
+   2019-01, CL 2018-01 and EUR (6E) 2019-12. No free source without a key
+   covers 2008 on. So a futures backtest from 2008 waits on the archive, or
+   uses ETF proxies as S1 did.
 3. IBKR's adjusted closes back past 2016.
 
 **R2, free volatility and positioning data, 2026-10-21** (`research/r2_vol_positioning/`,
