@@ -261,7 +261,7 @@ function status(): S["SystemStatus"] {
         id: "database",
         label: "Database",
         status: "unknown",
-        detail: "Postgres not configured yet (Phase 2); file store",
+        detail: "the store is off in the demo (no Postgres); the engine's files are the record",
       },
     ],
     kill_switch: { ...state.killSwitch },

@@ -67,6 +67,42 @@ def kill_switch_clear() -> bool:
         return False
 
 
+# ── the store ──────────────────────────────────────────────────────────
+
+# What the health panel says of the store (trading-engine/src/storage). The upkeep
+# loop refreshes it off the event loop: a store that is down takes seconds to say so.
+_store_health: dict[str, str] = {"status": "unknown", "detail": "not checked yet"}
+
+
+def check_store() -> dict[str, str]:
+    """Is the store on here, and does it answer? Blocking: run it in a thread."""
+    from src.storage.db import connect, load_config  # trading-engine
+
+    cfg = load_config()
+    if not cfg.enabled:
+        why = f"the store is off here ({cfg.off_because}); the engine's files are the record"
+        return {"status": "unknown", "detail": why}
+    try:
+        with connect(cfg) as conn:
+            orders, fills, through = conn.execute(
+                "SELECT (SELECT count(*) FROM orders), (SELECT count(*) FROM fills), (SELECT max(nav_date) FROM nav)"
+            ).fetchone()
+    except Exception as exc:  # noqa: BLE001 — the panel says why; the files still keep the record
+        why = f"Postgres at {cfg.where} doesn't answer ({type(exc).__name__}): the engine's files keep the record"
+        return {"status": "warning", "detail": why}
+    return {"status": "ok", "detail": f"Postgres at {cfg.where}: {orders} orders, {fills} fills, NAV through {through}"}
+
+
+async def refresh_store_health() -> dict[str, str]:
+    global _store_health
+    _store_health = await asyncio.to_thread(check_store)
+    return _store_health
+
+
+def store_health() -> dict[str, str]:
+    return dict(_store_health)
+
+
 # ── doctor ─────────────────────────────────────────────────────────────
 
 

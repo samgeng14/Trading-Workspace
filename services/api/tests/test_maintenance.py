@@ -96,3 +96,27 @@ def test_the_doctor_keeps_the_days_report(engine_tree, monkeypatch) -> None:
     assert ops.last_doctor("paper") == report
     kept = engine.artifacts_dir() / "doctor" / f"doctor_paper_{day.isoformat()}.json"
     assert kept.exists() and '"status": "PASS"' in kept.read_text()
+
+
+def test_the_health_panel_says_what_the_store_is(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from src.storage import db
+
+    monkeypatch.setattr(db, "load_config", lambda *a, **k: SimpleNamespace(enabled=False, off_because="no password"))
+    assert asyncio.run(ops.refresh_store_health()) == {
+        "status": "unknown",
+        "detail": "the store is off here (no password); the engine's files are the record",
+    }
+
+    class Down:
+        enabled, where = True, "127.0.0.1:5432/trading"
+
+    def refuse(cfg):
+        raise ConnectionRefusedError("connection refused")
+
+    monkeypatch.setattr(db, "load_config", lambda *a, **k: Down())
+    monkeypatch.setattr(db, "connect", refuse)
+    health = asyncio.run(ops.refresh_store_health())
+    assert health["status"] == "warning" and "doesn't answer (ConnectionRefusedError)" in health["detail"]
+    assert ops.store_health() == health

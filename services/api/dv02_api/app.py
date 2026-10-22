@@ -831,9 +831,12 @@ def components(ctx: Ctx, offline: AccountSnap | None) -> list[dict[str, str]]:
         {"id": "market_data", "label": "Market data", **market},
         {"id": "engine", "label": "Engine", **engine_health()},
         {"id": "scheduler", "label": "Scheduler", **sched},
-        {"id": "database", "label": "Database", "status": "unknown",
-         "detail": f"Postgres not configured yet (Phase 2); file store under trading-engine/data; {flex_note}"},
+        {"id": "database", "label": "Database", **_with(ops.store_health(), flex_note)},
     ]  # fmt: skip
+
+
+def _with(health: dict[str, str], note: str) -> dict[str, str]:
+    return {**health, "detail": f"{health['detail']}; {note}"}
 
 
 def engine_health() -> dict[str, str]:
@@ -891,6 +894,7 @@ async def _maintenance(ctx: Ctx) -> None:
     last_flex: float | None = None
     last_bars: float | None = None
     doctor_started = False
+    last_store: float | None = None
     flex_task: asyncio.Task | None = None
     try:
         while True:
@@ -912,6 +916,9 @@ async def _maintenance(ctx: Ctx) -> None:
                             except Exception as exc:  # noqa: BLE001
                                 log.warning("daily bars for %s failed: %s", sym, exc)
                             await asyncio.sleep(1)
+                if last_store is None or time.monotonic() - last_store > 300:
+                    last_store = time.monotonic()
+                    await ops.refresh_store_health()
                 flex_due = last_flex is None or time.monotonic() - last_flex > 6 * 3600
                 if flex_due and (flex_task is None or flex_task.done()):
                     last_flex = time.monotonic()
