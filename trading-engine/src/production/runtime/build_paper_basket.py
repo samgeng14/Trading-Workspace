@@ -46,6 +46,9 @@ class BasketBuildConfig:
     symbol_whitelist: tuple[str, ...] = ()
     # the master price file: last closes for holdings outside the model IBKR has no mark for
     prices_path: Path | None = None
+    # where the C++ engine's shadow records its comparison (src/production/engine_shadow.py
+    # writes under <shadow_root>/artifacts/engine_shadow); None: no comparison
+    shadow_root: Path | None = None
 
 
 def _project_root() -> Path:
@@ -73,6 +76,7 @@ def default_config() -> BasketBuildConfig:
         cash_buffer=0.005,
         min_trade_dollars=1000.0,
         prices_path=root / "data/market/cleaned/prices/etf_prices_master.parquet",
+        shadow_root=root,
     )
 
 
@@ -582,6 +586,8 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
     model = model_universe()
     model_targets = latest_targets.loc[latest_targets["symbol"].astype(str).str.upper().isin(model)]
     outside = holdings_outside_model(model_targets, positions_df, symbol_whitelist=config.symbol_whitelist)
+    last_closes = load_last_closes(config.prices_path)
+    cash = account_cash(account_snapshot_df)
     recon, orders_only = build_reconciliation(
         latest_targets,
         positions_df,
@@ -590,8 +596,22 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
         min_trade_dollars=config.min_trade_dollars,
         symbol_whitelist=config.symbol_whitelist,
         model=model,
-        last_closes=load_last_closes(config.prices_path),
-        cash=account_cash(account_snapshot_df),
+        last_closes=last_closes,
+        cash=cash,
+    )
+    engine = _engine_shadow(
+        config.shadow_root,
+        latest_targets,
+        positions_df,
+        portfolio_value,
+        cash_buffer=config.cash_buffer,
+        min_trade_dollars=config.min_trade_dollars,
+        symbol_whitelist=config.symbol_whitelist,
+        model=model,
+        last_closes=last_closes,
+        cash=cash,
+        recon=recon,
+        orders_only=orders_only,
     )
     trimmed = trimmed_buys(recon)
     saved_paths = save_outputs(
@@ -623,7 +643,22 @@ def build_paper_basket(config: BasketBuildConfig) -> dict[str, object]:
         "outside_model_kept": outside.kept,
         "buys_trimmed": trimmed,
         "warnings": outside.warnings() + ([trimmed["note"]] if trimmed else []),
+        "engine_shadow": engine,
     }
+
+
+def _engine_shadow(root: Path | None, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    """The C++ engine's basket from the same inputs, compared with this one and
+    recorded under ``root`` (src/production/engine_shadow.basket). It never
+    raises: nothing it finds changes the orders above."""
+    if root is None:
+        return {"kind": "basket", "match": None, "summary": "not compared: this config records no shadow"}
+    try:
+        from src.production import engine_shadow
+
+        return engine_shadow.basket(*args, root=root, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        return {"kind": "basket", "match": False, "summary": f"the shadow failed: {type(exc).__name__}: {exc}"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -663,6 +698,7 @@ def main() -> None:
         print(f"Selling holdings outside the model: {', '.join(result['outside_model_sold'])}")
     for warning in result["warnings"]:
         print(f"Warning: {warning}")
+    print(f"C++ engine, in shadow: {result['engine_shadow']['summary']}")
     for name, path in result["saved_paths"].items():
         print(f"{name}: {path}")
 

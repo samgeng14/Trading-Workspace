@@ -7,6 +7,7 @@ namespace nb = nanobind;
 void bind_risk(nb::module_& m);
 void bind_costs(nb::module_& m);
 void bind_backtest(nb::module_& m);
+void bind_oms(nb::module_& m);
 
 NB_MODULE(_core, m) {
     m.doc() = "DV02 Fund C++ engine";
@@ -14,4 +15,5 @@ NB_MODULE(_core, m) {
     bind_risk(m);
     bind_costs(m);  // before backtest, which takes a costs.CostModel
     bind_backtest(m);
+    bind_oms(m);
 }

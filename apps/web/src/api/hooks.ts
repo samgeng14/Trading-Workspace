@@ -21,6 +21,7 @@ export const keys = {
   preview: ["trading", "preview"] as const,
   doctor: ["ops", "doctor"] as const,
   exitTest: ["ops", "exit-test"] as const,
+  engineShadow: ["ops", "engine-shadow"] as const,
   datasets: ["data", "datasets"] as const,
   strategies: ["strategies"] as const,
   runs: ["ops", "runs"] as const,
@@ -118,6 +119,13 @@ export const useDatasets = () =>
 
 export const useExitTest = () =>
   useQuery({ queryKey: keys.exitTest, queryFn: () => unwrap(api.GET("/ops/exit-test")), refetchInterval: SLOW_MS });
+
+export const useEngineShadow = () =>
+  useQuery({
+    queryKey: keys.engineShadow,
+    queryFn: () => unwrap(api.GET("/ops/engine-shadow")),
+    refetchInterval: SLOW_MS,
+  });
 
 // ── mutations ────────────────────────────────────────────────────────────
 

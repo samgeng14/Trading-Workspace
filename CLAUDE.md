@@ -53,7 +53,7 @@ full plan is `docs/PLAN.md`. Where the work stands and what is next is
 
 | Path | What |
 |---|---|
-| `engine/` | C++20 library `dv02` (risk check, backtester, cost model; walk-forward in `dv02_engine.walkforward`) and its Python module `dv02_engine` (nanobind) |
+| `engine/` | C++20 library `dv02` (risk check, backtester, cost model; walk-forward in `dv02_engine.walkforward`; the NYSE calendar and the order manager's decisions, run in shadow beside the Python runner: `trading-engine/src/production/engine_shadow.py`) and its Python module `dv02_engine` (nanobind) |
 | `trading-engine/` | Python: the daily runner (`src/production/daily_runner.py`: reconcile, bars, targets, drift gate, basket, orders), IBKR plumbing (`src/broker/ibkr/`), the expected-book reconcile (`src/runtime/end_of_day_reconcile.py`), the kill (`src/execution/kill.py`), Phase 0's exit test (`src/runtime/exit_test.py`), the Postgres store for the trading record (`src/storage/`, best effort: the files stay the record), data, research |
 | `services/api/` | FastAPI app `dv02_api`: the dashboard's API over IBKR and the engine's files |
 | `apps/web/` | React + TypeScript + Vite dashboard |

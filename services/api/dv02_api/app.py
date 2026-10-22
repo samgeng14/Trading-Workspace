@@ -744,6 +744,12 @@ def create_app(profile: str | None = None, broker: Any = None, background: bool 
         results = exit_test.evaluate(ctx.profile, today=nyse.et_date(_now()), root=engine.ENGINE_ROOT)
         return exit_test.report(results, ctx.profile, exit_test.NAV_TOLERANCE)
 
+    @app.get(f"{v1}/ops/engine-shadow")
+    async def get_engine_shadow() -> dict[str, Any]:
+        from src.production import engine_shadow  # trading-engine
+
+        return await asyncio.to_thread(engine_shadow.status, engine.ENGINE_ROOT)
+
     @app.get(f"{v1}/ops/runs")
     async def get_runs() -> dict[str, Any]:
         out = [{k: v for k, v in r.items() if not k.startswith("_")} for r in runs.load_runs(30)]

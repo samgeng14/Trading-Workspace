@@ -188,6 +188,7 @@ def test_build_paper_basket_reports_what_it_sells_and_keeps(tmp_path: Path, monk
         account_snapshot_dir=out / "account",
         positions_snapshot_dir=out / "positions",
         prices_path=prices_path,
+        shadow_root=tmp_path,
     )
     result = bpb.build_paper_basket(cfg)
 
@@ -197,6 +198,11 @@ def test_build_paper_basket_reports_what_it_sells_and_keeps(tmp_path: Path, monk
     # $1,000 of DBC: priced at the master's last close, since IBKR had no mark
     assert orders.loc["DBC", "delta_shares"] == -50 and orders.loc["DBC", "close"] == 20.0
     assert result["sell_dollars"] == pytest.approx(1000.0)
+    if result["engine_shadow"]["summary"].startswith("could not compare: the C++ engine"):
+        return  # the engine isn't installed here
+    # the C++ engine built the same basket from the same inputs, and the record says so
+    assert result["engine_shadow"]["match"] is True, result["engine_shadow"]
+    assert (tmp_path / "artifacts" / "engine_shadow" / "record.csv").exists()
 
 
 # ── sells before buys ────────────────────────────────────────────────────────

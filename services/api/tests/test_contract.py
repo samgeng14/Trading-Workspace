@@ -75,6 +75,7 @@ GETS = [
     ("/trading/rebalance/preview", "/trading/rebalance/preview"),
     ("/ops/doctor", "/ops/doctor"),
     ("/ops/exit-test", "/ops/exit-test"),
+    ("/ops/engine-shadow", "/ops/engine-shadow"),
     ("/data/datasets", "/data/datasets"),
     ("/strategies", "/strategies"),
     ("/ops/runs", "/ops/runs"),

@@ -6,6 +6,8 @@ package `dv02_engine`. Python code imports it; the math lives only here.
 - `dv02_engine.risk`: the no-leverage check every order goes through
   (`include/dv02/risk.hpp`, `src/risk.cpp`).
 - `dv02_engine.backtest`: the portfolio backtester (below).
+- `dv02_engine.nyse` and `dv02_engine.oms`: the NYSE calendar and the order
+  manager's decisions, run beside the Python runner in shadow (below).
 
 ## The no-leverage mandate
 
@@ -135,6 +137,34 @@ them in a warning. The daily runner rebalances while such shares are held
 (under the drift cadence, once its cooldown since the last submission has
 passed, so a sell still working isn't sent twice), and `submit_paper_orders`
 sends every sell before any buy; it does not wait for fills.
+
+## The order manager, in shadow
+
+The first piece of the engine taking over order handling (docs/PLAN.md §6,
+migration step 2). Python still sends every order; these make the same
+decisions from the same inputs, and the runner records whether they agree.
+
+- `nyse` (`src/nyse.cpp`): the NYSE calendar of
+  `trading-engine/src/common/clock.py`, rule for rule (holidays, early closes,
+  sessions, the next open, the last completed session), in New York local
+  time. The Python face takes and returns `datetime` values.
+- `oms` (`src/oms.cpp`):
+  - `current_weights` and `rebalance_decision`: the drift gate
+    (`daily_runner._current_weights`, `auto_rebalance.decide_rebalance_with_drift`),
+    reasons word for word.
+  - `plan_basket`: the reconciliation and orders of `build_reconciliation`,
+    holdings outside the model sold whole, the cash trim, the file's sort, and
+    `sells_first`'s sending order.
+  - `execution_for`: market-on-close until the earliest cutoff among the
+    batch's exchanges less 5 minutes, else market-on-open (`auction.py`).
+
+The match is meant to be exact, so the port keeps Python's arithmetic: sums in
+numpy's pairwise order (`pairwise_sum`), no fused multiply-adds in `oms.cpp`
+(`-ffp-contract=off`), and Python's quirks, noted where they are (fractional
+shares truncate toward zero, as `astype(int)`). `trading-engine/src/production/engine_shadow.py`
+runs the comparison on every run, and
+`trading-engine/tests/unit/test_engine_oms.py` checks it on thousands of
+random inputs.
 
 ## Build and test
 

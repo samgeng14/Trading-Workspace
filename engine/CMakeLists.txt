@@ -41,9 +41,17 @@ add_library(dv02 STATIC
   src/backtest.cpp
   src/backtest_input.cpp
   src/backtest_metrics.cpp
+  src/nyse.cpp
+  src/oms.cpp
 )
 target_include_directories(dv02 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(dv02 PRIVATE dv02_options)
+# The order manager has to reproduce Python's arithmetic exactly (its sizes are
+# compared with the Python runner's every day), so no fused multiply-adds:
+# Clang fuses a * b + c by default, and numpy never does.
+if(NOT MSVC)
+  set_source_files_properties(src/oms.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
 
 if(DV02_BUILD_TESTS)
   enable_testing()
@@ -56,6 +64,8 @@ if(DV02_BUILD_TESTS)
     tests/test_backtest_metrics.cpp
     tests/test_costs.cpp
     tests/test_backtest_costs.cpp
+    tests/test_nyse.cpp
+    tests/test_oms.cpp
   )
   target_link_libraries(dv02_tests PRIVATE dv02 dv02_options)
   add_test(NAME dv02_tests COMMAND dv02_tests)
@@ -72,6 +82,7 @@ if(DV02_BUILD_PYTHON)
     python/bind_risk.cpp
     python/bind_costs.cpp
     python/bind_backtest.cpp
+    python/bind_oms.cpp
   )
   target_link_libraries(_core PRIVATE dv02)
   install(TARGETS _core LIBRARY DESTINATION dv02_engine)

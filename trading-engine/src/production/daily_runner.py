@@ -522,8 +522,38 @@ def _needs_rebalance_drift(
             "composition": rb_cfg["composition_threshold"],
             "cooldown_days": rb_cfg["cooldown_days"],
         },
+        "engine": _engine_shadow(
+            "drift",
+            python_decision=decision,
+            target_weights=target_weights,
+            current_weights=current_weights,
+            latest=latest,
+            positions=positions,
+            nav=nav,
+            fallback_prices=closes,
+            today=_today(),
+            last_submitted_at=last_submitted_at,
+            last_basket=last_basket,
+            rb_cfg=rb_cfg,
+            force=force,
+            outside_model=outside_model,
+        ),
     }
     return decision.rebalance, diagnostics
+
+
+def _engine_shadow(kind: str, **inputs: Any) -> dict[str, Any]:
+    """The C++ engine's decision beside this run's (src/production/engine_shadow.py):
+    compared and recorded, never acted on. It never raises, so nothing it finds
+    can change what this run does."""
+    try:
+        from src.production import engine_shadow
+
+        out = getattr(engine_shadow, kind)(root=PROJECT_ROOT, **inputs)
+    except Exception as exc:  # noqa: BLE001
+        out = {"kind": kind, "match": False, "summary": f"the shadow failed: {type(exc).__name__}: {exc}"}
+    (log.info if out.get("match") else log.warning)("Engine shadow, %s: %s", kind, out.get("summary"))
+    return out
 
 
 def _needs_rebalance(
@@ -1150,6 +1180,8 @@ def run(
     )
     run_result["should_rebalance"] = should_rebalance
     run_result["rebalance_decision"] = rebalance_diag
+    # the basket this run would build now, Python's and the C++ engine's, rebalance or not
+    run_result["engine_shadow"] = _engine_shadow("whatif", positions=positions, nav=nav)
 
     if not should_rebalance:
         log.info("No rebalance needed today. Done.")

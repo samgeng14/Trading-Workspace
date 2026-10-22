@@ -1360,6 +1360,39 @@ function exitTest(): S["ExitTest"] {
   return { profile: "paper", needed: 10, streak, nav_tolerance: 0.001, sessions };
 }
 
+/**
+ * The C++ engine's shadow (trading-engine/src/production/engine_shadow.py) over the
+ * demo's runs: from eight sessions back, every run that got past its gate compared
+ * the gate and the basket it would build, and a rebalance the basket it sent too.
+ * A run that failed (as runs() fails one) compared nothing. All of them matched.
+ */
+function engineShadow(): S["EngineShadow"] {
+  const { at, snap } = current();
+  const dates = snap.hist.book
+    .slice(-8)
+    .map((d) => d.date)
+    .filter((date) => at >= etTime(date, "15:36") && Number(date.slice(8)) % 7 !== 1);
+  const sessions = dates.reverse().map((date): S["EngineShadowSession"] => {
+    const trades = tradesOn(date).filter((t) => t.reason !== "hedge");
+    const stamp = (hhmm: string) => iso(etTime(date, hhmm));
+    const same = `same ${trades.length} orders`;
+    const kinds: S["EngineShadowSession"]["kinds"] = {
+      drift: { match: true, summary: "same decision", at: stamp("15:35") },
+      whatif: { match: true, summary: same, at: stamp("15:35") },
+      ...(trades.length > 0 ? { basket: { match: true, summary: same, at: stamp("15:36") } } : {}),
+    };
+    return { session: date, match: true, comparisons: Object.keys(kinds).length, kinds };
+  });
+  return {
+    streak: sessions.length,
+    needed: 10,
+    ready: sessions.length >= 10,
+    comparisons: sessions.reduce((n, s) => n + s.comparisons, 0),
+    sessions,
+    last_difference: null,
+  };
+}
+
 function runs(): S["RunsResponse"] {
   const { snap } = current();
   const dates = snap.hist.book.slice(snap.live ? -11 : -10).map((d) => d.date);
@@ -1454,6 +1487,7 @@ export const handlers = [
   }),
   http.get(`${API}/ops/runs`, () => HttpResponse.json(runs())),
   http.get(`${API}/ops/exit-test`, () => HttpResponse.json(exitTest())),
+  http.get(`${API}/ops/engine-shadow`, () => HttpResponse.json(engineShadow())),
   http.get(`${API}/data/datasets`, () => HttpResponse.json(datasets())),
   http.get(`${API}/strategies`, () => HttpResponse.json(strategies())),
 ];

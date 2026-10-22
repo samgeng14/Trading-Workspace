@@ -32,3 +32,14 @@ test("the exit test scores each session and says why one failed", async ({ page 
   await expect(exit.locator(".exit-why").first()).toContainText("IBKR connection refused");
   await expect(exit).toContainText("bin/tradeit exit-test");
 });
+
+test("the engine shadow lists each session's comparisons with the Python runner", async ({ page }) => {
+  await open(page, "/ops");
+  const shadow = page.locator("section[aria-label='C++ engine, in shadow']");
+  await expect(shadow.locator(".panel-meta")).toContainText(/\d+ of 10 sessions in a row matching/);
+  const rows = shadow.locator("tbody tr[data-status='match']");
+  await expect(rows.first()).toBeVisible();
+  await expect(rows.first().locator("td").nth(1)).toContainText("Match");
+  await expect(shadow.locator("tr[data-status='differs']")).toHaveCount(0);
+  await expect(shadow).toContainText("bin/tradeit engine-shadow");
+});

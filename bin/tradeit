@@ -21,6 +21,8 @@
 #   tradeit catchup   fill the datasets that are behind, and record what was done
 #   tradeit shadow    H2's shadow book (S0 with a trend overlay): its record since it began,
 #                     and what it would send to replace S0 now (nothing is sent)
+#   tradeit engine-shadow  the C++ order manager beside the Python one: each session's
+#                     comparisons and the streak of matching sessions (10 needed)
 #   tradeit up        gateway (if saved) + API (:8000) + dashboard (:5173), real data
 #   tradeit api       just the API
 #   tradeit demo      dashboard on simulated data, no IBKR needed
@@ -709,6 +711,11 @@ cmd_shadow() {
   cd "$ROOT/trading-engine" && exec "$PY" -m src.production.shadow_h2 "$@"
 }
 
+cmd_engine_shadow() {
+  need_venv
+  cd "$ROOT/trading-engine" && exec "$PY" -m src.production.engine_shadow "$@"
+}
+
 # The fund's stop button (src/execution/kill.py). kill arms the switch before it
 # touches IBKR, so nothing new goes out even if the cancels fail; resume refuses
 # while the doctor fails or the book doesn't match IBKR.
@@ -990,6 +997,7 @@ case "${1:-help}" in
   data) shift; cmd_data "$@" ;;
   catchup) shift; cmd_catchup "$@" ;;
   shadow) shift; cmd_shadow "$@" ;;
+  engine-shadow) shift; cmd_engine_shadow "$@" ;;
   kill) shift; cmd_kill "$@" ;;
   resume) shift; cmd_resume "$@" ;;
   status) shift; cmd_status "$@" ;;

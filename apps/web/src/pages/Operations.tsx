@@ -1,5 +1,5 @@
 import { Fragment, useState } from "react";
-import { useDoctor, useExitTest, useRunDoctor, useRuns, useStatus } from "../api/hooks";
+import { useDoctor, useEngineShadow, useExitTest, useRunDoctor, useRuns, useStatus } from "../api/hooks";
 import { LoadError, PageHead, Panel, StatusBadge } from "../components/bits";
 import { useKillSwitchDialogs } from "../components/KillSwitch";
 import { NextJob, ScheduleList } from "../components/Schedule";
@@ -16,6 +16,11 @@ const EXIT_CHECKS = [
   ["reconcile", "Reconcile"],
   ["nav", "NAV"],
 ] as const;
+const SHADOW_KINDS = [
+  ["drift", "Gate"],
+  ["whatif", "Basket now"],
+  ["basket", "Basket sent"],
+] as const;
 
 export function Operations() {
   return (
@@ -27,6 +32,7 @@ export function Operations() {
       </div>
       <DoctorPanel />
       <ExitTestPanel />
+      <EngineShadowPanel />
       <div className="grid">
         <SchedulePanel />
         <RunsPanel />
@@ -255,6 +261,78 @@ function ExitTestPanel() {
                       <tr className="exit-why" data-status={s.status}>
                         <td />
                         <td colSpan={EXIT_CHECKS.length}>{why.join(" · ")}</td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function EngineShadowPanel() {
+  const { data, error } = useEngineShadow();
+  return (
+    <Panel
+      title="C++ engine, in shadow"
+      meta={data ? `${data.streak} of ${data.needed} sessions in a row matching` : undefined}
+      flush
+      foot={
+        <>
+          Each run gives the C++ order manager the inputs the Python runner decided on: the rebalance gate, the basket
+          it would build now, and on rebalance days the basket it sent, with the auction for each. Match means the same
+          decision and the same orders, to the share and the cent. Nothing the engine decides is sent. It can take over
+          after {data?.needed ?? 10} sessions in a row match, and that is your call. Same as{" "}
+          <code>bin/tradeit engine-shadow</code>.
+        </>
+      }
+    >
+      {error ? (
+        <LoadError error={error} />
+      ) : data && data.sessions.length === 0 ? (
+        <p className="empty">No comparisons yet: the next daily run makes the first.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table engine-shadow">
+            <thead>
+              <tr>
+                <th>Session</th>
+                {SHADOW_KINDS.map(([key, label]) => (
+                  <th key={key}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(data?.sessions ?? []).map((s) => {
+                const why = SHADOW_KINDS.flatMap(([key]) => {
+                  const c = s.kinds[key];
+                  return c && !c.match ? [c.summary] : [];
+                });
+                return (
+                  <Fragment key={s.session}>
+                    <tr data-status={s.match ? "match" : "differs"}>
+                      <td className="num">{dateShort(s.session)}</td>
+                      {SHADOW_KINDS.map(([key]) => {
+                        const c = s.kinds[key];
+                        return (
+                          <td key={key} title={c?.summary}>
+                            {c ? (
+                              <StatusBadge status={c.match ? "pass" : "fail"} label={c.match ? "Match" : "Differs"} />
+                            ) : (
+                              <span className="muted">&mdash;</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    {why.length > 0 && (
+                      <tr className="exit-why" data-status="differs">
+                        <td />
+                        <td colSpan={SHADOW_KINDS.length}>{why.join(" · ")}</td>
                       </tr>
                     )}
                   </Fragment>

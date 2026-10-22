@@ -526,7 +526,7 @@
   vertical-align: top;
 }
 
-/* Phase 0 exit test: why a session failed, under its row */
+/* Phase 0 exit test and the engine shadow: why a session failed, under its row */
 .exit-why td {
   height: auto;
   padding-top: 0;

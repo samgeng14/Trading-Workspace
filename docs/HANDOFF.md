@@ -1,7 +1,8 @@
 # Handoff: where DV02 stands and what to do next
 
-Last updated 2026-10-21 by the session that resumed the fund (below) and put
-the trading record in Postgres ("The store", below). The 2026-10-20 session
+Last updated 2026-10-22 by the session that started the C++ engine's order
+manager in shadow and ran research R2 (both below). The 2026-10-21 session
+resumed the fund and put the trading record in Postgres ("The store", below). The 2026-10-20 session
 before it found the fund halted since Monday and fixed why; the 2026-10-16
 session wired `execution.yaml` (the owner said the scheduled run sends paper
 orders), put the signals on total-return prices, moved the Flex walk off the
@@ -151,6 +152,54 @@ Node; 6 more wait on Ubuntu's phased rollout) and rebooted into kernel
 7.0.0-1013-oracle. Everything came back by itself: the gateway logged in
 within 20 s, doctor 0 failed, API, Postgres, Tailscale and the timers up.
 
+## The C++ engine's order manager, in shadow from 2026-10-22
+
+PLAN §6's migration step 2 has begun, ahead of step 1 (the read-only mirror,
+which needs the TWS C++ API: below). The engine now holds the order manager's
+decisions, ported from the Python runner step for step:
+- `engine/src/nyse.cpp` (`dv02_engine.nyse`): the NYSE calendar of
+  `src/common/clock.py`, rule for rule, in New York local time.
+- `engine/src/oms.cpp` (`dv02_engine.oms`): the drift gate
+  (`auto_rebalance.decide_rebalance_with_drift` and the runner's
+  `_current_weights`), the basket (`build_reconciliation`, the cash trim and
+  `sells_first`) and the auction choice (`auction.execution_for`). Sums use
+  numpy's pairwise order and `oms.cpp` builds without fused multiply-adds, so
+  the same inputs give the same dollars to the last bit.
+
+**Every run compares them with Python's** (`trading-engine/src/production/engine_shadow.py`),
+and nothing the engine decides is sent:
+- `drift`, every run: the gate's weights and decision.
+- `whatif`, every run, rebalance or not: the basket the run would build now
+  from the gate's positions and NAV (no cash trim), and its auction.
+- `basket`, on rebalance days: the basket the run built, with the cash, from
+  the same inputs (`build_paper_basket`).
+
+A comparison matches when everything is equal: every line's shares, side and
+dollars, and the orders in sending order. Anything else is listed in
+`artifacts/engine_shadow/<session>/`, with one line per comparison in
+`artifacts/engine_shadow/record.csv`. A comparison that can't run is recorded
+as a miss, never raised: the shadow can't change a run. The Operations page
+(GET /ops/engine-shadow) and `bin/tradeit engine-shadow` show each session and
+the streak. PLAN §14's bar is two weeks: **10 sessions in a row matching, from
+the first run with it on 2026-10-22, so 2026-11-04 at the earliest.**
+
+Tested: 133 C++ tests (GCC 13 on the VM and Clang, sanitizers on), and
+`tests/unit/test_engine_oms.py` checks the engine against Python input for
+input: every day 1990–2045, the auction at the minutes around each cutoff,
+4,000 random drift gates and 1,500 random baskets (trims, refusals, holdings
+outside the model), all exact. A one-ulp difference shows as a miss.
+
+**Next for the engine:**
+1. The order state machine (PLAN §6 `oms`), replayed each evening against the
+   day's recorded IBKR statuses (`status_log` in the submission log).
+2. The IBKR connection on the official TWS C++ API, for the read-only mirror
+   and then sending. It has to be downloaded from IBKR under its API license,
+   with Intel's decimal floating-point library. **The owner decides:** accept
+   the license and allow the download, or have the engine send through the
+   Python connection (ib_async) instead.
+3. After 10 sessions in a row match, the switch to the engine sending (step 3)
+   is the owner's call.
+
 ## Datasets, catch-up and the Data page, since 2026-10-21
 
 `trading-engine/src/data/datasets.py` registers the fund's 10 datasets, as
@@ -234,6 +283,28 @@ Next, by the report:
      decide on paper (the owner).
 2. The futures version of S1, once the curve archive has history.
 3. IBKR's adjusted closes back past 2016.
+
+**R2, free volatility and positioning data, 2026-10-21** (`research/r2_vol_positioning/`,
+pre-registered, 9 trials, 23 counted in all). The data is Cboe's VIX and VIX3M
+histories and the CFTC's Commitments of Traders, downloaded by `data.py` into
+the git-ignored `research/_data/`. All three hypotheses fail; REPORT.md has the
+numbers:
+- **VIX term-structure timing** (SPY while VIX is below VIX3M, else T-bills):
+  Sharpe 0.51 from 2009-10, but holding SPY scored 0.69. It lost 31% in
+  2022, going out and back in nine times.
+- **The same signal as an overlay on S0**: lower Sharpe than S0, and the
+  holdout killed it.
+- **COT hedging pressure** on ETF proxies: 0.27, negative in 2008 and 2022,
+  correlated 0.65 with S0.
+What R2 says about the next studies: equity timing gives up return over these
+years. The roadmap needs returns that aren't the equity premium: futures
+carry and the volatility risk premium in VIX futures.
+
+**The Strategies page** (since 2026-10-21, GET /strategies, hotkey g y) lists
+every sleeve from `config/sleeves.yaml` against the gate (live, shadow, failed,
+with its walk-forward Sharpe and drawdown and a link to its report) and charts
+H2's shadow book beside the live fund, with the orders H2 would send now.
+Update `config/sleeves.yaml` when a study finishes or a sleeve moves on.
 
 ## Phase 0's exit test, tracked since 2026-10-21
 

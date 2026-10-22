@@ -209,6 +209,27 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ExitTest" }
 
+  /ops/engine-shadow:
+    get:
+      operationId: getEngineShadow
+      summary: The C++ engine's order manager beside the Python one (trading-engine/src/production/engine_shadow.py).
+      description: |
+        Every run gives the engine (dv02_engine.oms) the inputs the Python
+        runner decided on and records whether it decided the same: the
+        rebalance gate (drift), the basket the run would build now (whatif,
+        every run), and the basket the run built (basket, on rebalance days),
+        each with the auction it would go to. A session matches when every
+        comparison it ran matched exactly: the same orders, the same shares on
+        every line, the same dollars. Nothing the engine decides is sent; it may
+        take over sending after `needed` sessions in a row match, an owner
+        decision. Newest session first, up to 15.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EngineShadow" }
+
   /ops/kill-switch:
     post:
       operationId: setKillSwitch
@@ -1080,6 +1101,45 @@ components:
         sessions:
           type: array
           items: { $ref: "#/components/schemas/ExitSession" }
+
+    EngineShadowCheck:
+      type: object
+      required: [match, summary, at]
+      properties:
+        match: { type: boolean }
+        summary: { type: string, description: "\"same 9 orders\", \"same decision\", or the first difference" }
+        at: { type: string, format: date-time }
+
+    EngineShadowSession:
+      type: object
+      required: [session, match, comparisons, kinds]
+      properties:
+        session: { type: string, format: date }
+        match: { type: boolean, description: "every comparison that session matched" }
+        comparisons: { type: integer }
+        kinds:
+          type: object
+          description: the session's last comparison of each kind it ran
+          properties:
+            drift: { $ref: "#/components/schemas/EngineShadowCheck" }
+            whatif: { $ref: "#/components/schemas/EngineShadowCheck" }
+            basket: { $ref: "#/components/schemas/EngineShadowCheck" }
+
+    EngineShadow:
+      type: object
+      required: [streak, needed, ready, sessions, last_difference, comparisons]
+      properties:
+        streak: { type: integer, description: "sessions in a row, back from the latest, with every comparison matching" }
+        needed: { type: integer, description: "sessions in a row before the engine may take over sending (10)" }
+        ready: { type: boolean }
+        comparisons: { type: integer }
+        sessions:
+          type: array
+          items: { $ref: "#/components/schemas/EngineShadowSession" }
+        last_difference:
+          oneOf:
+            - $ref: "#/components/schemas/EngineShadowSession"
+            - type: "null"
 
     Run:
       type: object

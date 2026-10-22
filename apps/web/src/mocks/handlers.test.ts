@@ -182,6 +182,15 @@ describe.each(MOMENTS)("demo API at %s", (_label, at, session) => {
     const decided = exit.sessions.filter((s) => s.status !== "PENDING");
     expect(exit.streak).toBeLessThanOrEqual(decided.length);
     expect(exit.sessions.slice(-1)[0]!.checks.nav.status).toBe("PENDING"); // its statement comes tomorrow
+
+    // the engine shadow compared every run that got past its gate, and only those
+    const shadow = await get<S["EngineShadow"]>("/ops/engine-shadow");
+    expect(shadow.streak).toBe(shadow.sessions.length);
+    for (const s of shadow.sessions) {
+      const run = runs.runs.find((r) => r.started_at.slice(0, 10) === s.session);
+      if (run) expect(run.ok).toBe(true);
+      expect(Boolean(s.kinds.basket)).toBe(run?.steps.some((x) => x.name === "submit_orders") ?? false);
+    }
   });
 });
 

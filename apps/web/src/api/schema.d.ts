@@ -258,6 +258,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ops/engine-shadow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The C++ engine's order manager beside the Python one (trading-engine/src/production/engine_shadow.py).
+         * @description Every run gives the engine (dv02_engine.oms) the inputs the Python
+         *     runner decided on and records whether it decided the same: the
+         *     rebalance gate (drift), the basket the run would build now (whatif,
+         *     every run), and the basket the run built (basket, on rebalance days),
+         *     each with the auction it would go to. A session matches when every
+         *     comparison it ran matched exactly: the same orders, the same shares on
+         *     every line, the same dollars. Nothing the engine decides is sent; it may
+         *     take over sending after `needed` sessions in a row match, an owner
+         *     decision. Newest session first, up to 15.
+         */
+        get: operations["getEngineShadow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ops/kill-switch": {
         parameters: {
             query?: never;
@@ -920,6 +948,36 @@ export interface components {
             nav_tolerance: number;
             sessions: components["schemas"]["ExitSession"][];
         };
+        EngineShadowCheck: {
+            match: boolean;
+            /** @description "same 9 orders", "same decision", or the first difference */
+            summary: string;
+            /** Format: date-time */
+            at: string;
+        };
+        EngineShadowSession: {
+            /** Format: date */
+            session: string;
+            /** @description every comparison that session matched */
+            match: boolean;
+            comparisons: number;
+            /** @description the session's last comparison of each kind it ran */
+            kinds: {
+                drift?: components["schemas"]["EngineShadowCheck"];
+                whatif?: components["schemas"]["EngineShadowCheck"];
+                basket?: components["schemas"]["EngineShadowCheck"];
+            };
+        };
+        EngineShadow: {
+            /** @description sessions in a row, back from the latest, with every comparison matching */
+            streak: number;
+            /** @description sessions in a row before the engine may take over sending (10) */
+            needed: number;
+            ready: boolean;
+            comparisons: number;
+            sessions: components["schemas"]["EngineShadowSession"][];
+            last_difference: components["schemas"]["EngineShadowSession"] | null;
+        };
         Run: {
             id: string;
             /** @enum {string} */
@@ -1272,6 +1330,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExitTest"];
+                };
+            };
+        };
+    };
+    getEngineShadow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineShadow"];
                 };
             };
         };
