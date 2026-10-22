@@ -149,3 +149,17 @@ sleeves:
     sharpe_se: 0.26
     max_drawdown: -0.440
     report: trading-engine/research/r5_bond_carry/REPORT.md
+
+  - id: r6
+    name: R6, crude oil timed by US inventories
+    status: failed
+    since: 2026-10-22
+    summary: >-
+      USO at 37% of NAV while US crude stocks, as EIA published them, are
+      below their five-year norm, else T-bills. Stocks were still low when
+      demand collapsed in 2008 and 2020; it did worse than holding USO
+      (-0.16) and than 80% of random timings.
+    sharpe: -0.26
+    sharpe_se: 0.26
+    max_drawdown: -0.475
+    report: trading-engine/research/r6_oil_inventories/REPORT.md

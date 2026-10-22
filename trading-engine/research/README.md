@@ -16,11 +16,12 @@ Strategies page shows.
 | `r1_calendar_macro/` | the turn of the month; with FOMC days; with jobs and CPI days | the Fed's FOMC calendar, ALFRED's release dates | 3 | fails (Sharpe 0.22; the days earn no more than SPY's others) |
 | `r4_overnight/` | SPY (or QQQ) held only from the close to the next open, through the auctions | the ETF master's opens and closes, dividends | 3 | fails (Sharpe 0.15; the day earned too, and a round trip a night costs 3.5% a year) |
 | `r5_bond_carry/` | TLT (or IEI, SHY) while its yield is above the 3-month bill's, else T-bills | FRED's and Treasury's daily yields; the bond ETFs' coupons from two sources | 3 | fails (Sharpe 0.28, TLT held's 0.19; it held TLT through 2022) |
+| `r6_oil_inventories/` | USO while US crude stocks are below their five-year norm, else T-bills | EIA's weekly inventories as first published (its archive of 795 reports), WTI's spot and NYMEX curve | 3 | fails (Sharpe −0.26, below USO held's −0.16 and 80% of random timings; in oil for the 2008 and 2020 crashes) |
 
-**36 trials are counted so far.** The deflated Sharpe of every study counts all
+**39 trials are counted so far.** The deflated Sharpe of every study counts all
 of them, and the newest study's `results/trials.csv` lists them with their
-Sharpes. Their variance (0.0335 a year after R5) sets the bar each new study
-must clear.
+Sharpes. Their variance (0.0635 a year after R6, whose three trials were the
+first well below 0) sets the bar each new study must clear.
 
 ## The protocol, as these studies ran it
 

@@ -5,7 +5,7 @@ test("the Strategies page lists every sleeve and charts each shadow book beside 
   covers("strategies.shadow.*");
   await open(page, "/strategies");
   const sleeves = page.locator("section[aria-label='Sleeves']");
-  await expect(sleeves.locator("tbody tr")).toHaveCount(11);
+  await expect(sleeves.locator("tbody tr")).toHaveCount(12);
   await expect(sleeves.locator("tr[data-status='shadow']")).toHaveCount(2);
   await expect(sleeves.locator("tr[data-status='shadow']").first()).toContainText("S0 with a trend overlay");
   await expect(sleeves.locator("tr[data-status='failed']").first()).toContainText("Failed the gate");

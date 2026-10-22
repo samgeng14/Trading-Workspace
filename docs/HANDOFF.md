@@ -400,15 +400,37 @@ held's 0.19.
   have one-day blips that reverse (`research/README.md`). The live model's
   signals read them; no error is inside today's lookbacks.
 
+**R6, crude oil timed by US inventories, 2026-10-22**
+(`research/r6_oil_inventories/`, pre-registered, reviewed and amended before
+it ran, 3 trials, 39 counted): **fails, on 7 of 14 criteria.**
+- The rule held USO at 37% of NAV while US crude stocks, as EIA first
+  published them, were below their five-year norm, else T-bills.
+- It scored −0.26, below holding USO (−0.16) and below 80% of random timings
+  with as many months in oil.
+- Low stocks did mean a backwardated curve, but stocks were still low when
+  demand collapsed in 2008 and 2020. The sleeve lost 15.6% and 35.5% in
+  those stretches.
+- The trials' variance rose to 0.0635 a year, which raises the bar for the
+  next study.
+- Data: EIA's keyless bulk file and its archive of 795 weekly reports
+  (2011–2026), which date each week's release. The weekly figures match
+  today's except before 2016-10, when they included lease stocks; the rules
+  read them as published.
+
 **Free data checked for the next studies** (2026-10-22):
-- EIA's files need no key. Its weekly US crude inventories run from 1982 to
-  last week, Cushing's from 2004, natural gas storage from 2010, and the WTI
-  spot price daily to the day before.
-- EIA's NYMEX futures prices (crude contracts 1–4 from 1983, natural gas from
-  1994) stop at 2024-04-05, short of the holdout.
-- So "oil while inventories are low, else T-bills", trading USO (in the
-  master since 2006), is testable over the whole window. A test of the curve
-  itself isn't.
+- **EIA** (no key): weekly crude inventories from 1982, Cushing's from 2004,
+  natural gas storage from 2010, and the WTI spot daily. Its NYMEX futures
+  prices (crude from 1983, gas from 1994) stop at 2024-04-05.
+- **FRED, for currencies:**
+  - The Fed's daily exchange rates (H.10) for the G10 currencies run to
+    2026-10-16, most from 1971.
+  - The OECD's monthly 3-month rates reach 2026-08 or 09 for Australia,
+    Japan, Canada and Switzerland, but stop at 2026-01 for the euro area
+    and the UK.
+  - So a currency carry test would also need the ECB's and the Bank of
+    England's own keyless rate series for the holdout.
+- **Commodity carry across many commodities** is where the literature finds
+  it, and it needs curves the fund's archive has only from 2026-10-21.
 
 Cboe publishes a session's settlement overnight, so the evening's shadow holds
 the session before. Trading it later needs a futures path in the runner (VX has

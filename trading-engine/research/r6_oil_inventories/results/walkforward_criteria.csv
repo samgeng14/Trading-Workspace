@@ -1,0 +1,15 @@
+hypothesis,book,criterion,value,limit,pass
+R6,"R6 primary: USO while US stocks, as published, are below their norm",1. excess Sharpe >= 0.40,-0.2636148046022139,0.4,False
+R6,"R6 primary: USO while US stocks, as published, are below their norm","1b. excess Sharpe above USO held's, the limit",-0.2636148046022139,-0.16009415580523617,False
+R6,"R6 primary: USO while US stocks, as published, are below their norm",2. deflated Sharpe >= 0.90 (n 39),0.0004978650485719105,0.9,False
+R6,"R6 primary: USO while US stocks, as published, are below their norm",3. block bootstrap 5th percentile of the excess Sharpe > 0,-0.7263752986639161,0.0,False
+R6,"R6 primary: USO while US stocks, as published, are below their norm",4. every variant's excess Sharpe > 0 (worst variant),-0.3760301239901854,0.0,False
+R6,"R6 primary: USO while US stocks, as published, are below their norm","5. max drawdown no deeper than 60% of USO held's and no deeper than -25%, the tighter limit",-0.4745773733771911,-0.25,False
+R6,"R6 primary: USO while US stocks, as published, are below their norm",6. cost drag <= 1% a year,0.0006706886336033105,0.01,True
+R6,"R6 primary: USO while US stocks, as published, are below their norm",7. no day outside the mandate,0.0,0.0,True
+R6,"R6 primary: USO while US stocks, as published, are below their norm",8. worst day no worse than -12%,-0.08594820642645362,-0.12,True
+R6,"R6 primary: USO while US stocks, as published, are below their norm","9. worst calendar month no worse than USO held's, the limit",-0.19821847854386176,-0.1982267561692278,True
+R6,"R6 primary: USO while US stocks, as published, are below their norm",10. in each stress window no more than 0.25 points below USO held's (smallest margin),-1.260799727065276e-05,-0.0025,True
+R6,"R6 primary: USO while US stocks, as published, are below their norm",11a. 50/50 S0_TR + R6's excess Sharpe > S0_TR's (difference),-0.20529123718951015,0.0,False
+R6,"R6 primary: USO while US stocks, as published, are below their norm",11b. 50/50 S0_TR + R6 loses no more than S0_TR in each of R3's windows (smallest margin),0.024395540627182077,0.0,True
+R6,"R6 primary: USO while US stocks, as published, are below their norm",12. daily return correlation with S0_TR <= 0.50,0.3029069667413697,0.5,True

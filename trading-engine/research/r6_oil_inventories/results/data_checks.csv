@@ -1,0 +1,13 @@
+check,value
+panel,"2005-01-03 to 2026-10-16, 5482 sessions; holdout from 2023-10-12"
+walk-forward days measured (every book's common days),"2008-01-03 to 2023-10-11, 3971"
+"S0 on the usual basis with R1's costs: excess Sharpe here, and in R5's results","0.268623 here, 0.268623 in R5's, equal"
+"S0_TR with R5's panel and costs: excess Sharpe here, and in R5's results","0.330121 here, 0.330121 in R5's, equal"
+"USO in this study's panel: the master's closes; S1's panel chains IBKR's adjusted closes, whose daily returns differ from the master's on","2017-03-20 (4.8 bps), 2017-03-21 (4.8 bps)"
+decisions each rule made in the walk-forward,"R6 primary: USO while US stocks, as published, are below their norm: 190, 2008-01-02 to 2023-09-29; R6 V1: USO while Cushing's stocks are below their norm: 190, 2008-01-02 to 2023-09-29; R6 V2: USO while days of supply, as published, are below their norm: 190, 2008-01-02 to 2023-09-29"
+the decisions' days against data.decision_dates(),the same
+the weeks read: each ended at least 7 days before its decision,True
+costs: half-spreads (bps) for the R6 books,"default 2.0; {'USO': 10.0, 'BIL': 1.0}"
+"costs: S0_TR as R5's, S0 on the usual basis as R1's","{'TLT': 1.0, 'IEI': 2.0, 'SHY': 1.0, 'BIL': 1.0}; {'SPY': 1.0, 'BIL': 1.0}"
+oil's crashes data.crashes finds (WTI spot from 2008),HYPOTHESIS.md's seven
+each window's return,"from the close before its first date to the close of its last, as in R3's, R4's and R5's tables"

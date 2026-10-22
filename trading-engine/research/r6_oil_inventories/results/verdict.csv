@@ -1,0 +1,2 @@
+hypothesis,criteria_passed,criteria,failed,holdout_killed,verdict
+R6,7,14,"1. excess Sharpe >= 0.40; 1b. excess Sharpe above USO held's, the limit; 2. deflated Sharpe >= 0.90 (n 39); 3. block bootstrap 5th percentile of the excess Sharpe > 0; 4. every variant's excess Sharpe > 0 (worst variant); 5. max drawdown no deeper than 60% of USO held's and no deeper than -25%, the tighter limit; 11a. 50/50 S0_TR + R6's excess Sharpe > S0_TR's (difference)",False,fail

@@ -1,0 +1,2 @@
+draws,seed,decisions,decisions_in_oil,primary_sharpe_excess_before_costs,share_of_draws_below_the_primary,draws_p5,draws_p25,draws_median,draws_p75,draws_p95,draws_mean
+2000,21,190,45,-0.25543488833916944,0.2,-0.4519818208875297,-0.2122891600273908,-0.05259801421940981,0.09289853919208864,0.3300314129483907,-0.05668817917860648

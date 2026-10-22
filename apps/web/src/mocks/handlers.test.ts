@@ -171,6 +171,7 @@ describe.each(MOMENTS)("demo API at %s", (_label, at, session) => {
       "r1",
       "r4",
       "r5",
+      "r6",
     ]);
     expect(strat.shadows.map((b) => b.id)).toEqual(["h2", "r3"]);
     for (const shadow of strat.shadows) {
