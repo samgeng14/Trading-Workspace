@@ -73,6 +73,30 @@ def test_each_datasets_state(tree) -> None:
     assert doc["through"] == "2026-10-16" and doc["expected"] == "2026-10-20" and doc["rows"] == 1 and doc["can_catch_up"]
 
 
+def test_the_adjusted_closes_list_what_the_check_of_ibkr_s_bad_days_found(tree, monkeypatch) -> None:
+    prices = tree / "data" / "market" / "cleaned" / "prices"
+    days = pd.bdate_range("2026-01-02", "2026-10-20")
+    close = pd.Series(91.5, index=range(len(days))).to_numpy()
+    pd.DataFrame({"date": days, "symbol": "BIL", "close": close}).to_parquet(prices / "etf_prices_master.parquet")
+    adj = close * 0.99
+    adj[3] *= 1.003  # a one-day jump, long before the signals' lookback
+    adj[-5] *= 1.003  # and one inside it
+    pd.DataFrame({"date": days, "symbol": "BIL", "adj_close": adj}).to_parquet(prices / "etf_total_return_closes.parquet")
+    row = {s.dataset.name: s for s in ds.status(ny("2026-10-21", "18:00"), root=tree)}["total_return"]
+    assert row.state == "ok" and len(row.findings) == 2
+    assert row.findings[0].startswith(f"inside the signals' lookback, repaired: BIL {days[-5].date()}: IBKR's adjustment jumps")
+    assert row.findings[1].startswith("1 older bad day in IBKR's series, repaired in the signals")
+    assert row.as_dict()["findings"] == list(row.findings)
+    assert row.findings[0] in ds.render([row], ny("2026-10-21", "18:00"))
+    # a check that fails is a finding, never a crash; a dataset with nothing here has none
+    monkeypatch.setattr("src.production.pipeline.append_total_return.check_stored", lambda path: 1 / 0)
+    row = {s.dataset.name: s for s in ds.status(ny("2026-10-21", "18:00"), root=tree)}["total_return"]
+    assert row.findings == ("its content check failed: ZeroDivisionError: division by zero",)
+    (prices / "etf_total_return_closes.parquet").unlink()
+    row = {s.dataset.name: s for s in ds.status(ny("2026-10-21", "18:00"), root=tree)}["total_return"]
+    assert row.state == "missing" and row.findings == ()
+
+
 def test_catchup_fills_what_is_behind_and_keeps_a_record(tree, monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
 

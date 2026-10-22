@@ -64,6 +64,7 @@ class Dataset:
     catchup: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     note: str = ""  # why there is no catch-up
     off_because: Callable[[], str | None] | None = None  # why it isn't kept on this machine
+    findings: Callable[[Path, str], list[str]] | None = None  # what a check of its content finds
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,7 @@ class Status:
     expected: date | None
     state: str  # ok, behind, missing, off
     detail: str
+    findings: tuple[str, ...] = ()  # the content check's, whatever the state
 
     def as_dict(self) -> dict[str, Any]:
         w = self.watermark
@@ -88,6 +90,7 @@ class Status:
             "written": w.written.isoformat(timespec="seconds") if w and w.written else None,
             "detail": self.detail,
             "can_catch_up": self.dataset.catchup is not None,
+            "findings": list(self.findings),
         }
 
 
@@ -263,6 +266,24 @@ def _doctor_now(ctx: dict[str, Any]) -> dict[str, Any]:
     return {"ok": code == 0, "detail": "the doctor ran and kept today's report"}
 
 
+# ── content checks ───────────────────────────────────────────────────────
+
+
+def _adjusted_findings(root: Path, profile: str) -> list[str]:  # noqa: ARG001
+    """IBKR's bad days in the stored adjusted closes, which the signals repair
+    (src/production/pipeline/append_total_return.check_stored): those inside the
+    signals' lookback one by one, the older ones counted."""
+    from src.production.pipeline.append_total_return import check_stored
+
+    checked = check_stored(root / PRICES / "etf_total_return_closes.parquet")
+    out = [f"inside the signals' lookback, repaired: {line}" for line in checked["recent"]]
+    older = len(checked["bad_days"]) - len(checked["recent"])
+    if older:
+        out.append(f"{older} older bad day{'s' * (older != 1)} in IBKR's series, repaired in the signals "
+                   "(append_total_return --check lists them)")  # fmt: skip
+    return out
+
+
 # ── the registry ─────────────────────────────────────────────────────────
 
 PRICES = "data/market/cleaned/prices"
@@ -274,7 +295,8 @@ DATASETS: tuple[Dataset, ...] = (
     Dataset("total_return", "Dividend-adjusted closes", "IBKR adjusted bars: the signals' total-return prices",
             "each session after the 15:35 ET run",
             after_run, _parquet(f"{PRICES}/etf_total_return_closes.parquet", "date"),
-            _bars("src.production.pipeline.append_total_return", "append_total_return")),
+            _bars("src.production.pipeline.append_total_return", "append_total_return"),
+            findings=_adjusted_findings),
     Dataset("targets", "Model targets", "built from the bars by the daily run",
             "each session at the 15:35 ET run",
             after_run, _parquet("data/market/cleaned/targets/etf_targets_monthly.parquet", "rebalance_date"),
@@ -313,6 +335,17 @@ DATASETS: tuple[Dataset, ...] = (
 
 
 def check(dataset: Dataset, now: datetime, root: Path, profile: str) -> Status:
+    status = _state(dataset, now, root, profile)
+    if dataset.findings is None or status.state in ("off", "missing"):
+        return status
+    try:
+        found = tuple(dataset.findings(root, profile))
+    except Exception as exc:  # noqa: BLE001 — a check that fails is a finding, not a crash
+        found = (f"its content check failed: {type(exc).__name__}: {exc}",)
+    return Status(status.dataset, status.watermark, status.expected, status.state, status.detail, found)
+
+
+def _state(dataset: Dataset, now: datetime, root: Path, profile: str) -> Status:
     expected = dataset.expected(now)
     if dataset.off_because is not None:
         try:
@@ -407,6 +440,7 @@ def render(rows: list[Status], now: datetime) -> str:
     width = max(len(s.dataset.title) for s in rows)
     for s in rows:
         lines.append(f"  {s.state.upper():8}{s.dataset.title:<{width}}  {s.detail}")
+        lines += [f"  {'':8}{'':<{width}}  {f}" for f in s.findings]
     behind = [s.dataset.title for s in rows if s.state in ("behind", "missing")]
     lines += ["", f"{len(rows) - len(behind)} of {len(rows)} up to date."
               + (" bin/tradeit catchup fills what it can." if behind else "")]  # fmt: skip

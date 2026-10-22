@@ -520,10 +520,17 @@
 }
 
 .dataset-source,
-.dataset-detail {
+.dataset-detail,
+.dataset-finding {
   color: var(--ink-2);
   font-size: var(--fs-xs);
   line-height: 1.35;
+}
+
+/* what a check of the dataset's content found: set off by a rule, as a note */
+.dataset-finding {
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--rule);
 }
 
 .table.datasets td {

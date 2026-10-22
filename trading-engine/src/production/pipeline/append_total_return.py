@@ -12,8 +12,13 @@ The daily runner refreshes it after its orders are sent (it is never on the
 way to the market-on-close cutoff), and `bin/tradeit refresh` before it
 builds targets.
 
+Each refresh also checks the stored series against the price master for IBKR's
+bad days (src/data/cleaning/total_return.py's bad_days), which the signals
+repair, and reports them: those in the signals' lookback as warnings.
+
     python -m src.production.pipeline.append_total_return             # refresh
     python -m src.production.pipeline.append_total_return --compare   # momentum, price vs total return
+    python -m src.production.pipeline.append_total_return --check     # IBKR's bad days, repaired in the signals
 """
 from __future__ import annotations
 
@@ -32,15 +37,19 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.data.cleaning.total_return import normalize_adjusted  # noqa: E402
+from src.data.cleaning.total_return import BadDay, find_bad_days, normalize_adjusted  # noqa: E402
 
 log = logging.getLogger(__name__)
 
 ADJUSTED_PARQUET = PROJECT_ROOT / "data/market/cleaned/prices/etf_total_return_closes.parquet"
+MASTER_FILE = "etf_prices_master.parquet"  # the price master, beside the adjusted closes
 BAR_TYPE = "ADJUSTED_LAST"
 # Longest first; IBKR returns what it has. Ten years covers every lookback the
 # targets use many times over.
 DURATIONS: tuple[str, ...] = ("10 Y", "5 Y", "2 Y")
+# A bad day this many sessions back or fewer is inside the signals' lookbacks
+# (momentum 126, volatility 63), so it changes today's targets until repaired.
+RECENT_SESSIONS = 130
 
 # symbol -> bars (date, close), or raises
 AdjustedFetcher = Callable[[str, str], pd.DataFrame]
@@ -52,6 +61,29 @@ def load_adjusted(path: Path | None = None) -> pd.DataFrame:
     if not path.exists():
         return normalize_adjusted(None)
     return normalize_adjusted(pd.read_parquet(path))
+
+
+def check_stored(path: Path | None = None) -> dict[str, Any]:
+    """IBKR's bad days in the stored adjusted closes, against the price master
+    beside them: ``bad_days`` (every one) and ``recent`` (those in the signals'
+    lookbacks), each as a sentence, newest last. The signals repair them all.
+    Empty when either file is missing."""
+    path = path or ADJUSTED_PARQUET
+    master = path.with_name(MASTER_FILE)
+    adjusted = load_adjusted(path)
+    if adjusted.empty or not master.exists():
+        return {"bad_days": [], "recent": []}
+    prices = pd.read_parquet(master, columns=["date", "symbol", "close"])
+    prices["date"] = pd.to_datetime(prices["date"]).dt.normalize()
+    prices["symbol"] = prices["symbol"].astype(str).str.upper().str.strip()
+    prices = prices[prices["symbol"].isin(set(adjusted["symbol"]))].sort_values(["symbol", "date"])
+    found: list[BadDay] = find_bad_days(prices.reset_index(drop=True), adjusted)
+    sessions = sorted(prices["date"].unique())
+    start = sessions[-RECENT_SESSIONS] if len(sessions) >= RECENT_SESSIONS else sessions[0]
+    return {
+        "bad_days": [b.describe() for b in found],
+        "recent": [b.describe() for b in found if b.date >= start],
+    }
 
 
 def _write(df: pd.DataFrame, path: Path) -> None:
@@ -108,6 +140,17 @@ def refresh_adjusted(
     _write(out, path)
     for symbol, why in errors.items():
         log.warning("Total-return closes: %s not refreshed (%s); its previous series is kept", symbol, why)
+    try:
+        checked = check_stored(path)
+    except Exception as exc:  # noqa: BLE001 — the check never fails the refresh
+        checked = {"bad_days": [], "recent": [], "check_error": f"{type(exc).__name__}: {exc}"}
+        log.warning("Total-return closes: the bad-day check failed: %s", checked["check_error"])
+    for line in checked["recent"]:
+        log.warning("Total-return closes, inside the signals' lookback: %s (repaired in the signals)", line)
+    older = len(checked["bad_days"]) - len(checked["recent"])
+    if older:
+        log.info("Total-return closes: %d older bad day%s in IBKR's series, repaired in the signals",
+                 older, "s" if older != 1 else "")  # fmt: skip
     return {
         "ok": not errors,
         "action": "total_return_closes",
@@ -115,6 +158,7 @@ def refresh_adjusted(
         "errors": errors,
         "through": str(through),
         "path": str(path),
+        **checked,
     }
 
 
@@ -213,8 +257,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=ep.port)
     parser.add_argument("--client-id", type=int, default=client_id_for("backfill", "paper"), dest="client_id")
     parser.add_argument("--compare", action="store_true", help="print momentum on price vs total return; no IBKR")
+    parser.add_argument("--check", action="store_true",
+                        help="print IBKR's bad days in the stored closes, which the signals repair; no IBKR")  # fmt: skip
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    if args.check:
+        checked = check_stored()
+        recent = set(checked["recent"])
+        print(f"{len(checked['bad_days'])} bad days in IBKR's adjusted closes, all repaired in the signals "
+              f"({len(recent)} inside their lookback):")  # fmt: skip
+        for line in checked["bad_days"]:
+            print(f"  {'* ' if line in recent else '  '}{line}")
+        return 0
     if args.compare:
         rows = compare()
         print(f"{'ETF':6} {'price mom':>10} {'total-return mom':>17} {'income':>8}  as of")

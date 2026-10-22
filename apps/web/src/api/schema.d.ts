@@ -928,6 +928,8 @@ export interface components {
             detail: string;
             /** @description bin/tradeit catchup can fill it */
             can_catch_up: boolean;
+            /** @description what a check of its content found, whatever its state (IBKR's bad days in the adjusted closes) */
+            findings: string[];
         };
         CatchupAction: {
             dataset: string;

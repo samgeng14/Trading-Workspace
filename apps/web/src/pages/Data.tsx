@@ -54,6 +54,11 @@ export function Data() {
                         {d.source} · {d.schedule}
                       </span>
                       {d.state !== "ok" && <span className="dataset-detail">{d.detail}</span>}
+                      {d.findings.map((f) => (
+                        <span key={f} className="dataset-finding">
+                          {f}
+                        </span>
+                      ))}
                     </td>
                     <td className="num">{d.through ? dateShort(d.through) : "—"}</td>
                     <td className="num">{d.expected ? dateShort(d.expected) : "—"}</td>

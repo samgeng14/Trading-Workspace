@@ -1298,6 +1298,7 @@ function datasets(): S["DatasetsResponse"] {
     rows: number,
     written: Date,
     canCatchUp = true,
+    findings: string[] = [],
   ): S["Dataset"] => ({
     name,
     title,
@@ -1310,6 +1311,7 @@ function datasets(): S["DatasetsResponse"] {
     written: iso(written),
     detail: `through ${through}`,
     can_catch_up: canCatchUp,
+    findings,
   });
   const run = "each session at the 15:35 ET run, through the session before";
   const ranAt = etTime(sessionAt("16:00"), "15:36");
@@ -1325,6 +1327,8 @@ function datasets(): S["DatasetsResponse"] {
         afterRun,
         48_610,
         ranAt,
+        true,
+        ["5 older bad days in IBKR's series, repaired in the signals (append_total_return --check lists them)"],
       ),
       row(
         "targets",
@@ -1405,6 +1409,7 @@ function datasets(): S["DatasetsResponse"] {
         written: null,
         detail: "the store is off here: the demo has no Postgres",
         can_catch_up: false,
+        findings: [],
       },
     ],
     last_catchup: null,

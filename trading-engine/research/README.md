@@ -71,3 +71,5 @@ wasn't run.
     studies' 2024 T-bill return (in their holdouts) is 0.42% too low.
   - One-day blips that reverse: TLT 2023-08-09; SLV, VNQ, VWO and VIXY
     2017-03-20; and SPY's that R4 found.
+  - Since 2026-10-22 the live signals find and repair both kinds
+    (`src/data/cleaning/total_return.py`); the studies' results stay as run.

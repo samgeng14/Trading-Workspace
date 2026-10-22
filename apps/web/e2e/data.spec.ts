@@ -9,4 +9,8 @@ test("the Data page lists every dataset with its watermark and state", async ({ 
   await expect(panel.locator("tr[data-state='ok']").first()).toContainText("Current");
   await expect(panel.locator("tr[data-state='off']")).toContainText("Not kept here");
   await expect(panel).toContainText("bin/tradeit catchup");
+  // what the check of IBKR's adjusted closes found, under that dataset whatever its state
+  await expect(panel.locator("tr", { hasText: "Dividend-adjusted closes" }).locator(".dataset-finding")).toContainText(
+    "repaired in the signals",
+  );
 });

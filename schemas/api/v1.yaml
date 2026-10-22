@@ -1050,7 +1050,7 @@ components:
 
     Dataset:
       type: object
-      required: [name, title, source, schedule, through, expected, state, rows, written, detail, can_catch_up]
+      required: [name, title, source, schedule, through, expected, state, rows, written, detail, can_catch_up, findings]
       properties:
         name: { type: string }
         title: { type: string }
@@ -1063,6 +1063,10 @@ components:
         written: { type: [string, "null"], format: date-time, description: "when it was last written" }
         detail: { type: string }
         can_catch_up: { type: boolean, description: "bin/tradeit catchup can fill it" }
+        findings:
+          type: array
+          items: { type: string }
+          description: "what a check of its content found, whatever its state (IBKR's bad days in the adjusted closes)"
 
     CatchupAction:
       type: object

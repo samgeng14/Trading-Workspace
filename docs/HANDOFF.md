@@ -813,6 +813,36 @@ has the page list, the theme switch and the overflow check).
     `python -m src.production.pipeline.append_total_return --compare` (run from
     `trading-engine/`). Expect BIL, SHY, IEI and TLT to gain about their yield
     over the lookback. Then check that the next targets look sensible.
+- **IBKR's adjusted closes are checked and repaired (2026-10-22).** R5's
+  comparison with a vendor's total-return index found two kinds of bad day in
+  them (`src/data/cleaning/total_return.py`, `bad_days`):
+  - **A blip:** the factor (adjusted / master) steps by 5 bps or more (and
+    2.5 cents or more) and steps back within two sessions. A dividend never
+    reverses, so the master's close is kept that day. TLT 2023-08-09 (0.25%),
+    VNQ 2017-03-20, VIXY twice in 2023.
+  - **A missed payout:** BIL's price falls 0.1% or more in a day with no
+    factor step, which only a payout does (its largest fall otherwise,
+    2016–2026, was 0.044%). BIL 2024-12-19 ($0.39) is the real one.
+  - **The signals repair both.** A blip's days take the factor of the day
+    before it, and a missed payout is put back as an ex-date would be (that
+    day's total return 0). Neither can be a real move.
+  - **Repair, not price.** Falling back to price, as a split mismatch does,
+    would drop BIL's whole income from its momentum, a far bigger error than
+    one missed payout.
+  - **It also fixes a gap that came every month.** The 15:35 run reads bars
+    through the session before, while the adjusted file is a day older. So on
+    each BIL ex-date the signal saw the payout as a 0.2–0.4% fall until the
+    next refresh. It is now put back the same day.
+  - **SHY can't be checked from prices.** Its rate days move it more than its
+    payouts.
+  - **Where it shows:**
+    - each refresh's result in the run log (`bad_days`, and `recent`: inside
+      the signals' lookback, which also log warnings);
+    - target generation's `signal_prices_note`;
+    - the Data page, under "Dividend-adjusted closes";
+    - `python -m src.production.pipeline.append_total_return --check`.
+  - On the Mac's data all 5 are older than the lookback, so today's targets
+    don't change.
 - ~~Review `services/api/dv02_api/flex.py` once more.~~ Done (07577133): a
   non-Flex reply (IBKR's maintenance page) no longer raises an empty error, the
   token can't reach a log, a traceback, the cache or the printed line, a dropped
